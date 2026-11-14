@@ -1,0 +1,8 @@
+# Secrets and machine-local build output for the BlueBubbles setup
+.env
+.env.*
+build/
+backups/
+helper-src/
+tmp-downloads/
+tmp-captures/

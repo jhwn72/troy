@@ -1,0 +1,368 @@
+diff --git a/Messages/MacOS-11+/BlueBubblesHelper/BlueBubblesHelper.m b/Messages/MacOS-11+/BlueBubblesHelper/BlueBubblesHelper.m
+index abe6bc3..85cd01f 100644
+--- a/Messages/MacOS-11+/BlueBubblesHelper/BlueBubblesHelper.m
++++ b/Messages/MacOS-11+/BlueBubblesHelper/BlueBubblesHelper.m
+@@ -11,6 +11,10 @@
+ #import <Foundation/Foundation.h>
+ #import <CoreSpotlight/CoreSpotlight.h>
+ #import "BlueBubblesHelper.h"
++// Troy fix: BlueBubbles Server 1.9.12 sends some events (typing, read status) without a transactionId.
++// A nil value in an NSDictionary literal throws and crashes Messages, so substitute an empty string.
++#define TROY_TXN(t) ((t) ?: @"")
++
+ 
+ #import "IMTextMessagePartChatItem.h"
+ #import "IMHandle.h"
+@@ -152,14 +156,14 @@ + (void)load {
+ // Uses the chat registry to get an existing instance of a chat based on the chat guid
+ - (IMChat *) getIMChatFromGuid:(NSString *)guid transaction:(NSString *)transaction {
+     if (guid == nil) {
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Provide a chat GUID! (chatGuid parameter missing)"}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Provide a chat GUID! (chatGuid parameter missing)"}];
+         return nil;
+     }
+ 
+     IMChat* imChat = [[IMChatRegistry sharedInstance] existingChatWithGUID: guid];
+ 
+     if (imChat == nil) {
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Chat does not exist in IMChatRegistry!"}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Chat does not exist in IMChatRegistry!"}];
+     }
+     return imChat;
+ }
+@@ -169,7 +173,7 @@ - (IMChat *) getIMChatFromGuid:(NSString *)guid transaction:(NSString *)transact
+ // Uses the chat-kit conversation list to get an existing instance of a chat based on the chat guid
+ - (CKConversation *) getCKConversationFromGuid:(NSString *)guid transaction:(NSString *)transaction {
+     if (guid == nil) {
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Provide a chat GUID! (chatGuid parameter missing)"}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Provide a chat GUID! (chatGuid parameter missing)"}];
+         return nil;
+     }
+ 
+@@ -179,7 +183,7 @@ - (CKConversation *) getCKConversationFromGuid:(NSString *)guid transaction:(NSS
+     CKConversation* ckConversation = [list conversationForExistingChatWithGUID: guid];
+ 
+     if (ckConversation == nil) {
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Chat does not exist in CKConversationList!"}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Chat does not exist in CKConversationList!"}];
+     }
+     return ckConversation;
+ }
+@@ -194,7 +198,7 @@ - (void)handleTypingIndicatorForChat:(NSString *)chatGuid isTyping:(BOOL)isTypin
+         [chat setLocalUserIsTyping:isTyping];
+         os_log(logger, "Set local user is typing %d on chat %@", isTyping, chatGuid);
+         
+-        [networkController sendMessage: @{@"transactionId": transaction}];
++        [networkController sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+     }
+ }
+ 
+@@ -220,7 +224,7 @@ - (void)handleReadStatusForChat:(NSString *)chatGuid isRead:(BOOL)isRead transac
+         
+         os_log(logger, "Set chat read status %d on chat %@", isRead, chatGuid);
+ 
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+     }
+ }
+ 
+@@ -228,7 +232,7 @@ - (void)setDisplayNameForChat:(NSString *)chatGuid withData:(NSDictionary *)data
+     NSString *newName = data[@"newName"];
+     
+     if (newName == nil) {
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Provide a new name for the chat! (newName parameter missing)"}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Provide a new name for the chat! (newName parameter missing)"}];
+         return;
+     }
+     
+@@ -238,7 +242,7 @@ - (void)setDisplayNameForChat:(NSString *)chatGuid withData:(NSDictionary *)data
+         
+         os_log(logger, "Set new display name '%@' on chat %@", newName, chatGuid);
+         
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+     }
+ }
+ 
+@@ -246,14 +250,14 @@ - (void)updateParticipantsForChat:(NSString *)chatGuid withData:(NSDictionary *)
+     NSString *address = data[@"address"];
+     
+     if (address == nil) {
+-        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Provide an address to update!"}];
++        [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Provide an address to update!"}];
+         return;
+     }
+     
+     CKConversation *chat = [self getCKConversationFromGuid:chatGuid transaction:transaction];
+     if (chat != nil) {
+         if (isAdding && !chat.canInsertMoreRecipients) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Unable to add more recipients!"}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Unable to add more recipients!"}];
+             return;
+         }
+         
+@@ -267,9 +271,9 @@ - (void)updateParticipantsForChat:(NSString *)chatGuid withData:(NSDictionary *)
+             }
+             
+             os_log(logger, "%@ participant '%@' to chat %{public}@", isAdding ? @"Added" : @"Removed", chatGuid, address);
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+         } else {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Failed to find handle!"}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Failed to find handle!"}];
+             os_log(logger, "Failed to find handle '%@' (%@ participant)", address, isAdding ? @"add" : @"remove");
+         }
+     }
+@@ -343,7 +347,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         }];
+ 
+         if (transaction != nil) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+         }
+     // If the server tells us to unsend a message
+     } else if ([event isEqualToString:@"unsend-message"]) {
+@@ -382,7 +386,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         }];
+ 
+         if (transaction != nil) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+         }
+     // If the server tells us to mark a chat as read
+     } else if ([event isEqualToString:@"update-chat-pinned"]) {
+@@ -423,7 +427,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         }
+ 
+         if (failed) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Failed to find all handles for specified service!"}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Failed to find all handles for specified service!"}];
+             return;
+         }
+ 
+@@ -443,7 +447,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         if (chat != nil) {
+             [[IMChatRegistry sharedInstance] _chat_remove:(chat)];
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+             }
+         }
+     // If server tells us to delete a message
+@@ -464,7 +468,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             }];
+ 
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+             }
+         }
+     // If the server tells us to send a single attachment
+@@ -540,7 +544,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+                         NSString *path = [(NSURL *)[digitalTouch assetURL] absoluteString];
+                         DLog("BLUEBUBBLESHELPER: Digital Touch generated! %@", path);
+                         if (transaction != nil) {
+-                            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"path": path}];
++                            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"path": path}];
+                         }
+                     }];
+                 } else if ([temp isKindOfClass:handwrittenClass]) {
+@@ -550,7 +554,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+                         NSString *path = [(NSURL *)url absoluteString];
+                         DLog("BLUEBUBBLESHELPER: Handwritten Message generated! %@", path);
+                         if (transaction != nil) {
+-                            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"path": path}];
++                            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"path": path}];
+                         }
+                     }];
+                 }
+@@ -567,7 +571,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             [chat sendGroupPhotoUpdate:nil];
+         }
+         if (transaction != nil) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+         }
+     // If server tells us to leave a chat
+    } else if ([event isEqualToString:@"leave-chat"]) {
+@@ -580,7 +584,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+                     [chat leaveiMessageGroup];
+                 }
+                 if (transaction != nil) {
+-                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+                 }
+             } @catch (NSException *e) {
+                 DLog("BLUEBUBBLESHELPER: Leave chat exception: %@", e);
+@@ -602,13 +606,13 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+                         DLog("BLUEBUBBLESHELPER: Found status %{public}ld for %{public}@", (long)status, data[@"address"]);
+                         if (transaction != nil) {
+                             BOOL silenced = status == 2;
+-                            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"silenced": [NSNumber numberWithBool:silenced]}];
++                            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"silenced": [NSNumber numberWithBool:silenced]}];
+                         }
+                     });
+                 }];
+             } else {
+                 if (transaction != nil) {
+-                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Selector not found!"}];
++                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Selector not found!"}];
+                 }
+             }
+         }
+@@ -629,7 +633,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             if (item != nil) {
+                 [chat markChatItemAsNotifyRecipient:item];
+                 if (transaction != nil) {
+-                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+                 }
+             }
+         }];
+@@ -656,7 +660,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             BOOL available = status == 1;
+             DLog("BLUEBUBBLESHELPER: Status for %{public}@ is %{public}ld", data[@"address"], (long)available);
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"available": [NSNumber numberWithBool:(available)]}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"available": [NSNumber numberWithBool:(available)]}];
+             }
+         }];
+     // If the server tells us to download a purged attachment
+@@ -664,14 +668,14 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         IMFileTransfer* transfer = [[IMFileTransferCenter sharedInstance] transferForGUID:(data[@"attachmentGuid"])];
+         if ([transfer transferState] != 0 || ![transfer isIncoming]) {
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"No need to unpurge!"}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"No need to unpurge!"}];
+             }
+         }
+ 
+         [[IMFileTransferCenter sharedInstance] registerTransferWithDaemon:([transfer guid])];
+         [[IMFileTransferCenter sharedInstance] acceptTransfer:([transfer guid])];
+         if (transaction != nil) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+         }
+     // If the server asks us if the chat can have a nickname shared
+     } else if ([event isEqualToString:@"should-offer-nickname-sharing"]) {
+@@ -679,7 +683,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+ 
+         BOOL offer = [[IMNicknameController sharedInstance] shouldOfferNicknameSharingForChat:chat];
+         if (transaction != nil) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"share": [NSNumber numberWithBool:offer]}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"share": [NSNumber numberWithBool:offer]}];
+         }
+     // If the server tells us to share a nickname
+     } else if ([event isEqualToString:@"share-nickname"]) {
+@@ -691,7 +695,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             [[IMNicknameController sharedInstance] allowHandlesForNicknameSharing:[chat participants] forChat:chat];
+         }
+         if (transaction != nil) {
+-            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++            [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+         }
+     // If the server tells us to get nickname info
+     } else if ([event isEqualToString:@"get-nickname-info"]) {
+@@ -711,7 +715,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         
+         if (transaction != nil) {
+             NSDictionary *data = @{
+-                @"transactionId": transaction,
++                @"transactionId": TROY_TXN(transaction),
+                 @"name": name ?: [NSNull null],
+                 @"avatar_path": avatarPath ?: [NSNull null],
+             };
+@@ -725,7 +729,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         
+         if (transaction != nil) {
+             NSDictionary *data = @{
+-                @"transactionId": transaction,
++                @"transactionId": TROY_TXN(transaction),
+                 @"apple_id": [account strippedLogin] ?: [NSNull null],
+                 @"account_name": [[account loginIMHandle] fullName] ?: [NSNull null],
+                 @"sms_forwarding_enabled": [NSNumber numberWithBool:[smsAccount allowsSMSRelay] ?: FALSE],
+@@ -747,12 +751,12 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             [account setDisplayName:alias];
+             
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction)}];
+             }
+         } else {
+             DLog("BLUEBUBBLESHELPER: Can't modify aliases, account not enabled");
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"error": @"Unable to modify alias"}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"error": @"Unable to modify alias"}];
+             }
+         }
+     // If the server tells us to get findmy friends locations
+@@ -784,7 +788,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             
+             if (transaction != nil) {
+                 NSDictionary *data = @{
+-                    @"transactionId": transaction,
++                    @"transactionId": TROY_TXN(transaction),
+                     @"locations": @[],
+                 };
+                 [[NetworkController sharedInstance] sendMessage: data];
+@@ -815,7 +819,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             
+             if (transaction != nil) {
+                 NSDictionary *data = @{
+-                    @"transactionId": transaction,
++                    @"transactionId": TROY_TXN(transaction),
+                     @"locations": locations,
+                 };
+                 [[NetworkController sharedInstance] sendMessage: data];
+@@ -832,7 +836,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             if (results) {
+                 if (transaction != nil) {
+                     NSDictionary *data = @{
+-                        @"transactionId": transaction,
++                        @"transactionId": TROY_TXN(transaction),
+                         @"results": results,
+                     };
+                     [[NetworkController sharedInstance] sendMessage: data];
+@@ -840,7 +844,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+             } else {
+                 if (transaction != nil) {
+                     NSDictionary *data = @{
+-                        @"transactionId": transaction,
++                        @"transactionId": TROY_TXN(transaction),
+                         @"error": @"Failed to execute search! Search returned null.",
+                     };
+                     [[NetworkController sharedInstance] sendMessage: data];
+@@ -849,7 +853,7 @@ -(void) handleServerEvent: (NSString*)event data: (NSDictionary*)data transactio
+         } errorBlock:^(NSString *err) {
+             if (transaction != nil) {
+                 NSDictionary *data = @{
+-                    @"transactionId": transaction,
++                    @"transactionId": TROY_TXN(transaction),
+                     @"error": err,
+                 };
+                 [[NetworkController sharedInstance] sendMessage: data];
+@@ -1064,7 +1068,7 @@ + (void) sendMessage: (NSDictionary *) data transfers: (NSArray *) transfers att
+                 dispatch_async(dispatch_get_main_queue(), ^{
+                     [strongChat sendMessage:(strongMessage)];
+                     if (transaction != nil) {
+-                        [[NetworkController sharedInstance]sendMessage:@{@"transactionId": transaction, @"identifier": [[strongChat lastSentMessage] guid]}];
++                        [[NetworkController sharedInstance]sendMessage:@{@"transactionId": TROY_TXN(transaction), @"identifier": [[strongChat lastSentMessage] guid]}];
+                     }
+                 });
+              }];
+@@ -1072,13 +1076,13 @@ + (void) sendMessage: (NSDictionary *) data transfers: (NSArray *) transfers att
+             [[IMDDController sharedInstance] scanMessage:messageToSend outgoing:TRUE waitUntilDone:TRUE completionBlock:^(NSObject* temp, NSObject* ddMessageToSend) {
+                 [chat sendMessage:(ddMessageToSend)];
+                 if (transaction != nil) {
+-                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"identifier": [[chat lastSentMessage] guid]}];
++                    [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"identifier": [[chat lastSentMessage] guid]}];
+                 }
+             }];
+         } else {
+             [chat sendMessage:(messageToSend)];
+             if (transaction != nil) {
+-                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": transaction, @"identifier": [[chat lastSentMessage] guid]}];
++                [[NetworkController sharedInstance] sendMessage: @{@"transactionId": TROY_TXN(transaction), @"identifier": [[chat lastSentMessage] guid]}];
+             }
+         }
+     };
