@@ -11,12 +11,17 @@ import UniformTypeIdentifiers
 
 // MARK: - Canvas
 
-let W = 360.0, H = 640.0          // output size in px
+let W = 360.0, H = 450.0          // output size (pt); 4:5 shows large in iMessage
 let FPS = 20.0
 let SCALE = 2.0                    // render at 2x for sharp text on iPhone screens
 let IW = 393.0, IH = 852.0        // iPhone screen in points; scenes draw in this space
-let phone = CGRect(x: 55, y: 82, width: 250, height: 250 * 852 / 393)   // where the screen sits on the canvas
-let S = phone.width / IW
+let box = CGRect(x: 14, y: 62, width: 332, height: 374)   // where the zoomed screen region sits on the canvas
+let BOXASPECT = box.width / box.height
+/// A crop of the iPhone screen (points), with the box's aspect ratio, from its left, top and width.
+func crop(_ x: Double, _ y: Double, _ w: Double) -> CGRect { CGRect(x: x, y: y, width: w, height: w / BOXASPECT) }
+func lerp(_ a: CGRect, _ b: CGRect, _ t: Double) -> CGRect {
+  CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t, width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
+}
 
 struct RGBA { var r, g, b, a: Double
   init(_ hex: UInt32, _ a: Double = 1) { r = Double((hex >> 16) & 255) / 255; g = Double((hex >> 8) & 255) / 255; b = Double(hex & 255) / 255; self.a = a }
@@ -80,25 +85,27 @@ struct Scene {
   var caption: String                     // lowercase, Troy's voice
   var tap: CGPoint?                       // iPhone points
   var tapAt: Double = 0.62                // when in the scene the tap happens (0...1)
+  var crop: CGRect = CGRect(x: 0, y: 0, width: 393, height: 852)   // part of the screen to show (iPhone points)
   var draw: (CGContext, Double) -> Void   // draws in iPhone points (393 x 852)
 }
 
-func drawFrame(_ ctx: CGContext, scene: Scene, p: Double, captionAlpha: Double) {
+func drawFrame(_ ctx: CGContext, scene: Scene, p: Double, captionAlpha: Double, view: CGRect) {
   ctx.setFillColor(C.black.cg); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
-  text(ctx, scene.caption, x: 12, y: 30, size: 18, weight: .semibold, color: C.white.alpha(captionAlpha), align: .center, width: W - 24)
-  rrect(ctx, phone.insetBy(dx: -6, dy: -6), 40, fill: RGBA(0x1C1C1E), stroke: RGBA(0x3A3A3C), lw: 1)
+  text(ctx, scene.caption, x: 12, y: 22, size: 20, weight: .semibold, color: C.white.alpha(captionAlpha), align: .center, width: W - 24)
   ctx.saveGState()
-  ctx.addPath(CGPath(roundedRect: phone, cornerWidth: 34, cornerHeight: 34, transform: nil)); ctx.clip()
-  ctx.translateBy(x: phone.minX, y: phone.minY); ctx.scaleBy(x: S, y: S)
+  ctx.addPath(CGPath(roundedRect: box, cornerWidth: 26, cornerHeight: 26, transform: nil)); ctx.clip()
+  let k = box.width / view.width
+  ctx.translateBy(x: box.minX, y: box.minY); ctx.scaleBy(x: k, y: k); ctx.translateBy(x: -view.minX, y: -view.minY)
   scene.draw(ctx, p)
   if let t = scene.tap, p > scene.tapAt - 0.08 {
-    let k = min(1, (p - (scene.tapAt - 0.08)) / 0.4)
-    let r = 22 + 26 * ease(k)
-    ctx.setFillColor(C.white.alpha(0.22 * (1 - k)).cg); ctx.fillEllipse(in: CGRect(x: t.x - r, y: t.y - r, width: r * 2, height: r * 2))
-    let a = k < 0.35 ? 0.45 : 0.45 * (1 - (k - 0.35) / 0.65)
+    let q = min(1, (p - (scene.tapAt - 0.08)) / 0.4)
+    let r = 22 + 26 * ease(q)
+    ctx.setFillColor(C.white.alpha(0.22 * (1 - q)).cg); ctx.fillEllipse(in: CGRect(x: t.x - r, y: t.y - r, width: r * 2, height: r * 2))
+    let a = q < 0.35 ? 0.45 : 0.45 * (1 - (q - 0.35) / 0.65)
     ctx.setFillColor(C.white.alpha(a).cg); ctx.fillEllipse(in: CGRect(x: t.x - 20, y: t.y - 20, width: 40, height: 40))
   }
   ctx.restoreGState()
+  rrect(ctx, box, 26, stroke: C.gray4, lw: 1)
 }
 
 // MARK: - GIF export
@@ -115,7 +122,9 @@ func render(_ scenes: [Scene], to path: String) {
       ctx.scaleBy(x: SCALE, y: SCALE); ctx.translateBy(x: 0, y: H); ctx.scaleBy(x: 1, y: -1)   // 2x, top-left origin
       let p = Double(f) / Double(n)
       let captionAlpha = i == 0 ? 1 : min(1, p * 4)
-      drawFrame(ctx, scene: s, p: p, captionAlpha: captionAlpha)
+      let prev = i > 0 ? scenes[i - 1].crop : s.crop
+      let view = lerp(prev, s.crop, seg(p, 0, 0.3))
+      drawFrame(ctx, scene: s, p: p, captionAlpha: captionAlpha, view: view)
       frames.append((ctx.makeImage()!, 1 / FPS))
     }
   }
@@ -248,25 +257,25 @@ func durationMenu(_ ctx: CGContext, appear: Double, highlight: Bool) {
 }
 
 let scenes: [Scene] = [
-  Scene(seconds: 1.5, caption: "open your chat with troy", tap: nil) { ctx, p in
+  Scene(seconds: 1.6, caption: "open your chat with troy", tap: nil, crop: crop(0, 46, 393)) { ctx, p in
     chatBase(ctx); inputBar(ctx, y: 790)
   },
-  Scene(seconds: 1.2, caption: "tap +", tap: CGPoint(x: 34, y: 812), tapAt: 0.55) { ctx, p in
+  Scene(seconds: 1.6, caption: "tap +", tap: CGPoint(x: 34, y: 812), tapAt: 0.7, crop: crop(0, 852 - 300 / BOXASPECT, 300)) { ctx, p in
     chatBase(ctx); inputBar(ctx, y: 790, plusPressed: p > 0.5 ? 1 : 0)
   },
-  Scene(seconds: 2.6, caption: "scroll down to location", tap: CGPoint(x: 120, y: locationRowY(4 * rowH)), tapAt: 0.8) { ctx, p in
+  Scene(seconds: 2.8, caption: "scroll down to location", tap: CGPoint(x: 120, y: locationRowY(4 * rowH)), tapAt: 0.82, crop: crop(0, 852 - 393 / BOXASPECT, 393)) { ctx, p in
     chatBase(ctx); inputBar(ctx, y: 790, plusPressed: 1)
     let offset = 4 * rowH * seg(p, 0.15, 0.6)
     plusMenu(ctx, appear: seg(p, 0, 0.15), offset: offset, highlight: p > 0.74)
   },
-  Scene(seconds: 1.6, caption: "tap share", tap: CGPoint(x: 278, y: 794), tapAt: 0.7) { ctx, p in
+  Scene(seconds: 1.8, caption: "tap share", tap: CGPoint(x: 278, y: 794), tapAt: 0.72, crop: crop(0, 852 - 393 / BOXASPECT, 393)) { ctx, p in
     mapScreen(ctx, slide: seg(p, 0, 0.3), shareHighlight: p > 0.64)
   },
-  Scene(seconds: 1.8, caption: "pick always", tap: CGPoint(x: 220, y: durRect.minY + 10 + 2 * 45 + 21), tapAt: 0.7) { ctx, p in
+  Scene(seconds: 2.0, caption: "pick always", tap: CGPoint(x: 220, y: durRect.minY + 10 + 2 * 45 + 21), tapAt: 0.72, crop: crop(93, 535, 300)) { ctx, p in
     mapScreen(ctx, slide: 1, shareHighlight: true)
     durationMenu(ctx, appear: seg(p, 0, 0.2), highlight: p > 0.64)
   },
-  Scene(seconds: 1.6, caption: "tap send", tap: CGPoint(x: 358, y: 750), tapAt: 0.7) { ctx, p in
+  Scene(seconds: 1.8, caption: "tap send", tap: CGPoint(x: 358, y: 750), tapAt: 0.72, crop: crop(0, 852 - 393 / BOXASPECT, 393)) { ctx, p in
     chatBase(ctx)
     let a = seg(p, 0, 0.25)
     let card = CGRect(x: 62, y: 520, width: 317, height: 200)
@@ -276,7 +285,7 @@ let scenes: [Scene] = [
     ctx.restoreGState()
     inputBar(ctx, y: 728, placeholder: "Add comment or Send", sendButton: true)
   },
-  Scene(seconds: 2.6, caption: "done! you can stop sharing anytime", tap: nil) { ctx, p in
+  Scene(seconds: 2.8, caption: "done! you can stop sharing anytime", tap: nil, crop: crop(0, 150, 393)) { ctx, p in
     chatBase(ctx)
     let rise = 1 - seg(p, 0, 0.25)
     let card = CGRect(x: 150, y: 290 + 260 * rise, width: 227, height: 180)
