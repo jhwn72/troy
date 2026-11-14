@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS matches (
   source TEXT NOT NULL DEFAULT 'ai' CHECK (source IN ('ai','fallback')),
   status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','clarifying','finder_check','verifying','proof_requested','finder_deciding','verified','rejected')),
   createdAt INTEGER NOT NULL,
+  touchedAt INTEGER,              -- last time the claim moved; stale claims are released (see lostfound/handler.ts)
+  parked INTEGER NOT NULL DEFAULT 0, -- 1 = the claimant backed out or timed out; not offered again until they report again
   UNIQUE (foundListingId, lostListingId)
 );
 
@@ -194,4 +196,63 @@ CREATE TABLE IF NOT EXISTS campus_places (
   lat REAL NOT NULL,
   lng REAL NOT NULL,
   kind TEXT    -- 'campus' (FMS) | 'dorm' (Housing) | 'other'
+);
+
+-- Relay mode: Troy passes messages between two users without sharing contact info. See src/relay.ts.
+CREATE TABLE IF NOT EXISTS relays (
+  id INTEGER PRIMARY KEY,
+  userA INTEGER NOT NULL REFERENCES users(id),
+  userB INTEGER NOT NULL REFERENCES users(id),
+  context TEXT NOT NULL,          -- what it is for, e.g. 'lost_found:12' (the match id)
+  labelA TEXT,                    -- how A is introduced to B ("the finder"). A role, never a name or number.
+  labelB TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','ended')),
+  createdAt INTEGER NOT NULL,     -- relays expire 24 hours after this
+  endedAt INTEGER
+);
+CREATE INDEX IF NOT EXISTS relays_active ON relays(status, userA, userB);
+
+-- Flow 2: every bubble of a food alert, so a tapback on any of them claims and the count bubble can be edited.
+-- Same definition as the one src/flows/food.ts creates on first use.
+CREATE TABLE IF NOT EXISTS food_alert_bubbles (
+  messageId TEXT PRIMARY KEY,
+  foodDropId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('count','walk','claim','report'))
+);
+CREATE INDEX IF NOT EXISTS food_alert_bubbles_drop ON food_alert_bubbles(foodDropId, userId);
+
+-- Notes flow: how to undo the setting a note changed ("forget that"). Same definition as src/flows/notes.ts.
+CREATE TABLE IF NOT EXISTS note_effects (
+  noteId INTEGER PRIMARY KEY,
+  userId INTEGER NOT NULL,
+  undo TEXT NOT NULL
+);
+
+-- Questions waiting for a person who is busy with another step (see src/pending.ts).
+CREATE TABLE IF NOT EXISTS pending_asks (
+  id INTEGER PRIMARY KEY,
+  userId INTEGER NOT NULL,
+  flow TEXT NOT NULL,
+  step TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}',
+  bubbles TEXT NOT NULL DEFAULT '[]',
+  createdAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pending_asks_user ON pending_asks(userId, id);
+
+-- "last one" / "all gone" texts already sent for a drop, so each person gets each at most once.
+CREATE TABLE IF NOT EXISTS food_milestones (
+  foodDropId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  PRIMARY KEY (foodDropId, userId, kind)
+);
+
+-- Dashboard texts held back by quiet hours or pause, sent when the person can get alerts again (see src/outbox.ts).
+CREATE TABLE IF NOT EXISTS outbox (
+  id INTEGER PRIMARY KEY,
+  userId INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
 );

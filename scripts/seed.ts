@@ -3,10 +3,13 @@
 //      node scripts/seed.ts --reset    (clears the old example rows first so their times are fresh)
 
 import { getDb } from "../src/db/index.ts";
-import { seed } from "../src/db/seed.ts";
+import { seed, seedMatches } from "../src/db/seed.ts";
 
 const reset = process.argv.includes("--reset");
-const counts = seed(getDb(), { reset });
+const db = getDb();
+const counts = seed(db, { reset });
+const pairs = await seedMatches(db);
 
 console.log(reset ? "example data reset and seeded. rows per table:" : "seeded. rows per table:");
 for (const [table, n] of Object.entries(counts)) console.log(`  ${table}: ${n}`);
+console.log(`  example match pairs scored: ${pairs}`);

@@ -208,7 +208,8 @@ test("subscriptions by tapback on the option bubbles, then done; location skip",
   const end = await t.text("skip");
   assert.match(end.join(" "), /ur all set/);
   assert.deepEqual(t.user().usualSpots, []);
-  assert.equal(getFlowState(t.db, t.user().id), null);
+  // Onboarding is over. Whatever is open now belongs to the flow that took the request.
+  assert.notEqual(getFlowState(t.db, t.user().id)?.flow, "onboarding");
 });
 
 test("subscriptions skip saves none", async () => {
@@ -262,7 +263,8 @@ test("location step: a real request ends onboarding and is handled as a request,
   const t = await toLocationStep();
   const reply = await t.text("i lost my wallet at leavey");
   assert.deepEqual(t.user().usualSpots, []);
-  assert.equal(getFlowState(t.db, t.user().id), null);
+  // Onboarding is over. Whatever is open now belongs to the flow that took the request.
+  assert.notEqual(getFlowState(t.db, t.user().id)?.flow, "onboarding");
   assert.ok(reply.length >= 1);
   assert.ok(!reply.join(" ").includes("saved ur usual spots"));
 });

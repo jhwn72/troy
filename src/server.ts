@@ -11,8 +11,10 @@ import { getDb } from "./db/index.ts";
 import { createAdapter } from "./adapters/index.ts";
 import { createPipeline, describe } from "./pipeline.ts";
 import { getGoLiveAt } from "./adapters/gate.ts";
-import { getUserById, saveMessage } from "./db/index.ts";
-import { seed } from "./db/seed.ts";
+import { seed, seedMatches } from "./db/seed.ts";
+import { createNotifier } from "./outbox.ts";
+import { startFoodTimers } from "./flows/food.ts";
+import { completeHandoff } from "./flows/lostfound/handler.ts";
 import { createLandingRoutes } from "./web/landing.ts";
 import { createWebRoutes } from "./web/api.ts";
 
@@ -20,7 +22,11 @@ const db = getDb();
 // Go-live is fixed the first time Troy ever starts (and kept after that), never by the first incoming text.
 getGoLiveAt(db);
 // Labeled example data for demos. Adds only what is missing.
-if (process.env.SEED_EXAMPLES === "true") seed(db);
+if (process.env.SEED_EXAMPLES === "true") {
+  seed(db);
+  // Candidate matches between the example listings, from the rule score only (no AI call). Safe to repeat.
+  await seedMatches(db);
+}
 
 let adapter: MessagingAdapter | null = null;
 const pipeline = createPipeline({
@@ -38,22 +44,32 @@ const app = new Hono();
 app.get("/health", (c) => c.json({ ok: true, provider: config.provider, enabled: isEnabled(db) }));
 app.route("/", created.routes);
 
-/** Dashboard status updates go to the person's own 1:1 chat. Stopped users get nothing; the adapter enforces the gate and kill switch. */
-async function notify(userId: number, bubbles: string[]): Promise<boolean> {
-  if (!adapter || !isEnabled(db)) return false;
-  let delivered = false;
-  for (const text of bubbles) {
-    const user = getUserById(db, userId);
-    if (!user || user.stopped) break;
-    const sent = await adapter.sendMessage(user.chatId, text);
-    if (!sent) continue;
-    delivered = true;
-    saveMessage(db, { userId: user.id, chatId: user.chatId, direction: "out", providerMessageId: sent.messageId, text });
+// Texts Troy starts on his own from the dashboard (status updates, a completed DPS pickup) go to the person's
+// own 1:1 chat. Stopped users get nothing. Someone paused or inside their quiet hours gets a status update when
+// that ends (src/outbox.ts). The adapter enforces the gate and kill switch.
+const { notify, flush: flushOutbox } = createNotifier({ db, getAdapter: () => adapter, enabled: () => isEnabled(db) });
+
+// Flow 2: holds that ran out go back to the pool and old drops end, every 30 seconds.
+const stopFoodTimers = startFoodTimers({ db, getAdapter: () => adapter! });
+// Flow 1 and the queues: stale claims are released, parked questions go to whoever is free, and texts held
+// for quiet hours go out once they end. Same 30 second beat as the food sweep.
+let sweeping = false;
+const sweepTimer = setInterval(async () => {
+  if (sweeping) return;
+  sweeping = true;
+  try {
+    await pipeline.sweep();
+    await flushOutbox();
+  } catch (err) {
+    console.error("sweep failed:", describe(err));
+  } finally {
+    sweeping = false;
   }
-  return delivered;
-}
+}, 30_000);
+sweepTimer.unref();
+
 app.route("/", createLandingRoutes());
-app.route("/", createWebRoutes({ db, getAdapter: () => adapter!, notify }));
+app.route("/", createWebRoutes({ db, getAdapter: () => adapter!, notify, completeHandoff: (handoffId) => completeHandoff({ db, notify: (userId, bubbles) => notify(userId, bubbles, { owed: true }) }, handoffId) }));
 app.use("/*", serveStatic({ root: join(import.meta.dirname, "..", "public") }));
 app.onError((err, c) => {
   console.error("request error:", describe(err));
@@ -82,6 +98,8 @@ process.on("uncaughtException", (err) => console.error("uncaught exception:", de
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    stopFoodTimers();
+    clearInterval(sweepTimer);
     for (const s of servers) s.close();
     process.exit(0);
   });

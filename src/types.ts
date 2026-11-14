@@ -142,6 +142,11 @@ export interface FlowContext {
   say(...bubbles: (string | Bubble)[]): Promise<(string | null)[]>;
   /** Send bubbles to another user's 1:1 chat (finder, poster, follower). Respects STOP and quiet hours. */
   sayTo(userId: number, ...bubbles: (string | Bubble)[]): Promise<(string | null)[]>;
+  /**
+   * Like sayTo, for a text the other person is owed as part of an exchange on their own open request
+   * (a claim on their lost report, the item they found). Not held back by quiet hours. Still never sent after STOP.
+   */
+  sayToOwed(userId: number, ...bubbles: (string | Bubble)[]): Promise<(string | null)[]>;
   /** Save or clear the current user's flow state. */
   setState(state: Omit<FlowState, "updatedAt"> | null): void;
   /** Save or clear another user's flow state (e.g. put the finder into "finder_check"). */

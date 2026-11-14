@@ -22,6 +22,8 @@ export interface WebDeps {
   getAdapter: () => MessagingAdapter;
   /** Resolves false when nothing was delivered (stopped user, kill switch, chat not allowed), so it isn't counted as texted. */
   notify: (userId: number, bubbles: string[]) => Promise<boolean | void>;
+  /** Optional: the lost and found flow's own close (marks both listings returned and asks the owner for a thank-you note). */
+  completeHandoff?: (handoffId: number) => Promise<boolean>;
 }
 
 type Row = Record<string, unknown>;
@@ -219,7 +221,15 @@ export function createWebRoutes(deps: WebDeps): Hono {
       return str(row.title) ?? (row.type === "found" ? str(d.publicSummary) ?? str(d.title) : null) ?? str(row.category) ?? null;
     };
 
-    const matchRows = db.prepare("SELECT * FROM matches ORDER BY createdAt DESC, id DESC LIMIT 40").all() as Row[];
+    // Pairs in motion first, then the ones worth acting on (50 and up), newest first. Low scores stay listed
+    // after those so staff can see what was considered.
+    const matchRows = db
+      .prepare(
+        `SELECT * FROM matches
+          ORDER BY (status NOT IN ('proposed','rejected')) DESC, (confidence >= 50) DESC, createdAt / 60000 DESC, confidence DESC, id DESC
+          LIMIT 40`,
+      )
+      .all() as Row[];
     const matches = matchRows.map((m) => ({
       id: m.id as number,
       foundListingId: m.foundListingId as number,
@@ -395,8 +405,10 @@ export function createWebRoutes(deps: WebDeps): Hono {
     const h = db.prepare("SELECT * FROM handoffs WHERE id = ?").get(id) as Row | undefined;
     if (!h) return c.json({ ok: false, error: "not_found" }, 404);
     if (h.completedAt === null) {
+      // The flow closes it the same way as the owner texting "got it". A failure there never blocks the pickup being saved.
+      if (deps.completeHandoff) await deps.completeHandoff(id).catch(() => false);
       const now = Date.now();
-      db.prepare("UPDATE handoffs SET completedAt = ? WHERE id = ?").run(now, id);
+      db.prepare("UPDATE handoffs SET completedAt = ? WHERE id = ? AND completedAt IS NULL").run(now, id);
       const match = db.prepare("SELECT foundListingId, lostListingId FROM matches WHERE id = ?").get(h.matchId as number) as Row | undefined;
       if (match) db.prepare("UPDATE listings SET status = 'returned' WHERE id IN (?, ?)").run(match.foundListingId as number, match.lostListingId as number);
     }

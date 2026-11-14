@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findPlace } from "../places.ts";
+import { matchListing } from "../flows/lostfound/match.ts";
 
 const DATA_DIR = join(import.meta.dirname, "seed-data");
 const HOUR = 60 * 60 * 1000;
@@ -254,4 +255,16 @@ export function seed(db: DatabaseSync, opts: { now?: number; reset?: boolean } =
   const counts: { [table: string]: number } = {};
   for (const table of ["campus_places", "directory", "users", "listings", "food_drops", "reports"]) counts[table] = count(db, table);
   return counts;
+}
+
+/**
+ * Runs the matcher over the open example found items (rule scores only, no AI call) so the demo panel shows
+ * candidate matches with confidence and reasons right away. Idempotent: one row per pair, and a row that
+ * already exists keeps its status. Sends nothing and changes no listing. Returns how many pairs were scored.
+ */
+export async function seedMatches(db: DatabaseSync): Promise<number> {
+  const found = db.prepare("SELECT id FROM listings WHERE isExample = 1 AND type = 'found' AND status IN ('open','matched') ORDER BY id").all() as { id: number }[];
+  let pairs = 0;
+  for (const f of found) pairs += (await matchListing(db, f.id, { useAi: false })).length;
+  return pairs;
 }

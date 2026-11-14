@@ -6,6 +6,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config.ts";
 import type { FlowName, FlowState, Intent } from "./types.ts";
 import { TROY_VOICE, indexOfToken, isStressful, polishBubbles } from "./voice.ts";
+// Used only inside fallbackIntent (at call time), so the import cycle with the flow files is harmless.
+import { notesIntent } from "./flows/notes.ts";
 
 export type AskOpts = {
   model: "smart" | "fast";
@@ -262,18 +264,23 @@ function classify(t: string, hasImage: boolean, inFood: boolean): { flow: FlowNa
 
   // lost and found. "found my ..." means they got their own thing back.
   if (is(/\b(?:found|got|have) (?:it|them|my [a-z ]+?)(?: back)?\b.*\b(?:nvm|never ?mind|thanks|ty|all good)\b|\bnvm\b.*\b(?:found|got) (?:it|them|my)\b|\b(?:i |just |already )?found (?:it|them|my)\b|\bgot (?:it|them|my [a-z]+) back\b|someone (?:returned|gave) (?:it|them|my)/) && !is(/any(?:one|body)|\bif (?:you|u|someone)\b|let me know|\blmk\b|(?:haven'?t|not|never|didn'?t|can'?t|couldn'?t)(?: [a-z]+)? (?:found|find|got|get)/)) return { flow: "lost_found", action: "resolved" };
+  if (is(/\bstill (?:looking|lost|missing|haven'?t found|can'?t find)\b/)) return { flow: "lost_found", action: "still_looking" };
   if (is(/\b(?:i |i'?ve |just |think i )?(?:lost|misplaced)\b|can'?t find my|cannot find my|\bleft my\b|\bdropped my\b|\bmissing my\b|my [a-z ]+ (?:is|are|went) (?:missing|gone)|(?:has |did )?any(?:one|body) (?:seen|found|find|turn(?:ed)? in)|forgot my [a-z ]+ (?:at|in|on)\b/)) return { flow: "lost_found", action: "report_lost" };
   if (!food && is(/\bfound (?:a|an|some|this|these|the|someone'?s|somebody'?s|[a-z]+'s|\d)\b|\bpicked up (?:a|an|someone|somebody)|some(?:one|body) (?:left|dropped|forgot) (?:a|an|their|his|her|this)|\bturn(?:ed|ing)? (?:it |this |a |an )?in\b|\bwho(?:se| ?'?s) (?:is this|[a-z ]+ is this)/)) return { flow: "lost_found", action: "report_found" };
 
   // food
-  if (is(/(?:there (?:was|is|were)|there'?s) (?:no|not any|nothing)\b.*(?:food|there|left)?|(?:wasn'?t|isn'?t|weren'?t) any (?:food|left)|\bfake (?:post|food|alert)|(?:food|post|alert) (?:was|is) fake|nothing (?:was )?there|no food (?:here|there|at)/) && (food || inFood || is(/fake|nothing (?:was )?there/))) return { flow: "food", action: "report_fake" };
-  if (is(/\bleft ?overs?\b|\bextra (?:food|pizza|[a-z]+ (?:pizza|food))|\bfree (?:food|pizza|boba|donuts?|snacks?|bagels?|tacos?|cookies?)\b.*\b(?:at|in|outside|come|grab|here|for)\b|up for grabs|come (?:get|grab|thru|through)|\bservings?\b|feeds \d+|help yourself/) || (food && is(/\bwe (?:have|got|'?ve got)\b|\bthere(?:'?s| is| are) (?:free|extra|a (?:bunch|ton|lot))|\b(?:giving away|free to (?:take|grab))\b/))) {
+  if (is(/(?:there (?:was|is|were)|there'?s) (?:no|not any|nothing)\b.*(?:food|there|left)?|(?:wasn'?t|isn'?t|weren'?t) any (?:food|left)|\bfake (?:post|food|alert)|(?:food|post|alert|that|it|this) (?:was|is) (?:a )?fake|nothing (?:was )?there|no food (?:here|there|at)/) && (food || inFood || is(/fake|nothing (?:was )?there/))) return { flow: "food", action: "report_fake" };
+  if (is(/\bleft ?overs?\b|\bextra (?:food|pizza|[a-z]+ (?:pizza|food))|\bfree (?:food|pizza|boba|donuts?|snacks?|bagels?|tacos?|cookies?)\b.*\b(?:at|in|outside|come|grab|here|for)\b|up for grabs|come (?:get|grab|thru|through)|\bservings?\b|feeds \d+|help yourself|\b(?:giving|gave) away\b|\bfree to (?:take|grab)\b/) || (food && is(/\bwe (?:have|got|'?ve got)\b|\bthere(?:'?s| is| are) (?:free|extra|a (?:bunch|ton|lot))/))) {
     if (!is(/\b(?:is|are|any|was) (?:there|the)\b.*\?$|still (?:there|left|available)/)) return { flow: "food", action: "post_food" };
   }
   if (is(/\b\d+ (?:left|remaining|more left)\b|\bonly (?:a few|\d+|one|two|three) left\b|\blast one\b|\b(?:we'?re|were|we are|it'?s|its) (?:all )?out\b|\ball gone\b|\bran out\b|\bnone left\b|\bno more left\b/) && !is(/\bout of order\b/)) return { flow: "food", action: "update_count" };
   if ((food || inFood) && is(/\b(?:i'?ll|ill|i will|can i|could i|lemme|let me|imma|i'?m gonna|i want to|i wanna) (?:take|grab|have|claim|get|come)\b|\bsave me\b|\bdibs\b|\bclaim\b|\bomw\b|on my way|\bi want (?:one|some|a|\d)/)) return { flow: "food", action: "claim" };
   if (is(/\b(?:any|is there|where'?s|where is)(?: any| the| some)? (?:free )?food\b/) || (food && is(/still (?:there|left|available|any)|any (?:left|more)|\bis (?:it|there|the)\b.*(?:left|gone)\??$/))) return { flow: "food", action: "status" };
   if (hasImage && food) return { flow: "food", action: "post_food" };
+  // "3 bowls of chipotle at leavey": an amount of food at a place is a post, even with no "free" in it.
+  if (food && !is(/\?\s*$/) && is(/\b(?:\d{1,3}|a few|some|a couple|couple|a bunch of|a ton of|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|dozen)\b.*\b(?:at|in|outside|by|near|inside)\b/)) return { flow: "food", action: "post_food" };
+  // Asking where free things are ("where can i get free clothes?") is answered by the free food and items flow.
+  if (is(/\bfree (?:clothes|clothing|stuff|things|items|furniture|merch|hoodies?|shirts?|t-?shirts?)\b/) && !is(/\bthrift\b/)) return { flow: "food", action: "status" };
 
   // rides (the lax shuttle is a usg program, so it goes to usg)
   if (!is(/shuttle/) && (is(/\blax\b|\bairport\b|\bburbank\b|union station|john wayne/) || is(/split (?:an? )?(?:uber|lyft|ride)|\bcarpool|ride ?share|share (?:an? )?(?:uber|lyft|ride)|need a ride|any(?:one|body) (?:going|heading|driving) to/))) return { flow: "rides", action: "find" };
@@ -282,7 +289,7 @@ function classify(t: string, hasImage: boolean, inFood: boolean): { flow: FlowNa
   if (is(/\bbroken\b|\bbroke\b|\bleak(?:ing|s|y|ed)?\b|out of order|(?:doesn'?t|does not|isn'?t|is not|not|stopped|won'?t|wont) (?:work(?:ing)?|flush(?:ing)?|open(?:ing)?|clos(?:e|ing)|turn(?:ing)? on|lock(?:ing)?|drain(?:ing)?|charg(?:e|ing)|dispens(?:e|ing))|\bclogged\b|\bflood(?:ed|ing)\b|\bbusted\b|\bcracked\b|\bflicker(?:ing|s)?\b|no hot water|\bjammed\b|overflow(?:ing|ed)?|\bstuck\b|light(?:s)? (?:is|are) out|needs? (?:to be )?(?:fix(?:ed|ing)|repair(?:ed|s)?)|\bshattered\b|\bbroken glass\b/)) return { flow: "repair", action: "report" };
 
   // usg
-  if (is(/\busg\b|student government|\bsenat(?:e|or)\b|\bpolic(?:y|ies)\b|dining (?:hall )?(?:hours|dollars|plan)|meal (?:plan|swipes?)|(?:when|what time) (?:does|do|is|are) .*(?:open|close)|(?:club|org) funding|fund(?:ing|s)? (?:for )?(?:my|our|a|the) (?:club|org)|\bshuttle\b|\bthrift\b|farmers'? market|\bcomplain(?:t)?\b|\bconcern(?:ed|s)?\b|\bpetition\b|\btuition\b|why (?:does|doesn'?t|is|isn'?t|can'?t|are|aren'?t) (?:usc|the school|campus|we)|(?:usc|campus|the school|they) should (?:really )?(?:have|add|fix|extend|open|make)|should (?:be )?open (?:later|longer|earlier)|\bfryft\b|free lyft|\bdps\b|\bfinals week\b.*hours/)) {
+  if (is(/\busg\b|student government|\bsenat(?:e|or)\b|\bpolic(?:y|ies)\b|dining (?:hall )?(?:hours|dollars|plan)|meal (?:plan|swipes?)|(?:when|what time) (?:does|do|is|are) .*(?:open|close)|(?:club|org) funding|fund(?:ing|s)? (?:for )?(?:my|our|a|the) (?:club|org)|\b(?:clubs?|orgs?|rsos?|organizations?)\b.*\bfund|\bfunding\b|\bdining\b|(?:close|closes|closed|closing|open|opens) (?:so |too |way too )?(?:early|late)|\bshuttle\b|\bthrift\b|farmers'? market|\bcomplain(?:t)?\b|\bconcern(?:ed|s)?\b|\bpetition\b|\btuition\b|why (?:does|doesn'?t|is|isn'?t|can'?t|are|aren'?t) (?:usc|the school|campus|we)|(?:usc|campus|the school|they) should (?:really )?(?:have|add|fix|extend|open|make)|should (?:be )?open (?:later|longer|earlier)|\bfryft\b|free lyft|\bdps\b|\bfinals week\b.*hours/)) {
     const question = is(/\?\s*$|^(?:when|what|where|who|how|is|are|does|do|can|could|will|why)\b/);
     return { flow: "usg", action: question ? "question" : "concern" };
   }
@@ -295,7 +302,8 @@ function classify(t: string, hasImage: boolean, inFood: boolean): { flow: FlowNa
 export function fallbackIntent(input: { text: string; hasImage: boolean; state: FlowState | null }): Intent {
   const t = input.text.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
   const open = input.state && input.state.flow !== "smalltalk" && input.state.flow !== "onboarding" ? input.state.flow : null;
-  let { flow, action } = classify(t, input.hasImage, open === "food");
+  // Rules, settings and "what do u know about me" are read by the notes flow's own parser first.
+  let { flow, action } = (t && !(input.hasImage && !t) ? notesIntent(input.text) : null) ?? classify(t, input.hasImage, open === "food");
   const details = pullDetails(t);
 
   if (open) {

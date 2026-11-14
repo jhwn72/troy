@@ -11,7 +11,15 @@ export function openDb(path = process.env.DATABASE_URL || "data/troy.db"): Datab
   const d = new DatabaseSync(path);
   d.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   d.exec(readFileSync(join(import.meta.dirname, "schema.sql"), "utf8"));
+  migrate(d);
   return d;
+}
+
+/** Columns added after the first databases were created. CREATE TABLE IF NOT EXISTS never adds them to an old file. */
+function migrate(d: DatabaseSync): void {
+  const has = (table: string, column: string) => (d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+  if (!has("matches", "touchedAt")) d.exec("ALTER TABLE matches ADD COLUMN touchedAt INTEGER");
+  if (!has("matches", "parked")) d.exec("ALTER TABLE matches ADD COLUMN parked INTEGER NOT NULL DEFAULT 0");
 }
 
 export function getDb(): DatabaseSync {

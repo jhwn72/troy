@@ -1,7 +1,7 @@
 // The message pipeline. Every gated incoming event goes through handleEvent, one at a time per user.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Bubble, FlowContext, FlowHandler, FlowState, IncomingEvent, Intent, MessagingAdapter, User } from "./types.ts";
+import type { Bubble, FlowContext, FlowHandler, FlowName, FlowState, IncomingEvent, Intent, MessagingAdapter, User } from "./types.ts";
 import { isEnabled } from "./config.ts";
 import { getFlowState, getOrCreateUser, getUserById, saveMessage, setFlowState, updateUser } from "./db/index.ts";
 import { matchCommand, TEMPLATES } from "./commands.ts";
@@ -9,6 +9,10 @@ import type { CommandKind } from "./commands.ts";
 import { handleOnboarding, needsOnboarding } from "./onboarding.ts";
 import { getFlow } from "./flows/index.ts";
 import { detectIntent as realDetectIntent } from "./ai.ts";
+import { activeRelayFor, relayMessage } from "./relay.ts";
+import { inQuietHours } from "./quiet.ts";
+import type { SweepIo } from "./pending.ts";
+import { deliverPending, isProtected, parkAsk, relayBypass, runSweeps, runUserGone } from "./pending.ts";
 
 export type PipelineDeps = {
   db: DatabaseSync;
@@ -30,20 +34,6 @@ async function quiet<T>(p: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-function inQuietHours(user: User, now = new Date()): boolean {
-  const q = user.quietHours;
-  if (!q) return false;
-  const mins = (s: string) => {
-    const [h, m] = s.split(":").map(Number);
-    return h * 60 + (m || 0);
-  };
-  const start = mins(q.start);
-  const end = mins(q.end);
-  const cur = now.getHours() * 60 + now.getMinutes();
-  if (Number.isNaN(start) || Number.isNaN(end) || start === end) return false;
-  return start < end ? cur >= start && cur < end : cur >= start || cur < end;
-}
-
 /** Error name and where it happened. The message is left out because it could quote user text. */
 export function describe(err: unknown): string {
   if (!(err instanceof Error)) return "unknown";
@@ -55,7 +45,7 @@ export function getNotes(db: DatabaseSync, userId: number): string[] {
   return (db.prepare("SELECT text FROM user_notes WHERE userId = ? ORDER BY id").all(userId) as { text: string }[]).map((n) => n.text);
 }
 
-export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEvent): Promise<void> } {
+export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEvent): Promise<void>; sweep(now?: number): Promise<void> } {
   const { db } = deps;
   const detectIntent = deps.detectIntent ?? realDetectIntent;
   const pause = deps.pause ?? sleep;
@@ -145,7 +135,28 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     };
   }
 
-  function makeContext(user: User, event: IncomingEvent, intent: Intent, state: FlowState | null, onSay: () => void): FlowContext {
+  /** What flows get outside a conversation: timers, and the cleanup after STOP or "delete my data". */
+  function sweepIo(): SweepIo {
+    return {
+      db,
+      adapter: flowAdapter({ sent: false }),
+      async sayTo(userId, ...bubbles) {
+        const other = getUserById(db, userId);
+        if (!other || other.stopped) return bubbles.map(() => null);
+        return send(other, other.chatId, bubbles);
+      },
+    };
+  }
+
+  /** Parked questions go out to whoever is free now. */
+  const deliver = (now?: number) => deliverPending(db, (to, bubbles) => send(to, to.chatId, bubbles), now);
+
+  /**
+   * `owner` is the flow this context is handed to. A flow may only clear or replace its own open step:
+   * another flow's protected question (a finder being asked how to hand an item off) is left alone when a
+   * different flow says "done", and parked to be asked again when a different flow opens a step of its own.
+   */
+  function makeContext(user: User, event: IncomingEvent, intent: Intent, state: FlowState | null, onSay: () => void, owner?: FlowName): FlowContext {
     const turn = { sent: false };
     return {
       db,
@@ -165,7 +176,19 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         if (!other || other.stopped || inQuietHours(other)) return bubbles.map(() => null);
         return send(other, other.chatId, bubbles);
       },
-      setState: (s) => setFlowState(db, user.id, s),
+      async sayToOwed(userId, ...bubbles) {
+        const other = getUserById(db, userId);
+        if (!other || other.stopped) return bubbles.map(() => null);
+        return send(other, other.chatId, bubbles);
+      },
+      setState: (s) => {
+        const cur = getFlowState(db, user.id);
+        if (owner && cur && cur.flow !== owner && isProtected(db, cur)) {
+          if (!s) return;
+          parkAsk(db, user.id, { flow: cur.flow, step: cur.step, data: cur.data });
+        }
+        setFlowState(db, user.id, s);
+      },
       setStateFor: (userId, s) => setFlowState(db, userId, s),
     };
   }
@@ -186,6 +209,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         updateUser(db, user.id, { stopped: 1 });
         setFlowState(db, user.id, null);
         await say(TEMPLATES.stop, true);
+        // Whatever they were holding (a claim on a found item, a question to them) is let go, so nobody waits on them.
+        await runUserGone(sweepIo(), user.id);
         return;
       case "start":
         if (!user.stopped) {
@@ -216,6 +241,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         // Listings and reports stay (other people depend on them) but nothing personal does.
         db.prepare("DELETE FROM messages WHERE userId = ?").run(user.id);
         db.prepare("DELETE FROM user_notes WHERE userId = ?").run(user.id);
+        db.prepare("DELETE FROM note_effects WHERE userId = ?").run(user.id);
         db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(user.id);
         setFlowState(db, user.id, null);
         updateUser(db, user.id, {
@@ -230,6 +256,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
           paused: 0,
         });
         for (const text of TEMPLATES.deleteData) await quiet(deps.getAdapter().sendMessage(event.chatId, text), null);
+        await runUserGone(sweepIo(), user.id);
         return;
     }
   }
@@ -272,11 +299,13 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     }
     const intent: Intent = { flow: state?.flow ?? "food", action: event.reaction ? "reaction" : "poll_vote", details: {}, source: "fallback" };
     if (needsOnboarding(user, state)) {
-      await handleOnboarding(makeContext(user, event, intent, state, () => {}));
+      await handleOnboarding(makeContext(user, event, intent, state, () => {}, "onboarding"));
       return;
     }
-    const owner = (state && getFlow(state.flow)) || getFlow("food");
-    if (owner) await owner.handle(makeContext(user, event, { ...intent, flow: owner.name }, state, () => {}));
+    // A tapback on a food alert bubble is a claim, whatever else the person is in the middle of.
+    const onFoodAlert = !!event.reaction && !!db.prepare("SELECT 1 FROM food_alert_bubbles WHERE messageId = ? AND userId = ? LIMIT 1").get(event.reaction.targetMessageId, user.id);
+    const owner = (onFoodAlert && getFlow("food")) || (state && getFlow(state.flow)) || getFlow("food");
+    if (owner) await owner.handle(makeContext(user, event, { ...intent, flow: owner.name }, state, () => {}, owner.name));
   }
 
   async function process(event: IncomingEvent): Promise<void> {
@@ -288,7 +317,10 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     const tap = !!(event.reaction || event.pollVote);
 
     if (tap) {
-      if (!user.stopped) await handleTap(user, event, getFlowState(db, user.id));
+      if (!user.stopped) {
+        await handleTap(user, event, getFlowState(db, user.id));
+        await deliver();
+      }
       return;
     }
 
@@ -313,6 +345,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
 
     if (command) {
       await runCommand(command.kind, user, event);
+      await deliver();
       return;
     }
 
@@ -320,10 +353,26 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     const idle: Intent = { flow: "onboarding", action: "", details: {}, source: "fallback" };
     if (needsOnboarding(user, state)) {
       await quiet(adapter.startTyping(event.chatId), undefined);
-      const handled = await handleOnboarding(makeContext(user, event, idle, state, () => {}));
+      const handled = await handleOnboarding(makeContext(user, event, idle, state, () => {}, "onboarding"));
       if (handled) return;
       // Onboarding finished without using this text (a real request typed at the last step): handle it normally.
       state = getFlowState(db, user.id);
+    }
+
+    // Relay mode: while two people are connected through Troy, their texts go to each other, not to a flow.
+    // The one text that isn't passed along: the owner saying the item is back, which closes the handoff (and the relay with it).
+    const closesHandoff = state?.flow === "lost_found" && state.step === "await_pickup" && !event.images.length && /^(?:i )?(?:got|have) (?:it|them)(?: back)?[.! ]*$/i.test(event.text.trim());
+    // Neither is a text that plainly answers a flow's own open question or updates the person's own post
+    // ("we're out" from a food poster): those go to that flow, or they would be swallowed for as long as the relay runs.
+    const relay = closesHandoff ? null : activeRelayFor(db, user.id);
+    if (relay) {
+      if (!relayBypass(db, user, state, event, relay.context)) {
+        const relayIntent: Intent = { flow: "smalltalk", action: "relay", details: {}, source: "fallback" };
+        if (await relayMessage(makeContext(user, event, relayIntent, state, () => {}))) {
+          await deliver();
+          return;
+        }
+      }
     }
 
     let said = false;
@@ -333,7 +382,14 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       const notes = getNotes(db, user.id);
       const intent = await detectIntent({ text: event.text, hasImage: event.images.length > 0, state, notes });
       const handler = pickHandler(intent, state);
-      await handler.handle(makeContext(user, event, intent, state, () => (said = true)));
+      await handler.handle(makeContext(user, event, intent, state, () => (said = true), handler.name));
+      // An open flow that stays silent on a message meant for a different flow lets it through.
+      // Its state is left alone, so its own question is still pending afterwards.
+      if (!said && state && handler.name === state.flow && intent.flow !== handler.name) {
+        const other = getFlow(intent.flow) ?? getFlow("smalltalk");
+        if (other && other !== handler) await other.handle(makeContext(user, event, intent, null, () => (said = true), other.name));
+      }
+      await deliver();
     } finally {
       cancelAck();
       // say() already turns typing off after its last bubble.
@@ -376,5 +432,12 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     return next;
   }
 
-  return { handleEvent };
+  /** Timers: flows release what went stale, then parked questions go to whoever is free. Safe to call any time. */
+  async function sweep(now = Date.now()): Promise<void> {
+    if (!isEnabled(db)) return;
+    await runSweeps(sweepIo(), now);
+    await deliver(now);
+  }
+
+  return { handleEvent, sweep };
 }

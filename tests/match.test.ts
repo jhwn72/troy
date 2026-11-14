@@ -213,6 +213,29 @@ test("fallback: common words like 'case' don't count as a distinctive detail", (
   assert.ok(s.confidence <= 79, `got ${s.confidence}`);
 });
 
+test("fallback: generic shared words like 'sticker' and 'lid' can't push two different items to 80", () => {
+  // Same kind, color, brand, place and day, and both "have a sticker on the lid", but nothing says it's the same sticker.
+  const found = profile({ category: "laptop", title: "macbook", color: "silver", publicSummary: "silver macbook", distinguishing: ["sticker of a sailboat on the lid", "sticker of a lighthouse on the lid", "scratch on the bottom corner"] });
+  const other = pairScore(found, report({ category: "laptop", color: "silver", brand: "apple", description: "silver macbook, lots of stickers on the lid, small scratch on the corner, charger was with it" }));
+  assert.ok(other.confidence <= 79, `got ${other.confidence}`);
+  assert.ok(other.reasons.some((r) => r.includes("nothing distinctive")));
+  // Naming which sticker does lift it.
+  const same = pairScore(found, report({ category: "laptop", color: "silver", brand: "apple", description: "silver macbook with a sailboat sticker and a lighthouse one on the lid" }));
+  assert.ok(same.confidence >= 80, `got ${same.confidence}`);
+});
+
+test("fallback: a detail the report says is absent is not a shared detail", () => {
+  const found = profile({ distinguishing: ["monogram stitched on the pouch"] });
+  const s = pairScore(found, report({ brand: "apple", description: "black airpods, no monogram or anything on them" }));
+  assert.ok(s.confidence <= 79, `got ${s.confidence}`);
+});
+
+test("fallback: typos-free synonyms and word forms count as the same detail", () => {
+  const found = profile({ distinguishing: ["initials engraved underneath", "lavender charm"] });
+  const s = pairScore(found, report({ brand: "apple", description: "black airpods with an engraving of my initials" }));
+  assert.ok(s.confidence >= 80, `got ${s.confidence}`);
+});
+
 test("fallback: a mismatch scores under 50", () => {
   const s = pairScore(profile({ color: "white", brand: "Samsung", title: "galaxy buds case", publicSummary: "white samsung earbuds case", distinguishing: ["cat sticker"] }), report({ brand: "apple" }));
   assert.ok(s.confidence < 50, `got ${s.confidence}`);

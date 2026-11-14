@@ -46,7 +46,9 @@ Reply with JSON only, no other words:
 - confident: true only if you could count them clearly. False for closed boxes, piles or blurry photos.`;
 
 const VALUABLE: ReadonlySet<Category> = new Set<Category>(["phone", "earbuds", "laptop", "tablet", "wallet", "id_card", "keys", "jewelry"]);
-const DANGER_WORDS = /\b(?:guns?|firearms?|pistols?|rifles?|revolvers?|ammo|ammunition|bullets?|kni(?:fe|ves)|blades?|machetes?|daggers?|switchblades?|box ?cutters?|tasers?|stun guns?|pepper spray|mace|brass knuckles|explosives?|fireworks?|syringes?|needles?|weapons?)\b/i;
+// One-word compounds count too ("handgun", "pocketknife"), so gun and knife match as word endings after a known prefix.
+export const DANGER_WORDS =
+  /\b(?:(?:hand|shot|stun|air|bb|pellet|machine|flare)[ -]?guns?|guns?|glocks?|firearms?|pistols?|rifles?|revolvers?|airsoft|ammo|ammunition|bullets?|cartridges?|shotgun shells?|(?:pocket|jack|pen|butter|steak|hunting|utility|x-?acto)?[ -]?kni(?:fe|ves)|blades?|razors?|machetes?|daggers?|swords?|hatchets?|switchblades?|box ?cutters?|multi[ -]?tools?|scissors|tasers?|pepper spray|bear spray|mace|brass knuckles|nunchucks?|crossbows?|explosives?|grenades?|fireworks?|lighter fluid|gasoline|syringes?|needles?|weapons?)\b/i;
 
 const line = (v: unknown, max: number): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max).trim() : "");
 
@@ -57,7 +59,9 @@ function maskNumbers(s: string): string {
 
 function genericSummary(category: Category, color: string | null, brand: string | null): string {
   const kind = category === "other" ? "item" : category.replace(/_/g, " ");
-  return [color, brand, kind].filter(Boolean).join(" ").toLowerCase();
+  // "hydro flask" already says what it is: "blue hydro flask", not "blue hydro flask water bottle".
+  const brandSaysKind = !!brand && /\b(?:flask|bottle|pods|buds|book|pad|phone|watch)\b/i.test(brand.replace(/(?<=[a-z])(?=flask|bottle|pods|buds|book|pad|phone|watch)/gi, " "));
+  return [color, brand, brandSaysKind ? null : kind].filter(Boolean).join(" ").toLowerCase();
 }
 
 /**
