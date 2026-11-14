@@ -57,6 +57,14 @@ It does what an iPhone does: a Find My "ask to share" request (`sendFriendshipIn
 
 Status (2026-11-14): **the Find My request works.** It shows up on the other phone in **Find My → People** as a request to see their location (no notification). Accepting it started sharing, and `location-get` had a location about 45 s later. The chat bubble renders as "Requested your location" but has **no Share button**, probably because its `id` isn't the real request's ID (which Find My doesn't return to us). So call `location-request` with `{ bubble: false }` (a bubble without a button only confuses people) and have Troy say in text: "I sent you a location request: open Find My → People to accept it." Re-tested after sharing stopped: request arrived in Find My, still no button on the bubble. Also tried giving the bubble each request-related ID Find My logs publicly (the sendFriendshipInvite transaction ID and two work-item IDs, sent with `--bubble-only <id>`): still no button. The real request ID only appears as `<private>` in the logs. Accepted limitation (2026-11-14). A repeat request while one is pending returns `invite: "error: … FMLSession.ErrorDomain error 7"` (Apple's server answers 200; error 7 appears to mean already pending). Opening the Find My app on the Mac clears a stale "sharing" status.
 
+**Preferred way to get someone's location (John, 2026-11-14):** don't send a Find My request. Troy texts *"btw, i work best when i know where you are. here's how to share your location with me (takes 10 seconds, turn it off anytime) 👇"* and then sends `gif/share-location.gif` (iOS 26 steps: + → Location → Share → Always → send). The share then arrives as a Find My balloon. `requestLocation()` stays as a fallback. The GIF is drawn by `gif/LocationGif.swift` (CoreGraphics + ImageIO, no extra tools):
+
+```bash
+swiftc -O gif/LocationGif.swift -o build/location-gif && ./build/location-gif gif/share-location.gif
+```
+
+When sending it with curl, pass `chatGuid` with `--form-string` (plain `-F` cuts the value at the first `;`).
+
 **When they share** (reply to a request, or on their own): an incoming `new-message` with `balloonBundleId === FINDMY_BALLOON_ID` and Apple text "Started Sharing Location".
 
 ```ts
