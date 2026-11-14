@@ -20,6 +20,11 @@ function migrate(d: DatabaseSync): void {
   const has = (table: string, column: string) => (d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (!has("matches", "touchedAt")) d.exec("ALTER TABLE matches ADD COLUMN touchedAt INTEGER");
   if (!has("matches", "parked")) d.exec("ALTER TABLE matches ADD COLUMN parked INTEGER NOT NULL DEFAULT 0");
+  // Last known location. Read and written only through src/location.ts; deliberately not part of the shared User type.
+  if (!has("users", "lastLat")) d.exec("ALTER TABLE users ADD COLUMN lastLat REAL");
+  if (!has("users", "lastLng")) d.exec("ALTER TABLE users ADD COLUMN lastLng REAL");
+  if (!has("users", "lastLocationAt")) d.exec("ALTER TABLE users ADD COLUMN lastLocationAt INTEGER");
+  if (!has("users", "lastLocationSource")) d.exec("ALTER TABLE users ADD COLUMN lastLocationSource TEXT");
 }
 
 export function getDb(): DatabaseSync {

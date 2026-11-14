@@ -2,6 +2,8 @@
 // so this file is where the privacy rules are enforced:
 //   - incoming: decide() runs before anything is downloaded, saved, built or logged
 //   - outgoing: every request goes through guardedSend(), which holds the send lock
+//   - the patched helper (native polls, payloads, location requests) goes through src/adapters/helper.ts,
+//     which holds the same lock
 // Request shapes follow scripts/feature-test.ts (verified on this Mac) and the server source
 // (BlueBubblesApp/bluebubbles-server, api/http/api/v1). Unverified parts are marked UNCONFIRMED.
 
@@ -13,10 +15,16 @@ import { basename, join } from "node:path";
 import type { AdapterCapabilities, Handle, IncomingEvent, IncomingImage, MessagingAdapter, SendEffect, SentMessage, TapbackType } from "../types.ts";
 import type { AdapterDeps } from "./index.ts";
 import { config, isEnabled, normalizeHandle } from "../config.ts";
+import { getSetting, setSetting } from "../db/index.ts";
 import { allowChat, decide, getGoLiveAt, isAllowedChat, sendAllowed } from "./gate.ts";
+import { FINDMY_BALLOON_ID, createHelper, decodeFindMyShare, decodePollVote } from "./helper.ts";
+import type { Helper } from "./helper.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const DOWNLOADS = join(ROOT, "tmp-downloads"); // gitignored
+const AVATAR = join(ROOT, "public", "assets", "troy-avatar.png"); // made from troy-avatar.svg, 512px
+/** Polls, Find My and every other iMessage app bubble. Their text is a placeholder, never something typed. */
+const APP_BALLOON_PREFIX = "com.apple.messages.MSMessageExtensionBalloonPlugin";
 
 /** How long to wait before asking again when the server lists no messages for a chat. */
 const EMPTY_RETRY_MS = Number(process.env.TROY_EMPTY_RETRY_MS ?? 1500);
@@ -68,13 +76,35 @@ function parseTapback(raw: unknown): { type: TapbackType; removed: boolean } | n
   return (TAPBACKS as string[]).includes(s) ? { type: s as TapbackType, removed } : null;
 }
 
-export function createBluebubblesAdapter(deps: AdapterDeps): {
+/** The contact card: name, optional handle, the mascot photo. Lines are folded at 75 characters as vCard 3.0 asks. */
+export function buildContactCard(): string {
+  const lines = ["BEGIN:VCARD", "VERSION:3.0", "N:;Troy;;;", "FN:Troy"];
+  // Optional: TROY_CONTACT (the number or email students text) so saving the card attaches to this chat.
+  for (const raw of (process.env.TROY_CONTACT || "").split(",")) {
+    const h = normalizeHandle(raw);
+    if (h) lines.push(h.includes("@") ? `EMAIL;TYPE=INTERNET:${h}` : `TEL;TYPE=CELL:${h}`);
+  }
+  // UNCONFIRMED on a phone: how the note renders. It is a NOTE (not ORG) so it can never change the name shown.
+  lines.push("NOTE:ai that knows a guy · usc hackathon demo");
+  if (existsSync(AVATAR)) lines.push(`PHOTO;ENCODING=b;TYPE=PNG:${readFileSync(AVATAR).toString("base64")}`);
+  lines.push("END:VCARD");
+  const folded = lines.map((l) => (l.length <= 75 ? l : l.slice(0, 75) + l.slice(75).replace(/.{1,74}/g, "\r\n $&")));
+  return folded.join("\r\n") + "\r\n";
+}
+
+export function createBluebubblesAdapter(
+  deps: AdapterDeps,
+  /** Tests pass a helper built around a fake client. Left out, the real one is used when it is configured. */
+  opts: { helper?: Helper } = {},
+): {
   adapter: MessagingAdapter;
   routes: Hono;
   /** Processes one webhook body. The route calls this without waiting; tests can await it. */
   handleWebhook: (body: unknown) => Promise<void>;
+  helper: Helper;
 } {
   const { db, onEvent } = deps;
+  const helper = opts.helper ?? createHelper({ db });
 
   // ---------- raw HTTP (private to this file) ----------
 
@@ -98,12 +128,15 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
   let papi: boolean | null = null;
   let papiCheckedAt = 0;
   let findMyBroken = false;
+  /** The Apple ID this Mac sends iMessages from (server info "detected_imessage"). Native polls need it as the creator. */
+  let hostHandle: string | null = null;
 
   async function privateApiOn(): Promise<boolean> {
     if (papi !== null && Date.now() - papiCheckedAt < 5 * 60_000) return papi;
     try {
       const info = (await api("GET", "/server/info")).data ?? {};
       papi = info.private_api === true && info.helper_connected === true;
+      if (typeof info.detected_imessage === "string" && info.detected_imessage) hostHandle = info.detected_imessage;
     } catch {
       papi = false;
     }
@@ -186,18 +219,45 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
 
   function contactCardPath(): string {
     mkdirSync(DOWNLOADS, { recursive: true });
-    const lines = ["BEGIN:VCARD", "VERSION:3.0", "N:;Troy;;;", "FN:Troy"];
-    // Optional: TROY_CONTACT (the number or email students text) so saving the card attaches to this chat.
-    for (const raw of (process.env.TROY_CONTACT || "").split(",")) {
-      const h = normalizeHandle(raw);
-      if (h) lines.push(h.includes("@") ? `EMAIL;TYPE=INTERNET:${h}` : `TEL;TYPE=CELL:${h}`);
-    }
-    const photo = join(ROOT, "public", "troy-avatar.jpg");
-    if (existsSync(photo)) lines.push(`PHOTO;ENCODING=b;TYPE=JPEG:${readFileSync(photo).toString("base64")}`);
-    lines.push("END:VCARD");
     const file = join(DOWNLOADS, "Troy.vcf");
-    writeFileSync(file, lines.join("\r\n") + "\r\n");
+    writeFileSync(file, buildContactCard());
     return file;
+  }
+
+  // ---------- native polls (through the helper) ----------
+
+  // A vote names the option by identifier, so each poll's identifiers are kept: in memory, and in the
+  // settings table (key "poll:<guid>") so a vote can still be mapped after a restart. No handle or chat id is stored.
+  const polls = new Map<string, string[]>();
+
+  function rememberPoll(guid: string, optionIdentifiers: string[]): void {
+    polls.set(guid, optionIdentifiers);
+    if (polls.size > 500) polls.delete(polls.keys().next().value as string);
+    setSetting(db, `poll:${guid}`, JSON.stringify(optionIdentifiers));
+  }
+
+  function pollOptions(guid: string): string[] | null {
+    const cached = polls.get(guid);
+    if (cached) return cached;
+    try {
+      const saved: unknown = JSON.parse(getSetting(db, `poll:${guid}`) ?? "null");
+      if (!Array.isArray(saved) || saved.some((x) => typeof x !== "string")) return null;
+      polls.set(guid, saved as string[]);
+      return saved as string[];
+    } catch {
+      return null;
+    }
+  }
+
+  /** A balloon's payload. The helper can be a moment behind the webhook, so it is asked twice. */
+  async function payloadFor(chatId: string, messageGuid: string): Promise<string | null> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!helper.isConnected()) return null;
+      const p = await helper.getPayload(chatId, messageGuid);
+      if (p) return p;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, EMPTY_RETRY_MS));
+    }
+    return null;
   }
 
   // Find My refresh reopens the Find My app on the Mac, so do it at most once a minute.
@@ -228,10 +288,10 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
         readReceipts: on,
         edits: on && editsOn(),
         effects: on,
-        polls: false,
+        polls: on && helper.isConnected(),
         groupChats: on,
         contactCard: true,
-        liveLocation: on && !findMyBroken,
+        liveLocation: on && (!findMyBroken || helper.isConnected()),
       };
     },
 
@@ -295,8 +355,9 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
       return r !== null;
     },
 
-    // Native polls don't work through BlueBubbles. "Tap to pick": the question, then one bubble per option
-    // that the student tapbacks. Without the Private API tapbacks can't be read, so it becomes a numbered list.
+    // Native poll when the patched helper is connected (1:1 chats, 2 to 12 options): the question as a normal
+    // text first, because a poll has no title of its own, then the poll. Otherwise "tap to pick": one bubble per
+    // option that the student tapbacks. Without the Private API tapbacks can't be read, so it is a numbered list.
     async sendPoll(chatId, question, options) {
       const none = options.map(() => null);
       if (!sendAllowed(db, chatId, handleFromChatId(chatId))) {
@@ -307,7 +368,17 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
         await sendText(chatId, [question, ...options.map((o, i) => `${i + 1}. ${o}`), "reply with the number"].join("\n"));
         return { optionMessageIds: none, mode: "numbered" };
       }
-      await sendText(chatId, `${question}\ntap ❤️ on ur pick`);
+      let questionSent = false;
+      if (helper.isConnected() && hostHandle && handleFromChatId(chatId) && options.length >= 2 && options.length <= 12) {
+        questionSent = (await sendText(chatId, question)) !== null;
+        const poll = questionSent ? await helper.sendPoll(chatId, options, hostHandle) : null;
+        if (poll) {
+          rememberPoll(poll.guid, poll.optionIdentifiers);
+          return { optionMessageIds: options.map(() => poll.guid), mode: "native" };
+        }
+      }
+      // The question may already be out (the poll itself failed): don't say it twice.
+      await sendText(chatId, questionSent ? "tap ❤️ on ur pick" : `${question}\ntap ❤️ on ur pick`);
       const optionMessageIds: (string | null)[] = [];
       for (const o of options) optionMessageIds.push((await sendText(chatId, o))?.messageId ?? null);
       return { optionMessageIds, mode: "tap" };
@@ -359,16 +430,29 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
     // Only the requested handle's entry is read, and only if that handle is allowed.
     // UNCONFIRMED on macOS 27: whether the cache fills at all. On Sonoma and later the server relies on the
     // helper pushing "new-findmy-location" updates and on opening the Find My app (the refresh call below).
+    // Second source: the helper's "location-get" (bluebubbles/README.md, "Location"), which asks Find My about
+    // the one person in the chat. It is tried when BlueBubbles has nothing fresh, before the slow refresh.
     async getLiveLocation(handle) {
       const h = normalizeHandle(handle);
       const allowed = () => sendAllowed(db, chatIdForHandle(h as Handle), h);
       if (!h || !allowed()) return null;
       if (!(await privateApiOn())) return null;
       if (!allowed()) return null; // the kill switch may have flipped during the status lookup
+      const fresh = (f: { at: number } | null) => f !== null && Date.now() - f.at < 5 * 60_000;
+      let found: { lat: number; lng: number; at: number } | null = null;
       try {
-        let found = pickFriend((await api("GET", "/icloud/findmy/friends")).data, h);
-        const fresh = found && Date.now() - found.at < 5 * 60_000;
-        if (!fresh && Date.now() - lastFindMyRefresh > 60_000) {
+        found = pickFriend((await api("GET", "/icloud/findmy/friends")).data, h);
+        findMyBroken = false;
+      } catch {
+        findMyBroken = true;
+      }
+      if (!fresh(found) && helper.isConnected()) {
+        if (!allowed()) return null;
+        const viaHelper = await helper.getLocation(chatIdForHandle(h));
+        if (viaHelper && (!found || viaHelper.at > found.at)) found = viaHelper;
+      }
+      if (!fresh(found) && !findMyBroken && Date.now() - lastFindMyRefresh > 60_000) {
+        try {
           lastFindMyRefresh = Date.now();
           // Returns straight away with the current cache and refreshes in the background.
           await api("POST", "/icloud/findmy/friends/refresh");
@@ -381,13 +465,31 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
               break;
             }
           }
+        } catch {
+          findMyBroken = true;
         }
-        findMyBroken = false;
-        return found;
-      } catch {
-        findMyBroken = true;
-        return null;
       }
+      return allowed() ? found : null;
+    },
+
+    // The Find My "Requested Location" bubble plus an "ask to share" request, through the helper. 1:1 chats only.
+    // False when the helper isn't there; the caller then asks in text (+ > Location > Share My Location).
+    async requestLocation(chatId) {
+      if (!sendAllowed(db, chatId, handleFromChatId(chatId))) {
+        console.log("send refused");
+        return false;
+      }
+      if (!helper.isConnected()) return false;
+      return helper.requestLocation(chatId);
+    },
+
+    // The helper keeps its own list of chats it may touch. Keep it in step with Troy's.
+    async onAllowed(chatId) {
+      await helper.allowChat(chatId).catch(() => false);
+    },
+
+    async onDisallowed(chatId) {
+      await helper.removeChat(chatId).catch(() => false);
     },
 
     chatIdForHandle,
@@ -500,14 +602,35 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
         receivedAt: typeof data.dateCreated === "number" ? data.dateCreated : Date.now(),
       };
 
+      const balloon = typeof data.balloonBundleId === "string" ? data.balloonBundleId : "";
+
       // Anything attached to another message is a reaction of some kind, never typed text.
-      if (data.associatedMessageGuid) {
+      if (data.associatedMessageGuid && String(data.associatedMessageType) === "4000") {
+        // A vote on a native poll: associatedMessageGuid is the poll's guid (no "p:" prefix seen, stripped anyway).
+        const pollGuid = String(data.associatedMessageGuid).replace(/^(p:\d+\/|bp:)/, "");
+        const ids = pollOptions(pollGuid);
+        if (!ids) return; // not a poll Troy sent: nothing is fetched
+        const payload = await payloadFor(chatId, guid);
+        const optionIndex = payload ? ids.indexOf(decodePollVote(payload, handle) ?? "") : -1;
+        if (optionIndex < 0) return;
+        event.pollVote = { pollMessageId: pollGuid, optionIndex };
+        event.text = "";
+      } else if (data.associatedMessageGuid) {
         const tap = parseTapback(data.associatedMessageType);
         if (!tap) return; // stickers, emoji tapbacks and anything without a known type aren't used
         // "p:0/<guid>" or "bp:<guid>" -> "<guid>"
         const target = String(data.associatedMessageGuid).replace(/^(p:\d+\/|bp:)/, "");
         event.reaction = { targetMessageId: target, type: tap.type, removed: tap.removed };
         event.text = ""; // the text is only Apple's summary ('Loved "..."')
+      } else if (balloon === FINDMY_BALLOON_ID) {
+        // A location share (iOS: + > Location, or the answer to a request). The fix is inside the bubble's payload.
+        const payload = await payloadFor(chatId, guid);
+        const location = payload ? decodeFindMyShare(payload) : null;
+        if (!location) return; // helper not connected, or not a share
+        event.location = location;
+        event.text = ""; // "Started Sharing Location" / the placeholder character is not something they typed
+      } else if (balloon.startsWith(APP_BALLOON_PREFIX)) {
+        return; // a poll the student made, or any other app bubble: not text
       } else {
         const attachments: Json[] = Array.isArray(data.attachments) ? data.attachments.slice(0, 6) : [];
         for (const a of attachments) {
@@ -579,5 +702,9 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
   // (otherwise that first message would itself count as older than go-live).
   getGoLiveAt(db);
 
-  return { adapter, routes, handleWebhook };
+  // Start listening for the patched helper (a no-op without TROY_HELPER_TOKEN). Each time it connects, every
+  // allowed 1:1 chat is registered with it, so its own allowlist matches Troy's.
+  helper.start();
+
+  return { adapter, routes, handleWebhook, helper };
 }

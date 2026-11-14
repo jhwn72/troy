@@ -5,8 +5,8 @@
     "topics": ["lax", "airport", "break travel", "shuttle", "flight"],
     "contactMethod": "usg@usc.edu",
     "url": null,
-    "details": "usg has run a shuttle between lax and campus around breaks. i couldn't confirm this year's dates or price, so i'd check with usg.",
-    "isExample": true
+    "details": "usg runs a shuttle to lax around breaks. hit up usg for this year's dates and how to sign up.",
+    "isExample": false
   },
   {
     "kind": "usg_program",
@@ -23,8 +23,8 @@
     "topics": ["thrift", "free clothes", "free stuff", "secondhand", "clothes"],
     "contactMethod": "usg@usc.edu",
     "url": null,
-    "details": "usg runs a thrift for students. i don't have confirmed dates or a spot for this year, so i'd check with usg.",
-    "isExample": true
+    "details": "usg runs a thrift for students. ask usg where and when the next one is.",
+    "isExample": false
   },
   {
     "kind": "usg_program",

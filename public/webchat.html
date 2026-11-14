@@ -50,6 +50,13 @@
   .bubble img { display: block; max-width: 100%; max-height: 240px; border-radius: 12px; margin: 2px 0; }
   .bubble.card { display: flex; gap: 10px; align-items: center; font-weight: 600; }
   .bubble.card span { width: 34px; height: 34px; border-radius: 50%; background: var(--cardinal); color: #fff; display: grid; place-items: center; font-family: "Instrument Serif", serif; font-size: 20px; font-weight: 400; }
+  .bubble.poll, .bubble.ask { display: flex; flex-direction: column; gap: 6px; min-width: 190px; padding: 10px; }
+  .bubble.poll small, .bubble.ask small { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); padding: 0 3px; }
+  .bubble.poll button { display: flex; justify-content: space-between; gap: 10px; width: 100%; border: 1px solid var(--line); background: var(--white); border-radius: 12px; padding: 8px 12px; cursor: pointer; text-align: left; }
+  .bubble.poll button.on { background: var(--me-bubble); border-color: var(--me-bubble); color: #fff; font-weight: 600; }
+  .bubble.ask strong { font-weight: 600; padding: 0 3px; }
+  .bubble.ask button { border: 0; border-radius: 999px; background: var(--me-bubble); color: #fff; font-weight: 600; padding: 7px 14px; cursor: pointer; }
+  .bubble.ask em { font-style: normal; color: var(--stone); padding: 0 3px; }
   .bubble.pop { animation: pop .5s ease-out; }
   @keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
   .taps { position: absolute; top: -11px; right: -8px; display: flex; gap: 2px; }
@@ -96,7 +103,7 @@
 <header>
   <span class="badge"><i></i>Development simulator, not real iMessage</span>
   <h1>Three pretend phones, one Troy.</h1>
-  <p>Each column is a simulated phone texting Troy through the same privacy gate as the real thing. A phone has to open with <code>hey troy</code> before Troy will see or answer it. Tap one of Troy's bubbles to react.</p>
+  <p>Each column is a simulated phone texting Troy through the same privacy gate as the real thing. A phone has to open with <code>hey troy</code> before Troy will see or answer it. Tap one of Troy's bubbles to react, vote on his polls, and answer a location request with Share.</p>
 </header>
 <main id="phones"></main>
 
@@ -207,7 +214,7 @@
       const isGroup = (p.chats.find((c) => c.chatId === chatId) || {}).isGroup;
 
       // Replay events into what the phone would show right now.
-      const bubbles = [], byId = new Map(), taps = new Map();
+      const bubbles = [], byId = new Map(), taps = new Map(), votes = new Map(), answered = new Set();
       let typing = false, readSeq = 0;
       for (const e of list) {
         if (e.kind === "typing") typing = !!e.on;
@@ -216,11 +223,16 @@
           const m = taps.get(e.targetId) || new Map();
           if (e.removed) m.delete(e.from); else m.set(e.from, e.tapback);
           taps.set(e.targetId, m);
+        } else if (e.kind === "poll_vote") {
+          const m = votes.get(e.targetId) || new Map();
+          m.set(e.from, e.optionIndex);
+          votes.set(e.targetId, m);
         } else if (e.kind === "edit") {
           const t = byId.get(e.targetId);
           if (t) { t.text = e.text; t.edited = true; }
         } else {
           const b = { ...e };
+          if (e.kind === "location" && e.targetId) answered.add(e.targetId);
           bubbles.push(b); byId.set(e.id, b);
           if (e.from === "troy") typing = false;
         }
@@ -235,10 +247,31 @@
         if (isGroup && !me && b.from !== prevFrom) msgs.append(el("div", "who", fromTroy ? "Troy" : b.from));
         prevFrom = b.from;
         const line = el("div", "line" + (me ? " me" : "") + (b.undelivered ? " undelivered" : ""));
-        const bubble = el(fromTroy ? "button" : "div", "bubble" + (b.kind === "contact" ? " card" : ""));
-        if (fromTroy) { bubble.type = "button"; bubble.title = "Tap to react"; bubble.onclick = () => { p.picker = p.picker === b.id ? null : b.id; render(); }; }
+        const card = b.kind === "poll" || b.kind === "location_request";
+        const bubble = el(fromTroy && !card ? "button" : "div", "bubble" + (b.kind === "contact" ? " card" : b.kind === "poll" ? " poll" : b.kind === "location_request" ? " ask" : ""));
+        if (fromTroy && !card) { bubble.type = "button"; bubble.title = "Tap to react"; bubble.onclick = () => { p.picker = p.picker === b.id ? null : b.id; render(); }; }
         if (b.kind === "contact") { bubble.append(el("span", "", "T"), document.createTextNode("Troy (contact card)")); }
-        else if (b.kind === "location") bubble.textContent = "Location pin: " + b.location.lat.toFixed(4) + ", " + b.location.lng.toFixed(4);
+        else if (b.kind === "poll") {
+          const mineNow = (votes.get(b.id) || new Map()).get(p.normalized);
+          bubble.append(el("small", "", "Poll"));
+          (b.options || []).forEach((label, optionIndex) => {
+            const btn = el("button", mineNow === optionIndex ? "on" : ""); btn.type = "button";
+            btn.append(el("span", "", label), el("span", "", mineNow === optionIndex ? "1" : ""));
+            btn.setAttribute("aria-pressed", String(mineNow === optionIndex));
+            btn.onclick = async () => { fail(""); const r = await post("/webchat/vote", { handle: p.handle, pollId: b.id, optionIndex }).catch(() => null); if (!r) fail("Could not reach the Troy server."); else if (!r.ok) fail(r.error); poll(); };
+            bubble.append(btn);
+          });
+        }
+        else if (b.kind === "location_request") {
+          bubble.append(el("small", "", "Find My"), el("strong", "", "Requested Location"));
+          if (answered.has(b.id)) bubble.append(el("em", "", "Shared"));
+          else {
+            const btn = el("button", "", "Share"); btn.type = "button"; btn.title = "Shares the spot picked at the top of this phone";
+            btn.onclick = () => shareLocation(b.id);
+            bubble.append(btn);
+          }
+        }
+        else if (b.kind === "location") bubble.textContent = (b.shared ? "Started Sharing Location: " : "Location pin: ") + b.location.lat.toFixed(4) + ", " + b.location.lng.toFixed(4);
         else {
           if (b.imageUrl) { const img = el("img"); img.src = b.imageUrl; img.alt = fromTroy ? "Photo from Troy" : "Photo you sent"; bubble.append(img); }
           if (b.text) bubble.append(document.createTextNode(b.text));
@@ -335,6 +368,15 @@
     };
     const here = () => { const s = SPOTS.find((x) => x[0] === spot.value) || SPOTS[0]; return { lat: s[1], lng: s[2] }; };
     $(".pin").onclick = () => send({ location: here() });
+    // The Share button on a "Requested Location" bubble: one share event to Troy, and the phone keeps sharing.
+    async function shareLocation(requestId) {
+      fail("");
+      const r = await post("/webchat/share", { handle: p.handle, requestId, ...here() }).catch(() => null);
+      if (!r) return fail("Could not reach the Troy server.");
+      if (!r.ok) return fail(r.error);
+      if (r.accepted) share.checked = true;
+      poll();
+    }
     const shareNow = () => post("/webchat/location", { handle: p.handle, ...(share.checked ? here() : { lat: null }) }).then((r) => { if (!r.ok) fail(r.error); }).catch(() => fail("Could not reach the Troy server."));
     share.onchange = shareNow;
     spot.onchange = () => { if (share.checked) shareNow(); };

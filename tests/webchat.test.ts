@@ -140,3 +140,113 @@ test("the transcript says whether the phone is verified (the page hides the judg
   db.prepare("INSERT INTO users (handle, chatId, verifiedAt, verifiedVia, createdAt) VALUES (?, ?, ?, 'judge_skip', ?)").run(A, chat(A), Date.now(), Date.now());
   assert.equal(await get(), true);
 });
+
+test("a native poll renders a poll card, and the phone's vote arrives as pollVote", async () => {
+  const { events, adapter, post } = setup();
+  await post("/webchat/send", { handle: A, text: "hey troy" });
+  assert.equal(adapter.capabilities().polls, true);
+  const poll = await adapter.sendPoll(chat(A), "real quick, which are u?", ["usc student", "hackathon judge"]);
+  assert.equal(poll.mode, "native");
+  assert.equal(poll.optionMessageIds.length, 2);
+  assert.equal(poll.optionMessageIds[0], poll.optionMessageIds[1]);
+  const pollId = poll.optionMessageIds[0]!;
+  const shown = adapter.transcript(chat(A)).filter((e) => e.from === "troy");
+  assert.deepEqual(shown.map((e) => [e.kind, e.text ?? e.options]), [["message", "real quick, which are u?"], ["poll", ["usc student", "hackathon judge"]]]);
+  assert.equal(shown[1].id, pollId);
+
+  const res = await post("/webchat/vote", { handle: A, pollId, optionIndex: 1 });
+  assert.equal(res.accepted, true);
+  const e = events.at(-1)!;
+  assert.deepEqual(e.pollVote, { pollMessageId: pollId, optionIndex: 1 });
+  assert.equal(e.text, "");
+  assert.equal(e.chatId, chat(A));
+  assert.equal(e.userHandle, A);
+  assert.equal(adapter.transcript(chat(A)).at(-1)?.kind, "poll_vote");
+
+  // bad votes change nothing
+  const before = events.length;
+  assert.equal((await post("/webchat/vote", { handle: A, pollId, optionIndex: 2 })).ok, false);
+  assert.equal((await post("/webchat/vote", { handle: A, pollId, optionIndex: "1" })).ok, false);
+  assert.equal((await post("/webchat/vote", { handle: A, pollId: "nope", optionIndex: 0 })).ok, false);
+  // another phone can't vote in a chat it isn't in
+  assert.equal((await post("/webchat/vote", { handle: B, pollId, optionIndex: 0 })).ok, false);
+  assert.equal(events.length, before);
+});
+
+test("votes go through the gate: kill switch off drops them and keeps nothing", async () => {
+  const { db, events, adapter, post } = setup();
+  await post("/webchat/send", { handle: A, text: "hey troy" });
+  const poll = await adapter.sendPoll(chat(A), "q?", ["a", "b"]);
+  setSetting(db, "troy_enabled", "false");
+  const before = adapter.transcript(chat(A)).length;
+  const res = await post("/webchat/vote", { handle: A, pollId: poll.optionMessageIds[0], optionIndex: 0 });
+  assert.equal(res.accepted, false);
+  assert.equal(events.length, 1);
+  assert.equal(adapter.transcript(chat(A)).length, before);
+});
+
+test("WEBCHAT_POLLS=tap gives the tap-to-pick fallback shape", async () => {
+  const { adapter, post } = setup();
+  await post("/webchat/send", { handle: A, text: "hey troy" });
+  process.env.WEBCHAT_POLLS = "tap";
+  try {
+    const poll = await adapter.sendPoll(chat(A), "q?", ["a", "b"]);
+    assert.equal(poll.mode, "tap");
+    assert.notEqual(poll.optionMessageIds[0], poll.optionMessageIds[1]);
+    assert.ok(!adapter.transcript(chat(A)).some((e) => e.kind === "poll"));
+  } finally {
+    delete process.env.WEBCHAT_POLLS;
+  }
+});
+
+test("requestLocation shows a Requested Location bubble, and Share emits one location event", async () => {
+  const { events, adapter, post } = setup();
+  await post("/webchat/send", { handle: A, text: "hey troy" });
+  assert.equal(await adapter.requestLocation(chat(A)), true);
+  const request = adapter.transcript(chat(A)).at(-1)!;
+  assert.equal(request.kind, "location_request");
+  assert.equal(request.from, "troy");
+
+  const res = await post("/webchat/share", { handle: A, requestId: request.id, lat: 34.02176, lng: -118.28283 });
+  assert.equal(res.accepted, true);
+  const e = events.at(-1)!;
+  assert.deepEqual(e.location, { lat: 34.02176, lng: -118.28283 });
+  assert.equal(e.text, "");
+  assert.deepEqual(e.images, []);
+  assert.equal(e.chatId, chat(A));
+  const shared = adapter.transcript(chat(A)).at(-1)!;
+  assert.deepEqual([shared.kind, shared.shared, shared.targetId, shared.from], ["location", true, request.id, A]);
+  // the simulated phone is now sharing, so the live lookup works too
+  assert.equal((await adapter.getLiveLocation(A))?.lat, 34.02176);
+
+  assert.equal((await post("/webchat/share", { handle: A, lat: "34", lng: -118 })).ok, false);
+  assert.equal((await post("/webchat/share", { handle: A, lat: 134, lng: -118 })).ok, false);
+});
+
+test("the send lock and the gate hold for location requests and shares", async () => {
+  const { db, events, adapter, post } = setup();
+  // a chat that never opted in: no bubble, and a share is dropped without changing the phone's state
+  assert.equal(await adapter.requestLocation(chat(B)), false);
+  assert.equal(adapter.transcript(chat(B)).length, 0);
+  assert.equal((await post("/webchat/share", { handle: B, lat: 34.02, lng: -118.28 })).accepted, false);
+  assert.equal(events.length, 0);
+  assert.equal(adapter.transcript(chat(B)).length, 0);
+  assert.equal(adapter.capabilities().liveLocation, false);
+
+  await post("/webchat/send", { handle: A, text: "hey troy" });
+  await post("/webchat/send", { handle: B, text: "hey troy" });
+  const group = await adapter.createGroupChat([A, B], "hi both");
+  assert.equal(await adapter.requestLocation(group!), false); // 1:1 only, like the real one
+  setSetting(db, "troy_enabled", "false");
+  assert.equal(await adapter.requestLocation(chat(A)), false);
+  assert.equal((await post("/webchat/share", { handle: A, lat: 34.02, lng: -118.28 })).accepted, false);
+  assert.equal(events.length, 2);
+  assert.ok(!adapter.transcript(chat(A)).some((e) => e.kind === "location_request" || e.kind === "location"));
+});
+
+test("onAllowed and onDisallowed are no-ops in the simulator", async () => {
+  const { adapter } = setup();
+  await adapter.onAllowed!(chat(A));
+  await adapter.onDisallowed!(chat(A));
+  assert.equal(adapter.transcript(chat(A)).length, 0);
+});

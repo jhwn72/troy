@@ -123,6 +123,7 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; groupChat?: string |
     async getLiveLocation() {
       return null;
     },
+    requestLocation: async () => false,
     chatIdForHandle: (h) => `chat-${h}`,
   };
   const pipeline = createPipeline({ db, getAdapter: () => adapter, pause: async () => {}, ackAfterMs: 60_000, detectIntent: async (i) => fallbackIntent(i) });
@@ -1052,6 +1053,118 @@ test("no ai: a rule-score pass sent to the finder is a used try, and the finder'
   assert.deepEqual(checks(w.db).map((c) => [c.method, c.result]), [["blind_description", "fail"], ["blind_description", "fail"]]);
   assert.ok(claimantBlocked(w.db, foundListing(w.db).id, scammer.id));
   assert.deepEqual((await scammer.say(REPORT)).slice(-2), [COPY.nothingYet, COPY.willText]);
+});
+
+// ---------- no-ai verification leans on the finder (CLAUDE.md Decisions) ----------
+
+const GOOD_ANSWER = "white case, dinosaur sticker on the lid and my initials mk engraved";
+
+test("ai down mid-claim: a description that would pass on the rule score never verifies by itself, it waits on the finder", async () => {
+  const w = world();
+  await toDescribe(w);
+  // The photo was read by the model, then the model went down before the description was scored.
+  ruleScoresOnly();
+  const before = w.finder.texts().length;
+  assert.deepEqual(await w.owner.say(GOOD_ANSWER), COPY.checkingHolder);
+  const row = checks(w.db)[0]!;
+  assert.ok((row.score ?? 0) >= THRESHOLDS.descriptionPass, `the rule score alone would pass: ${row.score}`);
+  assert.equal(row.result, null, "no result until the finder answers");
+  assert.equal(match(w.db).status, "finder_check");
+  assert.equal(foundListing(w.db).status, "verifying");
+  assert.equal(one<{ n: number }>(w.db, "SELECT COUNT(*) AS n FROM handoffs").n, 0);
+  assert.ok(!w.owner.texts().includes(COPY.passed), "the owner is never told it checked out on the rule score");
+  // The finder sees the owner's words. The owner sees nothing of the finder's.
+  assert.deepEqual(w.finder.texts().slice(before), ["someone says the white airpods case u found are theirs", "here's how they described it:", `"${GOOD_ANSWER}"`, COPY.finderCheck]);
+  assertNoLeak(w.owner.texts());
+
+  await w.finder.say("yes");
+  assert.deepEqual(checks(w.db).map((c) => [c.method, c.result]), [["blind_description", "pass"], ["finder_confirm", "pass"]]);
+  assert.equal(match(w.db).status, "verified");
+  assertNoLeak(w.owner.texts());
+});
+
+test("ai down: a wrong color is a miss by the rules alone, and the finder is never bothered", async () => {
+  const w = world();
+  await toDescribe(w);
+  ruleScoresOnly();
+  const before = w.finder.texts().length;
+  // Two hidden details right, but the item is white.
+  assert.deepEqual(await w.owner.say("black case, dinosaur sticker on the lid and my initials mk engraved"), COPY.retry);
+  assert.equal(w.owner.state()?.step, "verify_describe");
+  assert.equal(match(w.db).status, "verifying");
+  assert.deepEqual(await w.owner.say("its black with a dinosaur sticker and engraved initials"), [COPY.cantConfirmDescription, COPY.askProof]);
+  assert.deepEqual(checks(w.db).map((c) => [c.method, c.result, c.attempts]), [["blind_description", "fail", 1], ["blind_description", "fail", 2]]);
+  assert.ok(checks(w.db).every((c) => (c.score ?? 100) <= 15), "contradictions stay at or under the cap");
+  assert.equal(w.finder.texts().length, before, "nothing was sent to the finder");
+  assert.equal(w.finder.state(), null);
+  assertNoLeak(w.owner.texts());
+});
+
+test("ai down: a different name than the one on the item is a miss without asking the finder", async () => {
+  const w = world();
+  model.profile = { ...AIRPODS, nameOnItem: "Maya Kim" };
+  await toDescribe(w);
+  ruleScoresOnly();
+  const before = w.finder.texts().length;
+  assert.deepEqual(await w.owner.say("dinosaur sticker on the lid, engraved initials, and the name on it is tyler brooks"), COPY.retry);
+  assert.deepEqual(checks(w.db).map((c) => [c.method, c.result]), [["blind_description", "fail"]]);
+  assert.equal(w.finder.texts().length, before);
+  assertNoLeak(w.owner.texts(), ["maya", "kim"]);
+});
+
+test("ai down: a wrong size is a miss without asking the finder", async () => {
+  const w = world();
+  model.profile = { category: "clothing", title: "red flannel shirt", brand: null, color: "red", publicSummary: "red flannel shirt", distinguishing: ["size small", "elbow patch sewn on the right arm", "top button is missing"], nameOnItem: null, isValuable: false, isDangerous: false };
+  await w.finder.say("found this at leavey", [PHOTO]);
+  assert.equal((await w.owner.say("lost my red flannel shirt near leavey yesterday")).at(-1), COPY.describe);
+  ruleScoresOnly();
+  const before = w.finder.texts().length;
+  assert.deepEqual(await w.owner.say("red flannel, size large, elbow patch on the right arm"), COPY.retry);
+  assert.deepEqual(checks(w.db).map((c) => [c.method, c.result]), [["blind_description", "fail"]]);
+  assert.equal(w.finder.texts().length, before);
+});
+
+test("ai down, item already at dps: a rule-score pass sends the claimant to dps in person and never to the finder", async () => {
+  const w = world();
+  await w.finder.say("found these at leavey", [PHOTO]);
+  w.db.exec("UPDATE listings SET heldBy = 'dps' WHERE type = 'found'");
+  await w.owner.say(REPORT);
+  ruleScoresOnly();
+  const before = w.finder.texts().length;
+  assert.deepEqual(await w.owner.say(GOOD_ANSWER), [COPY.dpsInPerson, `dps lost and found is at ${DPS_ADDRESS}`, "u can reach them at 213-740-9759 or lostandfound@dps.usc.edu"]);
+  assert.equal(match(w.db).status, "rejected");
+  assert.equal(one<{ n: number }>(w.db, "SELECT COUNT(*) AS n FROM handoffs").n, 0);
+  assert.equal(w.owner.state(), null);
+  assert.equal(w.finder.texts().length, before);
+  assert.equal(w.finder.state(), null);
+  assertNoLeak(w.owner.texts());
+});
+
+test("ai down: the question for the finder waits behind one they already have open, and their yes can't land on the wrong claim", async () => {
+  const w = world();
+  await toHandoffChoice(w);
+  assert.equal(w.finder.state()?.step, "handoff_choice");
+  const m1 = Number(w.finder.state()?.data.matchId);
+  // The same finder turns in a second item and its owner describes it while the model is down.
+  model.profile = { category: "water_bottle", title: "blue water bottle", brand: null, color: "blue", publicSummary: "blue water bottle", distinguishing: ["dented bottom", "climbing gym sticker"], nameOnItem: null, isValuable: false, isDangerous: false };
+  await w.finder.say("found this at leavey", [PHOTO]);
+  const two = w.person("+12135550106", "Bea Bottle", "bea.bottle@usc.edu");
+  assert.equal((await two.say("lost my blue water bottle near leavey yesterday")).at(-1), COPY.describe);
+  ruleScoresOnly();
+  const before = w.finder.texts().length;
+  assert.deepEqual(await two.say("blue bottle, dented bottom and a climbing gym sticker"), COPY.checkingHolder);
+  assert.equal(w.finder.texts().length, before, "parked, not sent");
+  assert.equal(w.finder.state()?.step, "handoff_choice");
+  assert.equal(Number(w.finder.state()?.data.matchId), m1);
+  assert.equal(pendingFor(w.db, w.finder.id).length, 1);
+  // The finder answers the question they were actually asked. Only then does the bottle question arrive.
+  await w.finder.say("2");
+  assert.equal(w.finder.state()?.step, "finder_check");
+  assert.ok(w.finder.texts().some((t) => t.includes("dented bottom and a climbing gym sticker")));
+  assert.equal(w.finder.texts().at(-1), COPY.finderCheck);
+  await w.finder.say("yes");
+  const statuses = (w.db.prepare("SELECT status FROM matches ORDER BY id").all() as { status: string }[]).map((r) => r.status);
+  assert.equal(statuses.filter((s) => s === "verified" || s === "handed_off").length, 2);
 });
 
 // ---------- one open step per person ----------

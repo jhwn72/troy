@@ -11,7 +11,8 @@ import { fallbackIntent, setModelCall } from "../src/ai.ts";
 import { walkingMinutes } from "../src/places.ts";
 import { laMinutes } from "../src/quiet.ts";
 import { RELAY_COPY, activeRelayFor, startRelay } from "../src/relay.ts";
-import { FOOD_COPY, claimServing, food, setFoodDeps, startFoodTimers, sweepFood } from "../src/flows/food.ts";
+import { FOOD_COPY, claimServing, findRecipients, food, setFoodDeps, startFoodTimers, sweepFood, walkLine } from "../src/flows/food.ts";
+import { LOCATION_STALE_MS, getUserLocation, saveUserLocation } from "../src/location.ts";
 
 registerFlow(food);
 // Nothing in this file may reach the network: every model call fails, so every reply is fallback copy.
@@ -64,6 +65,7 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; editOk?: boolean; ph
     sendPoll: async (_c, _q, options) => ({ optionMessageIds: options.map(() => null), mode: "tap" }),
     createGroupChat: async () => null,
     getLiveLocation: async (handle) => live.get(handle) ?? null,
+    requestLocation: async () => false,
     chatIdForHandle: (h) => `chat-${h}`,
   };
 
@@ -157,7 +159,8 @@ test("photo post: count confirmed, club asked once, alert goes only to subscribe
   const done = await w.text("poster", "acm");
   assert.deepEqual(done, ["posted. i texted 3 people nearby", "text me how many are left anytime, or 'we're out' when it's done"]);
 
-  assert.deepEqual(w.textsTo("a"), [`${LEAD}, about 3 bowls left`, "it's about a 6 min walk from u", "react if u want one"]);
+  // a has only a usual spot, so the walk is named from it.
+  assert.deepEqual(w.textsTo("a"), [`${LEAD}, about 3 bowls left`, "it's about a 6 min walk from tcc", "react if u want one"]);
   // b shares live location (the village); "an 8", not "a 8".
   assert.deepEqual(w.textsTo("b"), [`${LEAD}, about 3 bowls left`, "it's about an 8 min walk from u", "react if u want one"]);
   // g has no usable location: still alerted, no walking-time bubble.
@@ -179,8 +182,12 @@ test("photo post: count confirmed, club asked once, alert goes only to subscribe
   assert.deepEqual(Object.keys(alertIds).sort(), [w.ids.a, w.ids.b, w.ids.g].map(String).sort());
   assert.equal(alertIds[String(w.ids.a)], w.sentTo("a")[2].id, "the claimable bubble is the 'react' one");
   assert.equal(getFlowState(w.db, w.ids.poster), null, "the poster is not left in a state");
-  // Location is never stored.
+  // b's live fix is kept as their last known location; it never becomes a usual spot.
   assert.equal(w.user("b").usualSpots.length, 0);
+  const saved = getUserLocation(w.db, w.user("b"))!;
+  assert.deepEqual({ lat: saved.lat, lng: saved.lng, source: saved.source, stale: saved.stale }, { lat: VILLAGE.lat, lng: VILLAGE.lng, source: "find_my", stale: false });
+  // Nobody else's row was touched.
+  assert.equal(getUserLocation(w.db, w.user("g")), null);
 });
 
 test("the photo count is only a suggestion: the poster's correction wins", async () => {
@@ -203,7 +210,7 @@ test("no ai: the number comes from the text, hold time and club too, with no que
   assert.equal(d.locationText, "tcc");
   assert.equal(d.photoUrl, PHOTO[0].path);
   // From tcc itself it's a 1 min walk; c (parkside, 5 min limit) is still out of range, h is in quiet hours.
-  assert.deepEqual(w.textsTo("a"), ["yo acm is giving away free pizzas at tcc, about 5 left", "it's about a 1 min walk from u", "react if u want one"]);
+  assert.deepEqual(w.textsTo("a"), ["yo acm is giving away free pizzas at tcc, about 5 left", "it's about a 1 min walk from tcc", "react if u want one"]);
   assert.deepEqual(w.textsTo("c"), []);
   assert.deepEqual(w.textsTo("h"), []);
 });
@@ -642,4 +649,94 @@ test("voice: every food bubble is lowercase, has no em dash and at most one emoj
     assert.ok((t.match(/\p{Extended_Pictographic}/gu) ?? []).length <= 1, t);
     assert.ok(t.length <= 160, t);
   }
+});
+
+// ---------- last known location ----------
+
+const savedRow = (w: ReturnType<typeof world>, who: Who) => ({
+  ...(w.db.prepare("SELECT lastLat, lastLng, lastLocationAt, lastLocationSource FROM users WHERE id = ?").get(w.ids[who]) as { lastLat: number | null; lastLng: number | null; lastLocationAt: number | null; lastLocationSource: string | null }),
+});
+
+test("walking-time wording: fresh says from u, stale says from where u last shared, a usual spot is named", () => {
+  assert.equal(walkLine(8), "it's about an 8 min walk from u");
+  assert.equal(walkLine(8, { kind: "fresh" }), "it's about an 8 min walk from u");
+  assert.equal(walkLine(8, { kind: "stale" }), "it's about an 8 min walk from where u last shared");
+  assert.equal(walkLine(6, { kind: "spot", name: "tcc" }), "it's about a 6 min walk from tcc");
+});
+
+test("a saved fix is used for the alert: fresh at exactly 3 hours, stale one ms later", async () => {
+  const now = Date.now();
+  for (const [age, line] of [
+    [60_000, "it's about an 8 min walk from u"],
+    [LOCATION_STALE_MS, "it's about an 8 min walk from u"],
+    [LOCATION_STALE_MS + 1, "it's about an 8 min walk from where u last shared"],
+    [26 * 60 * 60 * 1000, "it's about an 8 min walk from where u last shared"],
+  ] as const) {
+    const w = world({ photoCount: null });
+    setFoodDeps({ now: () => now });
+    // k has no usual spots and shares nothing live: only the saved fix.
+    w.make("k");
+    saveUserLocation(w.db, w.ids.k, { lat: VILLAGE.lat, lng: VILLAGE.lng }, "pin", now - age);
+    await w.post(3);
+    assert.deepEqual(w.textsTo("k"), [`${LEAD}, about 3 bowls left`, line, "react if u want one"], `age ${age}`);
+    assert.equal(savedRow(w, "k").lastLocationAt, now - age, "reading a fix never refreshes its time");
+  }
+});
+
+test("a saved fix beats usual spots, and decides who is in range", async () => {
+  const now = Date.now();
+  const w = world({ photoCount: null });
+  setFoodDeps({ now: () => now });
+  // a's usual spot is tcc (6 min), but they last shared from the village (8 min).
+  saveUserLocation(w.db, w.ids.a, { lat: VILLAGE.lat, lng: VILLAGE.lng }, "find_my", now - 60_000);
+  // c's usual spot (parkside) is out of their 5 min range, but they told troy they're at leavey.
+  saveUserLocation(w.db, w.ids.c, { lat: LEAVEY.lat, lng: LEAVEY.lng }, "asked", now - 60_000);
+  // k is usually at leavey but last shared from far away, hours ago: the stale fix still decides, so they're skipped.
+  w.make("k", { usualSpots: JSON.stringify(["leavey"]), alertMinutes: 5 });
+  saveUserLocation(w.db, w.ids.k, { lat: 34.0407, lng: -118.2468 }, "pin", now - 5 * 60 * 60 * 1000);
+  await w.post(3);
+  assert.equal(w.textsTo("a")[1], "it's about an 8 min walk from u");
+  assert.deepEqual(w.textsTo("c"), [`${LEAD}, about 3 bowls left`, "it's about a 1 min walk from u", "react if u want one"]);
+  assert.deepEqual(w.textsTo("k"), [], "outside their alert distance by the best available location");
+  // g has no location at all: still alerted, no walking bubble.
+  assert.deepEqual(w.textsTo("g"), [`${LEAD}, about 3 bowls left`, "react if u want one"]);
+});
+
+test("a live find my fix is saved; an older one never replaces a newer saved fix", async () => {
+  const now = Date.now();
+  const w = world({ photoCount: null });
+  setFoodDeps({ now: () => now });
+  // b's live fix (set in world) is fresh: saved as find_my.
+  // a told troy where they are a minute ago, and Find My only has a 2 hour old fix: the newer one stays.
+  saveUserLocation(w.db, w.ids.a, { lat: LEAVEY.lat, lng: LEAVEY.lng }, "asked", now - 60_000);
+  w.live.set(w.handles.a, { lat: VILLAGE.lat, lng: VILLAGE.lng, at: now - 2 * 60 * 60 * 1000 });
+  // k's only fix is a 4 hour old live one: saved, used, and worded as stale.
+  w.make("k");
+  w.live.set(w.handles.k, { lat: VILLAGE.lat, lng: VILLAGE.lng, at: now - 4 * 60 * 60 * 1000 });
+  const got = await findRecipients(w.db, w.adapter, { posterUserId: w.ids.poster, lat: LEAVEY.lat, lng: LEAVEY.lng }, "food", now);
+  const by = (who: Who) => got.find((r) => r.user.id === w.ids[who])!;
+  assert.deepEqual([by("b").minutes, by("b").from], [8, { kind: "fresh" }]);
+  assert.equal(savedRow(w, "b").lastLocationSource, "find_my");
+  assert.deepEqual([by("a").minutes, by("a").from], [1, { kind: "fresh" }]);
+  assert.deepEqual(savedRow(w, "a"), { lastLat: LEAVEY.lat, lastLng: LEAVEY.lng, lastLocationAt: now - 60_000, lastLocationSource: "asked" });
+  assert.deepEqual([by("k").minutes, by("k").from], [8, { kind: "stale" }]);
+  assert.deepEqual(savedRow(w, "k"), { lastLat: VILLAGE.lat, lastLng: VILLAGE.lng, lastLocationAt: now - 4 * 60 * 60 * 1000, lastLocationSource: "find_my" });
+  // People who are not alerted are never looked up, so nothing is saved for them.
+  w.live.set(w.handles.f, { lat: VILLAGE.lat, lng: VILLAGE.lng, at: now });
+  await findRecipients(w.db, w.adapter, { posterUserId: w.ids.poster, lat: LEAVEY.lat, lng: LEAVEY.lng }, "food", now);
+  assert.equal(savedRow(w, "f").lastLat, null);
+});
+
+test("no text to anyone else ever carries a location: only the alert, a walking time, and the claim line", async () => {
+  const now = Date.now();
+  const w = world({ photoCount: null });
+  setFoodDeps({ now: () => now });
+  saveUserLocation(w.db, w.ids.g, { lat: 34.0251234, lng: -118.2812345 }, "pin", now - 60_000);
+  await w.post(3);
+  await w.tap("a", w.claimBubble("a"));
+  await w.text("poster", "we're out");
+  const everything = w.calls.map((c) => c.text).join("\n");
+  for (const secret of ["34.02", "118.28", String(VILLAGE.lat), String(VILLAGE.lng), "lastLat", "village"]) assert.ok(!everything.includes(secret), `leaked ${secret}`);
+  // What the poster hears is a head count, never who or where.
+  assert.ok(w.textsTo("poster").every((t) => !/walk|near (?!by)|where u/.test(t)), w.textsTo("poster").join(" | "));
 });

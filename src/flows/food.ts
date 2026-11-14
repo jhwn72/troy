@@ -7,6 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { FlowContext, FlowHandler, FlowState, MessagingAdapter, User } from "../types.ts";
 import { getFlowState, getUserById, rowToUser, saveMessage, setFlowState } from "../db/index.ts";
 import { findPlace, normalizePlaceText, walkingMinutes } from "../places.ts";
+import { getUserLocation, saveUserLocation } from "../location.ts";
 import { canAlert } from "../quiet.ts";
 import { RELAY_COPY, activeRelayFor, endRelayByContext, startRelay as realStartRelay } from "../relay.ts";
 import { registerPendingHooks } from "../pending.ts";
@@ -23,8 +24,6 @@ export const DROP_TTL_MS = 2 * 60 * 60 * 1000;
 const POST_STALE_MS = 30 * 60 * 1000;
 /** "me" and "that was fake" keep pointing at an alert for this long. */
 const ALERT_STALE_MS = 6 * 60 * 60 * 1000;
-/** A shared location older than this is not where they are anymore. */
-const LIVE_LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 export const SWEEP_EVERY_MS = 30_000;
 /** How many times one person can let go of a serving from the same drop and still claim it again. */
 export const MAX_REGRABS = 2;
@@ -414,9 +413,13 @@ function firstTail(count: number, unit: string | null): string {
   return `about ${count}${unit ? ` ${unit}` : ""} left`;
 }
 
-function walkLine(minutes: number): string {
+/** Where a walking time was measured from: a recent fix, a fix older than 3 hours, or a usual spot (named as the student wrote it). */
+export type WalkFrom = { kind: "fresh" } | { kind: "stale" } | { kind: "spot"; name: string };
+
+export function walkLine(minutes: number, from: WalkFrom = { kind: "fresh" }): string {
   const an = minutes === 8 || minutes === 11 || minutes === 18 || (minutes >= 80 && minutes <= 89);
-  return `it's about ${an ? "an" : "a"} ${minutes} min walk from u`;
+  const where = from.kind === "stale" ? "where u last shared" : from.kind === "spot" && from.name ? from.name : "u";
+  return `it's about ${an ? "an" : "a"} ${minutes} min walk from ${where}`;
 }
 
 /** How the count reaches people: a silent edit, and a new text only when the edit didn't happen. */
@@ -489,20 +492,30 @@ const snapshot = (d: Drop) => ({ left: d.servingsLeft, live: d.status === "live"
 
 // ---------- who to alert ----------
 
-async function whereIs(db: DatabaseSync, adapter: MessagingAdapter, user: User, now: number): Promise<{ lat: number; lng: number } | null> {
-  // Used for the walking time in this one call and never written anywhere.
+/**
+ * The best location Troy has for this user: a live Find My fix when the provider has one (saved as their
+ * last known location), else the saved fix (worded as "where u last shared" once it is over 3 hours old),
+ * else their first usual spot. Only ever used for this user's own walking time.
+ */
+async function whereIs(db: DatabaseSync, adapter: MessagingAdapter, user: User, now: number): Promise<{ lat: number; lng: number; from: WalkFrom } | null> {
   const live = await adapter.getLiveLocation(user.handle).catch(() => null);
-  if (live && now - live.at <= LIVE_LOCATION_MAX_AGE_MS) return { lat: live.lat, lng: live.lng };
-  for (const spot of user.usualSpots) {
-    const place = typeof spot === "string" ? findPlace(db, spot) : null;
-    if (place) return { lat: place.lat, lng: place.lng };
+  if (live && Number.isFinite(live.lat) && Number.isFinite(live.lng)) {
+    const at = Number.isFinite(live.at) ? Math.min(live.at, now) : now;
+    const saved = getUserLocation(db, user, now);
+    // An older Find My fix never replaces something newer (a pin, or "i'm at leavey rn").
+    if (!saved || saved.at === null || at >= saved.at) saveUserLocation(db, user.id, { lat: live.lat, lng: live.lng }, "find_my", at);
   }
-  return null;
+  const loc = getUserLocation(db, user, now);
+  if (!loc) return null;
+  const from: WalkFrom = loc.source === "usual_spot" ? { kind: "spot", name: loc.spot ?? "" } : loc.stale ? { kind: "stale" } : { kind: "fresh" };
+  return { lat: loc.lat, lng: loc.lng, from };
 }
 
 interface Recipient {
   user: User;
   minutes: number | null;
+  /** Where `minutes` was measured from. Null when there is no walking time. */
+  from: WalkFrom | null;
 }
 
 /** Subscribed, verified, not stopped or paused, not in their own quiet hours, not the poster, and within their own alert distance. */
@@ -516,12 +529,16 @@ export async function findRecipients(db: DatabaseSync, adapter: MessagingAdapter
       const user = rowToUser(r);
       if (!user.subscriptions.includes(key) || !canAlert(user, new Date(now))) return;
       let minutes: number | null = null;
-      if (drop.lat !== null && drop.lng !== null) {
-        const at = await whereIs(db, adapter, user, now);
-        if (at) minutes = walkingMinutes(at, { lat: drop.lat, lng: drop.lng });
+      let from: WalkFrom | null = null;
+      // Asked even when the drop has no coordinates, so a live fix still refreshes what's saved.
+      const at = await whereIs(db, adapter, user, now);
+      if (at && drop.lat !== null && drop.lng !== null) {
+        minutes = walkingMinutes(at, { lat: drop.lat, lng: drop.lng });
+        from = at.from;
       }
+      // Outside their own alert distance by the best location we have: skipped. No location at all: still alerted.
       if (minutes !== null && minutes > user.alertMinutes) return;
-      out.push({ user, minutes });
+      out.push({ user, minutes, from });
     }),
   );
   return out.sort((a, b) => a.user.id - b.user.id);
@@ -689,9 +706,9 @@ async function publish(ctx: FlowContext, draft: Draft): Promise<void> {
   const sendStart = Date.now();
 
   await Promise.all(
-    recipients.map(async ({ user, minutes }) => {
+    recipients.map(async ({ user, minutes, from }) => {
       const bubbles: { role: string; text: string }[] = [{ role: "count", text: `${lead}, ${firstTail(count, draft.unit)}` }];
-      if (minutes !== null) bubbles.push({ role: "walk", text: walkLine(minutes) });
+      if (minutes !== null) bubbles.push({ role: "walk", text: walkLine(minutes, from ?? undefined) });
       bubbles.push({ role: "claim", text: tapbacks ? FOOD_COPY.reactHow : FOOD_COPY.claimHow });
       const ids = await ctx.sayTo(user.id, ...bubbles.map((b) => b.text));
       if (!ids.some((id) => id !== null)) {

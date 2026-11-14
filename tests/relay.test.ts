@@ -48,6 +48,7 @@ function world(opts: { tapbacks?: boolean } = {}) {
     async getLiveLocation() {
       return null;
     },
+    requestLocation: async () => false,
     chatIdForHandle: (h) => `chat-${h}`,
   };
   const pipeline = createPipeline({

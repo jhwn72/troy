@@ -3,6 +3,10 @@
 // code the live flow uses: match confidence first, then the blind description score.
 // A "wrong handoff" (Troy would hand an item to someone who isn't the owner) is the worst outcome
 // and is counted on its own.
+//
+// When the description was scored by the rules only (no model), a passing score is never a handoff: the live
+// flow shows the finder the claimant's words and the finder decides. The eval reports that as a third
+// outcome, "sent_to_finder". It is not a wrong handoff, because Troy handed nothing over.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +21,8 @@ import { THRESHOLDS, scoreDescription } from "./flows/lostfound/verify.ts";
 export const EVAL_KINDS = ["true_match", "look_alike", "fraud", "wrong_item", "hard"] as const;
 export type EvalKind = (typeof EVAL_KINDS)[number];
 export type EvalDecision = "handoff" | "no_handoff";
+/** What Troy does by itself: hand off, don't, or (rule score only) ask the finder to decide. */
+export type EvalOutcome = EvalDecision | "sent_to_finder";
 
 export interface EvalCase {
   id: string;
@@ -37,9 +43,12 @@ export interface EvalCaseResult {
   /** Safe to show: the public summary only, never the hidden details. */
   item: string;
   expected: EvalDecision;
-  decision: EvalDecision;
+  decision: EvalOutcome;
+  /** True when Troy got it right alone, or sent a real owner's description to the finder. */
   correct: boolean;
   wrongHandoff: boolean;
+  /** The description passed on the rule score only, so the finder decides. Never a handoff by Troy. */
+  sentToFinder: boolean;
   confidence: number;
   matchSource: "ai" | "fallback";
   /** Null when confidence was under the clarify threshold, so the verifier never ran. */
@@ -57,6 +66,10 @@ export interface EvalResult {
   wrongHandoffs: number;
   /** Did not hand off to a real owner on this single try. */
   missedHandoffs: number;
+  /** Passed on the rule score only, so the finder is asked. Counted apart from handoffs. */
+  sentToFinder: number;
+  /** Of those, claimants who are not the owner: the finder is the last check. Not correct, not a wrong handoff. */
+  sentToFinderNotOwner: number;
   byKind: Record<string, { total: number; correct: number }>;
   cases: EvalCaseResult[];
   ranAt: number;
@@ -150,6 +163,15 @@ function buildListings(c: EvalCase, index: number, now: number, place: PlaceFind
   return { found, lost };
 }
 
+/**
+ * The same rule the live flow uses (handleDescribe in the handler): a pass from the model is a handoff,
+ * a pass on the rule score alone goes to the finder, anything under the pass mark is a miss.
+ */
+export function decide(score: number | null, source: "ai" | "fallback" | null): EvalOutcome {
+  if (score === null || score < THRESHOLDS.descriptionPass) return "no_handoff";
+  return source === "ai" ? "handoff" : "sent_to_finder";
+}
+
 async function runCase(c: EvalCase, index: number, now: number, useAi: boolean, place: PlaceFinder): Promise<EvalCaseResult> {
   const base = { id: c.id, kind: c.kind, item: c.found.publicSummary, expected: c.expected, note: c.note };
   try {
@@ -175,12 +197,13 @@ async function runCase(c: EvalCase, index: number, now: number, useAi: boolean, 
       descriptionSource = scored.source;
     }
 
-    const decision: EvalDecision = descriptionScore !== null && descriptionScore >= THRESHOLDS.descriptionPass ? "handoff" : "no_handoff";
+    const decision = decide(descriptionScore, descriptionSource);
     return {
       ...base,
       decision,
-      correct: decision === c.expected,
+      correct: decision === c.expected || (decision === "sent_to_finder" && c.expected === "handoff"),
       wrongHandoff: decision === "handoff" && c.expected === "no_handoff",
+      sentToFinder: decision === "sent_to_finder",
       confidence,
       matchSource,
       descriptionScore,
@@ -193,6 +216,7 @@ async function runCase(c: EvalCase, index: number, now: number, useAi: boolean, 
       decision: "no_handoff",
       correct: c.expected === "no_handoff",
       wrongHandoff: false,
+      sentToFinder: false,
       confidence: 0,
       matchSource: "fallback",
       descriptionScore: null,
@@ -236,6 +260,8 @@ export async function runEval(opts: { useAi?: boolean; limit?: number; save?: bo
     wrong: results.length - correct,
     wrongHandoffs: results.filter((r) => r.wrongHandoff).length,
     missedHandoffs: results.filter((r) => r.expected === "handoff" && r.decision === "no_handoff").length,
+    sentToFinder: results.filter((r) => r.sentToFinder).length,
+    sentToFinderNotOwner: results.filter((r) => r.sentToFinder && r.expected === "no_handoff").length,
     byKind,
     cases: results,
     ranAt: now,
@@ -262,7 +288,9 @@ export function latestEval(): EvalResult | null {
   try {
     if (!existsSync(LATEST_PATH)) return null;
     const parsed = JSON.parse(readFileSync(LATEST_PATH, "utf8")) as EvalResult;
-    return typeof parsed?.total === "number" && Array.isArray(parsed.cases) ? parsed : null;
+    if (typeof parsed?.total !== "number" || !Array.isArray(parsed.cases)) return null;
+    // Results saved before these fields existed read as zero.
+    return { ...parsed, sentToFinder: parsed.sentToFinder ?? 0, sentToFinderNotOwner: parsed.sentToFinderNotOwner ?? 0 };
   } catch {
     return null;
   }

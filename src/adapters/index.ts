@@ -12,14 +12,17 @@ export type AdapterDeps = {
   onEvent: (e: IncomingEvent) => Promise<void>;
 };
 
-export async function createAdapter(deps: AdapterDeps): Promise<{ adapter: MessagingAdapter; routes: Hono }> {
+/** `stop` closes whatever the provider keeps open beyond the web routes (the BlueBubbles helper listener). */
+export async function createAdapter(deps: AdapterDeps): Promise<{ adapter: MessagingAdapter; routes: Hono; stop?: () => void }> {
   switch (config.provider) {
     case "webchat":
       return createWebchatAdapter(deps);
     case "bluebubbles": {
       // Loaded lazily so webchat mode never touches the BlueBubbles code.
       const { createBluebubblesAdapter } = await import("./bluebubbles.ts");
-      return createBluebubblesAdapter(deps);
+      // The helper listener is started inside (a no-op without TROY_HELPER_TOKEN) and stopped through `stop`.
+      const made = createBluebubblesAdapter(deps);
+      return { adapter: made.adapter, routes: made.routes, stop: () => made.helper.stop() };
     }
     case "linq":
       throw new Error("MESSAGING_PROVIDER=linq is not built. Use webchat or bluebubbles.");

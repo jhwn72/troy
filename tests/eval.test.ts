@@ -97,14 +97,42 @@ test("runEval in fallback mode returns consistent totals", { skip: ready ? false
   assert.equal(r.correct, r.cases.filter((c) => c.correct).length);
   assert.equal(r.wrongHandoffs, r.cases.filter((c) => c.wrongHandoff).length);
   assert.equal(r.missedHandoffs, r.cases.filter((c) => c.expected === "handoff" && c.decision === "no_handoff").length);
-  assert.equal(r.wrong, r.wrongHandoffs + r.missedHandoffs);
+  assert.equal(r.sentToFinder, r.cases.filter((c) => c.sentToFinder).length);
+  assert.equal(r.sentToFinderNotOwner, r.cases.filter((c) => c.sentToFinder && c.expected === "no_handoff").length);
+  assert.equal(r.wrong, r.wrongHandoffs + r.missedHandoffs + r.sentToFinderNotOwner);
   const kindTotal = Object.values(r.byKind).reduce((n, k) => n + k.total, 0);
   assert.equal(kindTotal, r.total);
   for (const c of r.cases) {
     assert.ok(c.confidence >= 0 && c.confidence <= 100, `${c.id}: confidence in range`);
     assert.ok(c.descriptionScore === null || (c.descriptionScore >= 0 && c.descriptionScore <= 100), `${c.id}: description score in range`);
     assert.equal(c.matchSource, "fallback");
-    if (c.decision === "handoff") assert.ok(c.descriptionScore !== null, `${c.id}: a handoff needs a description score`);
+    assert.notEqual(c.decision, "handoff", `${c.id}: the rule score alone never hands an item over`);
+    assert.equal(c.wrongHandoff, false);
+    assert.equal(c.sentToFinder, c.decision === "sent_to_finder");
+    if (c.sentToFinder) assert.ok(c.descriptionScore !== null && c.descriptionScore >= 70, `${c.id}: only a passing rule score goes to the finder`);
     assert.equal(c.error, undefined, `${c.id}: no error`);
   }
+});
+
+test("fallback mode: every pass is sent to the finder, counted apart from handoffs, across all cases", { skip: ready ? false : "skipped: matcher or verifier isn't there yet" }, async () => {
+  const { runEval } = await import("../src/eval.ts");
+  const r = await runEval({ useAi: false, save: false });
+  assert.equal(r.mode, "fallback");
+  assert.equal(r.cases.filter((c) => c.decision === "handoff").length, 0);
+  assert.equal(r.wrongHandoffs, 0);
+  assert.ok(r.sentToFinder > 0, "real owners with a good description reach the finder");
+  // A real owner whose words reach the finder is the right outcome for this mode.
+  for (const c of r.cases) if (c.sentToFinder) assert.equal(c.correct, c.expected === "handoff", c.id);
+  assert.equal(r.sentToFinderNotOwner, 0, "no fraud or look-alike case gets as far as the finder on the rule score");
+  assert.equal(r.correct + r.wrong, r.total);
+});
+
+test("decide: a model pass is a handoff, a rule-score pass goes to the finder, a miss is a miss on both", { skip: ready ? false : "skipped: matcher or verifier isn't there yet" }, async () => {
+  const { decide } = await import("../src/eval.ts");
+  assert.equal(decide(92, "ai"), "handoff");
+  assert.equal(decide(92, "fallback"), "sent_to_finder");
+  assert.equal(decide(70, "fallback"), "sent_to_finder");
+  assert.equal(decide(69, "fallback"), "no_handoff");
+  assert.equal(decide(15, "ai"), "no_handoff");
+  assert.equal(decide(null, null), "no_handoff");
 });

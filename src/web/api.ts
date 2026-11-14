@@ -174,6 +174,8 @@ export function createWebRoutes(deps: WebDeps): Hono {
   const { db } = deps;
   const app = new Hono();
 
+  // Privacy: a student's saved location (users.lastLat, lastLng, lastLocationAt, lastLocationSource) and their usual
+  // spots never leave the server through this file. Every users query here names its columns; never SELECT * FROM users.
   const userNames = (): Map<number, Row> => {
     const map = new Map<number, Row>();
     for (const u of db.prepare("SELECT id, name, bannedFromPosting, isExample FROM users").all() as Row[]) map.set(u.id as number, u);

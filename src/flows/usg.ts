@@ -66,12 +66,19 @@ export function isConcern(text: string, action: string): boolean {
 
 // ---------- directory answers ----------
 
-/** A program row's answer: its details exactly as stored, split at sentence ends, plus its url only if it has one. */
+/**
+ * A program row's answer: its details exactly as stored, split at sentence ends, then its url if it has one,
+ * or else the row's own contact so "ask usg" has somewhere to go.
+ *
+ * A row that isn't example data is said plainly and nothing is added on top: USG's own statement that it runs
+ * a program is enough to say so (CLAUDE.md, "Trust USG's own statements"). Only a row still marked as example
+ * data, or one with no stored text at all, gets the "i'd check with usg" line.
+ */
 export function programBubbles(row: DirectoryRow): string[] {
   const bubbles = row.details ? sentenceBubbles(row.details) : [`usg runs this one: ${row.name}`];
-  // An example row means the details couldn't be confirmed. The stored text already says so; this covers a row that doesn't.
   if ((row.isExample || !row.details) && !bubbles.join(" ").toLowerCase().includes("check with usg")) bubbles.push(CHECK_WITH_USG);
   if (row.url) bubbles.push(row.url);
+  else if (row.contactMethod) bubbles.push(`u can reach them at ${row.contactMethod}`);
   return bubbles;
 }
 

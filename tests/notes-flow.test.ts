@@ -19,7 +19,13 @@ import {
   keywordGroupChats,
   morePrivateContact,
   morePrivateGroupChats,
+  parse,
+  parseAtNow,
+  setNotesClock,
 } from "../src/flows/notes.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { LOCATION_STALE_MS, getUserLocation, saveUserLocation } from "../src/location.ts";
 import type { RuleGuess } from "../src/flows/notes.ts";
 
 registerFlow(notes);
@@ -62,6 +68,7 @@ function fakeAdapter() {
     async getLiveLocation() {
       return null;
     },
+    requestLocation: async () => false,
     chatIdForHandle: (h) => `chat-${h}`,
   };
   return { adapter, sent };
@@ -117,7 +124,10 @@ function setup() {
   return { db, fake, a: from(A), b: from(B), tap, user, notesOf, state };
 }
 
-afterEach(() => setRuleClassifier(null));
+afterEach(() => {
+  setRuleClassifier(null);
+  setNotesClock(null);
+});
 
 function assertVoice(bubbles: string[]) {
   for (const b of bubbles) {
@@ -561,6 +571,7 @@ test("what do u know about me lists settings and notes, built in code", async ()
     "contact: relay only. i pass messages along and nobody gets ur number. group chats: off",
     "alerts: on. topics: free food, events. within a 5 min walk. quiet hours: 11pm to 8am",
     "usual spots: leavey, the village",
+    "location: none saved",
     'notes: 1. "don\'t share my number" 2. "don\'t add me to group chats" 3. "keep it short"',
     'say "forget that" to drop the last one',
   ]);
@@ -570,7 +581,8 @@ test("what do u know about me lists settings and notes, built in code", async ()
   const empty = await t.b("what do you know about me?");
   assert.equal(empty[1], "contact: people i connect u with can text u directly. group chats: ok");
   assert.equal(empty[2], "alerts: on. topics: free food, events. within a 15 min walk. quiet hours: off");
-  assert.match(empty[3]!, /no notes yet/);
+  assert.equal(empty[3], "location: none saved");
+  assert.match(empty[4]!, /no notes yet/);
 });
 
 test("settings questions are answered from the row", async () => {
@@ -692,4 +704,141 @@ test("notesIntent routes notes texts and leaves everything else alone", () => {
   for (const s of ["i lost my wallet at leavey", "found a black hydro flask", "free pizza at tcc, 20 slices", "the elevator in thh is broken", "hey", "who do i talk to about dining hall hours", "6 left", "need a ride to lax friday", "i'll take one", "thanks"]) {
     assert.equal(notesIntent(s), null, s);
   }
+});
+
+// ---------- last known location ----------
+
+const PLACES = JSON.parse(readFileSync(join(import.meta.dirname, "../src/db/seed-data/campus_places.json"), "utf8")) as { name: string; nicknames: string[]; lat: number; lng: number; kind: string }[];
+const LEAVEY = PLACES.find((p) => p.name === "Leavey Library")!;
+
+function withPlaces() {
+  const t = setup();
+  const add = t.db.prepare("INSERT INTO campus_places (name, nicknames, lat, lng, kind) VALUES (?, ?, ?, ?, ?)");
+  for (const p of PLACES) add.run(p.name, JSON.stringify(p.nicknames), p.lat, p.lng, p.kind);
+  const row = (h: string) => ({
+    ...(t.db.prepare("SELECT lastLat, lastLng, lastLocationAt, lastLocationSource FROM users WHERE id = ?").get(t.user(h).id) as { lastLat: number | null; lastLng: number | null; lastLocationAt: number | null; lastLocationSource: string | null }),
+  });
+  return { ...t, row };
+}
+
+test("i'm at leavey rn saves that place as the location, source asked", async () => {
+  const t = withPlaces();
+  const now = Date.now();
+  setNotesClock(() => now);
+  for (const phrase of ["i'm at leavey rn", "im at leavey", "I am at Leavey right now", "hey troy i'm by leavey library rn", "im in leavey rn"]) {
+    t.db.prepare("UPDATE users SET lastLat = NULL, lastLng = NULL, lastLocationAt = NULL, lastLocationSource = NULL").run();
+    const out = await t.a(phrase);
+    assert.deepEqual(out, ["got it, ur at leavey library", 'i\'ll use that for walking times. say "forget my location" anytime'], phrase);
+    assertVoice(out);
+    assert.deepEqual(t.row(A), { lastLat: LEAVEY.lat, lastLng: LEAVEY.lng, lastLocationAt: now, lastLocationSource: "asked" }, phrase);
+  }
+  assert.equal(t.row(B).lastLat, null, "only the student who said it");
+  assert.deepEqual(t.notesOf(A), [], "where someone is right now is not a note");
+  assert.equal(t.user(A).usualSpots.length, 0, "and not a usual spot");
+  assert.equal(t.state(A), null);
+});
+
+test("a place troy doesn't know is not saved, and everyday phrases are not read as places", async () => {
+  const t = withPlaces();
+  const out = await t.a("i'm at my cousin's place rn");
+  if (out.length) assert.ok(!out.join(" ").includes("got it, ur at"));
+  assert.deepEqual(await t.a("im at narnia rn"), ["i don't know that spot, so i didn't save it", 'try a campus spot, like "i\'m at leavey rn"']);
+  assert.equal(t.row(A).lastLat, null);
+  for (const phrase of ["i'm in a rush", "im at a loss", "i'm in class", "im at leavey and i lost my airpods", "i'm usually at leavey", "im at leavey where is the free food at tcc or the village or wherever"]) {
+    assert.equal(parseAtNow(phrase), null, phrase);
+    assert.ok(!parse(phrase).at, phrase);
+  }
+  assert.equal(parseAtNow("i'm at leavey rn"), "leavey");
+  assert.equal(parseAtNow("im in the village right now"), "village");
+});
+
+test("what do u know about me says whether a location is saved and how old, by place name, never coordinates", async () => {
+  const t = withPlaces();
+  const now = Date.now();
+  setNotesClock(() => now);
+  const line = async () => (await t.a("what do u know about me")).find((b) => b.startsWith("location:"));
+  assert.equal(await line(), "location: none saved");
+
+  // 60 m from leavey: named by the nearest campus place.
+  saveUserLocation(t.db, t.user(A).id, { lat: LEAVEY.lat + 0.00054, lng: LEAVEY.lng }, "find_my", now - 12 * 60_000);
+  assert.equal(await line(), 'location: near leavey library. u shared it 12 min ago. say "forget my location" to erase it');
+
+  saveUserLocation(t.db, t.user(A).id, { lat: LEAVEY.lat, lng: LEAVEY.lng }, "asked", now - LOCATION_STALE_MS - 60_000);
+  assert.equal(await line(), 'location: near leavey library. u told me 3 hr ago. say "forget my location" to erase it');
+
+  // Downtown, nowhere near a campus place.
+  saveUserLocation(t.db, t.user(A).id, { lat: 34.0407123, lng: -118.2468456 }, "pin", now - 2 * 24 * 60 * 60 * 1000);
+  const all = await t.a("what do u know about me");
+  assert.ok(all.includes('location: a spot off campus. u shared it 2 days ago. say "forget my location" to erase it'));
+  assertVoice(all);
+  for (const b of all) assert.ok(!/\d{2,3}\.\d{3}/.test(b), `coordinates in: ${b}`);
+
+  // The question on its own works too, and the other student sees nothing of it.
+  assert.deepEqual(await t.a("do u have my location?"), ['location: a spot off campus. u shared it 2 days ago. say "forget my location" to erase it']);
+  assert.ok((await t.b("what do u know about me")).includes("location: none saved"));
+});
+
+test("the 150 m edge: just inside is named, just outside is a spot off campus", async () => {
+  const t = withPlaces();
+  // Hoose Library and friends are close to each other, so use one isolated point: only the test place is in the table.
+  t.db.prepare("DELETE FROM campus_places").run();
+  t.db.prepare("INSERT INTO campus_places (name, nicknames, lat, lng, kind) VALUES ('Leavey Library', '[\"leavey\"]', ?, ?, 'library')").run(LEAVEY.lat, LEAVEY.lng);
+  const metersNorth = (m: number) => ({ lat: LEAVEY.lat + m / 111_195, lng: LEAVEY.lng });
+  saveUserLocation(t.db, t.user(A).id, metersNorth(149), "pin");
+  assert.match((await t.a("what do u know about me")).join(" "), /location: near leavey library\./);
+  saveUserLocation(t.db, t.user(A).id, metersNorth(151), "pin");
+  assert.match((await t.a("what do u know about me")).join(" "), /location: a spot off campus\./);
+});
+
+test("forget my location erases only the location", async () => {
+  const t = withPlaces();
+  await t.a("keep it short");
+  await t.a("i'm usually at leavey");
+  // The exact phrase "forget my location" is also a code command in src/commands.ts, which answers before any flow.
+  // These wordings reach this flow through the pipeline.
+  for (const phrase of ["can u forget my location troy", "stop saving my location", "forget where i am", "Wipe my saved location."]) {
+    saveUserLocation(t.db, t.user(A).id, { lat: LEAVEY.lat, lng: LEAVEY.lng }, "find_my");
+    saveUserLocation(t.db, t.user(B).id, { lat: LEAVEY.lat, lng: LEAVEY.lng }, "pin");
+    const out = await t.a(phrase);
+    assert.deepEqual(out, ["done. i forgot ur location", "walking times will go off ur usual spots until u share again"], phrase);
+    assertVoice(out);
+    assert.deepEqual(t.row(A), { lastLat: null, lastLng: null, lastLocationAt: null, lastLocationSource: null }, phrase);
+    assert.notEqual(t.row(B).lastLat, null, "someone else's location is untouched");
+  }
+  assert.deepEqual(t.notesOf(A), [{ kind: "preference", text: "keep it short" }], "notes stay");
+  assert.deepEqual(t.user(A).usualSpots, ["leavey"], "usual spots stay");
+  assert.equal(getUserLocation(t.db, t.user(A))!.source, "usual_spot");
+  assert.deepEqual(await t.a("forget where i am"), ["i don't have a location saved for u"]);
+  assert.deepEqual(await t.b("stop saving my location"), ["done. i forgot ur location", "i won't show walking times until u share again or tell me where u are"]);
+  assert.equal(t.state(A), null);
+});
+
+test("the plain phrase forget my location works inside the notes flow itself", async () => {
+  const t = withPlaces();
+  for (const phrase of ["forget my location", "Forget my location.", "delete my location", "erase my last location"]) {
+    assert.equal(parse(phrase).command, "forget_location", phrase);
+    assert.deepEqual(notesIntent(phrase), { flow: "notes", action: "forget", details: {}, source: "fallback" }, phrase);
+  }
+  // Never mistaken for "forget that" (which drops a note) or for a usual-spots change.
+  assert.notEqual(parse("forget that").command, "forget_location");
+  assert.notEqual(parse("forget my spots").command, "forget_location");
+
+  const user = t.user(A);
+  saveUserLocation(t.db, user.id, { lat: LEAVEY.lat, lng: LEAVEY.lng }, "pin");
+  const said: string[] = [];
+  await notes.handle({
+    db: t.db,
+    user,
+    event: { provider: "webchat", userHandle: A, chatId: `chat-${A}`, isGroup: false, messageId: "in-x", text: "forget my location", images: [], receivedAt: Date.now() },
+    intent: { flow: "notes", action: "forget", details: {}, source: "fallback" },
+    state: null,
+    say: async (...b) => b.map((x) => (said.push(typeof x === "string" ? x : x.text), null)),
+    sayTo: async () => [],
+    sayToOwed: async () => [],
+    setState: () => {},
+    setStateFor: () => {},
+    adapter: t.fake.adapter,
+  });
+  assert.deepEqual(said, ["done. i forgot ur location", "i won't show walking times until u share again or tell me where u are"]);
+  assert.equal(t.row(A).lastLat, null);
 });

@@ -402,3 +402,72 @@ test("handles are masked", () => {
   assert.equal(maskHandle("someone@usc.edu"), "s•••@usc.edu");
   assert.equal(maskHandle(null), null);
 });
+
+// ---------- saved locations never leave through the web API ----------
+
+test("no endpoint returns a student's saved location, with or without staff view", async () => {
+  const t = setup();
+  const ids = seedLostFound(t);
+  // Distinctive example coordinates so any leak is easy to spot in the JSON.
+  const LAT = 34.0271828;
+  const LNG = -118.2831415;
+  const AT = 1794000123456;
+  for (const id of [ids.finder, ids.owner]) {
+    t.db.prepare("UPDATE users SET lastLat = ?, lastLng = ?, lastLocationAt = ?, lastLocationSource = 'find_my', usualSpots = ?, verifiedAt = ? WHERE id = ?").run(LAT, LNG, AT, JSON.stringify(["zzyzx hall"]), Date.now(), id);
+  }
+  // The finder also has a food drop with reports, a repair report and a USG concern, so every list has their rows in it.
+  const dropId = Number(
+    t.db
+      .prepare("INSERT INTO food_drops (posterUserId, clubName, description, locationText, lat, lng, servingsTotal, servingsLeft, reports, createdAt) VALUES (?, 'acm', 'pizza', 'tcc', 34.0203, -118.2863, 5, 5, 2, ?)")
+      .run(ids.finder, Date.now()).lastInsertRowid,
+  );
+  const reportIds: number[] = [];
+  for (const kind of ["repair", "usg_concern"]) {
+    reportIds.push(
+      Number(
+        t.db
+          .prepare("INSERT INTO reports (userId, kind, category, description, locationText, routedTo, followers, createdAt) VALUES (?, ?, 'elevator', 'stuck', 'Leavey Library', 'FMS', ?, ?)")
+          .run(ids.finder, kind, JSON.stringify([ids.owner]), Date.now()).lastInsertRowid,
+      ),
+    );
+  }
+
+  const leaks = ["lastLat", "lastLng", "lastLocationAt", "lastLocationSource", "usualSpots", "34.0271828", "118.2831415", String(AT), "find_my", "zzyzx"];
+  const check = (path: string, json: unknown) => {
+    const text = JSON.stringify(json);
+    for (const leak of leaks) assert.equal(text.includes(leak), false, `${path} leaked ${leak}`);
+  };
+
+  const gets = ["/api/panel", "/api/panel?staff=1", "/api/dps", "/api/reports?kind=repair", "/api/reports?kind=usg_concern", "/api/moderation", "/api/settings", "/api/settings/allow-list", "/api/directory", "/api/eval"];
+  for (const path of gets) {
+    const res = await t.call("GET", path);
+    assert.equal(res.status, 200, path);
+    check(path, res.json);
+  }
+  // Endpoints that change something answer with rows too.
+  check("check-code", (await t.call("POST", "/api/dps/check-code", { code: "K7M4XQ" })).json);
+  check("report status", (await t.call("POST", `/api/reports/${reportIds[0]}/status`, { status: "in_progress" })).json);
+  check("ban", (await t.call("POST", "/api/moderation/ban", { userId: ids.finder, banned: true })).json);
+  check("complete", (await t.call("POST", "/api/dps/complete", { handoffId: ids.handoffId })).json);
+  // Nothing staff did sent a location to a student either.
+  check("notify", t.sent);
+  assert.ok(dropId > 0);
+
+  // The data is still there for Troy's own use; it just never leaves through the web.
+  const row = t.db.prepare("SELECT lastLat, lastLng FROM users WHERE id = ?").get(ids.finder) as { lastLat: number; lastLng: number };
+  assert.equal(row.lastLat, LAT);
+  assert.equal(row.lastLng, LNG);
+});
+
+test("the web API source never selects whole user rows or names the location columns in a query", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const src = readFileSync(join(import.meta.dirname, "../src/web/api.ts"), "utf8");
+  const code = src
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("//"))
+    .join("\n");
+  assert.equal(/SELECT\s+\*\s+FROM\s+users\b/i.test(code), false, "SELECT * FROM users would carry lastLat/lastLng");
+  assert.equal(/\busers\.\*/i.test(code), false);
+  for (const col of ["lastLat", "lastLng", "lastLocationAt", "lastLocationSource", "getUserById", "getUserByHandle", "rowToUser", "getUserLocation"]) assert.equal(code.includes(col), false, `api.ts mentions ${col}`);
+});

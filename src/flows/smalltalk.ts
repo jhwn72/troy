@@ -13,11 +13,7 @@ export const smalltalk: FlowHandler = {
   name: "smalltalk",
   async handle(ctx) {
     const text = ctx.event.text.trim();
-    // A pin with no words: fixed line, nothing for the model to answer.
-    if (!text && ctx.event.location) {
-      await ctx.say("got ur location. what do u need?");
-      return;
-    }
+    // A location share with no words never gets here: the pipeline saves it and answers with a fixed line.
     const plain = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     const notes = (ctx.db.prepare("SELECT text FROM user_notes WHERE userId = ? ORDER BY id").all(ctx.user.id) as { text: string }[]).map((n) => n.text);
     const bubbles = await composeReply({

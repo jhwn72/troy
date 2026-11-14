@@ -57,6 +57,7 @@ function setup() {
     sendPoll: async (_c, _q, options) => ({ optionMessageIds: options.map(() => null), mode: "tap" }),
     createGroupChat: async () => null,
     getLiveLocation: async () => null,
+    requestLocation: async () => false,
     chatIdForHandle: (h) => `chat-${h}`,
   };
   const pipeline = createPipeline({ db, getAdapter: () => adapter, pause: async () => {}, ackAfterMs: 60_000, detectIntent: async (i) => fallbackIntent(i) });

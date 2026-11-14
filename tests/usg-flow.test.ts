@@ -9,6 +9,12 @@ import { fallbackIntent, setModelCall } from "../src/ai.ts";
 import { usg, ASK_NAME, isConcern, parseChoice, topicFromWords, EXPLAIN_NAME } from "../src/flows/usg.ts";
 import { sentenceBubbles } from "../src/flows/reports-shared.ts";
 
+/**
+ * What was said, whatever bubbles it arrived in. The pipeline splits long bubbles at a comma or a space
+ * (and drops the comma there), so the words are compared, not the bubble edges.
+ */
+const said = (bubbles: (string | null)[]): string => bubbles.filter(Boolean).join(" ").replace(/[\s,]+/g, " ").trim();
+
 const DINING_COMMITTEE = "USG Committee on Sustainability and Campus Infrastructure";
 
 type Report = { id: number; userId: number; anonymous: number; category: string; description: string; routedTo: string; status: string; followers: string; isExample: number };
@@ -60,6 +66,7 @@ function setup() {
     sendPoll: async (_c, _q, options) => ({ optionMessageIds: options.map(() => null), mode: "tap" }),
     createGroupChat: async () => null,
     getLiveLocation: async () => null,
+    requestLocation: async () => false,
     chatIdForHandle: (h) => `chat-${h}`,
   };
   const pipeline = createPipeline({ db, getAdapter: () => adapter, pause: async () => {}, ackAfterMs: 60_000, detectIntent: async (i) => MODEL_INTENTS[i.text] ?? fallbackIntent(i) });
@@ -89,28 +96,70 @@ test("'how does my club get funding' answers with the stored RSO funding details
   assert.ok(row.details && row.url);
   const reply = await a.text("how does my club get funding");
   // The stored text comes back whole, in order, and the link is the row's own.
-  assert.ok(reply.join(" ").includes(row.details));
+  assert.ok(said(reply).includes(said([row.details])));
   assert.ok(reply.includes(row.url!));
   // Every bubble is a piece of the stored row. Nothing else was said.
-  assert.deepEqual(reply, [...sentenceBubbles(row.details), row.url]);
+  assert.equal(said(reply), said([...sentenceBubbles(row.details), row.url]));
   assert.equal(t.mine().length, 0);
   assert.equal(a.state(), null);
 });
 
-test("a program marked isExample says to check with usg and gives no url", async () => {
+// "Trust USG's own statements" (CLAUDE.md Decisions): the shuttle and the thrift are stated plainly.
+const HEDGES = /couldn'?t confirm|not confirmed|i don'?t have confirmed|i'd check with usg|double check|not 100% sure|not sure|i think|might|maybe/;
+
+test("the usg thrift is stated plainly: the stored sentences, the usg contact, no hedging, no link, no date", async () => {
   const t = setup();
   const a = t.student("+13235550002");
   const row = t.dir("USG thrift");
-  assert.equal(row.isExample, 1);
+  assert.equal(row.isExample, 0);
   assert.equal(row.url, null);
+  assert.equal(row.details, "usg runs a thrift for students. ask usg where and when the next one is.");
   const reply = await a.text("is there a usg thrift?");
-  assert.ok(reply.join(" ").includes(row.details));
-  assert.match(reply.join(" "), /i'd check with usg/);
+  assert.equal(said(reply), "usg runs a thrift for students. ask usg where and when the next one is. u can reach them at usg@usc.edu");
+  assert.equal(reply.at(-1), "u can reach them at usg@usc.edu");
+  assert.ok(!HEDGES.test(reply.join(" ")));
   assert.ok(!/https?:\/\/|www\./.test(reply.join(" ")));
+  assert.ok(!/\d/.test(reply.join(" ")), "no date or price");
   assert.equal(t.mine().length, 0);
 });
 
-test("an example program with no stored details still says to check with usg, and never borrows a link", async () => {
+test("the usg lax shuttle is stated plainly, and dates are left to usg", async () => {
+  const t = setup();
+  const a = t.student("+13235550012");
+  const row = t.dir("USG LAX shuttle");
+  assert.equal(row.isExample, 0);
+  assert.equal(row.url, null);
+  assert.equal(row.details, "usg runs a shuttle to lax around breaks. hit up usg for this year's dates and how to sign up.");
+  const reply = await a.text("when does the usg lax shuttle run?");
+  assert.equal(said(reply), "usg runs a shuttle to lax around breaks. hit up usg for this year's dates and how to sign up. u can reach them at usg@usc.edu");
+  assert.equal(reply.at(-1), "u can reach them at usg@usc.edu");
+  assert.ok(!HEDGES.test(reply.join(" ")));
+  assert.ok(!/https?:\/\/|www\./.test(reply.join(" ")));
+  assert.ok(!/\d/.test(reply.join(" ")), "no date or price");
+});
+
+test("the two rows keep the usg contact and carry no link, date or price", () => {
+  const t = setup();
+  for (const name of ["USG LAX shuttle", "USG thrift"]) {
+    const row = t.db.prepare("SELECT details, url, contactMethod FROM directory WHERE name = ?").get(name) as { details: string; url: string | null; contactMethod: string | null };
+    assert.equal(row.url, null, name);
+    assert.equal(row.contactMethod, "usg@usc.edu", name);
+    assert.ok(!HEDGES.test(row.details), name);
+    assert.ok(!/\d|\$|https?:/.test(row.details), name);
+    assert.equal(row.details, row.details.toLowerCase(), name);
+    assert.ok(!row.details.includes("\u2014"), name);
+  }
+});
+
+test("a program row still marked as example data keeps the check-with-usg line", async () => {
+  const t = setup();
+  t.db.prepare("UPDATE directory SET isExample = 1, details = 'usg has a pilot going.' WHERE name = 'USG thrift'").run();
+  const a = t.student("+13235550013");
+  const reply = await a.text("is there a usg thrift?");
+  assert.deepEqual(reply, ["usg has a pilot going.", "i'd check with usg", "u can reach them at usg@usc.edu"]);
+});
+
+test("a program with no stored details still says to check with usg, and never borrows a link", async () => {
   const t = setup();
   t.db.prepare("UPDATE directory SET details = NULL WHERE name = 'USG LAX shuttle'").run();
   const a = t.student("+13235550003");
@@ -184,7 +233,9 @@ test("a concern a program fits gets the program's stored details first, then the
   const a = t.student("+13235550008");
   const row = t.dir("USG RSO funding");
   const reply = await a.text("club funding takes too long, the rso funding deadlines are ridiculous");
-  assert.deepEqual(reply, [...sentenceBubbles(row.details), row.url, ASK_NAME]);
+  assert.equal(said(reply), said([...sentenceBubbles(row.details), row.url, ASK_NAME]));
+  assert.equal(reply.at(-1), ASK_NAME);
+  assert.equal(reply.at(-2), row.url);
   await a.text("anonymous");
   assert.equal(t.mine()[0].routedTo, "USG Funding Department");
   assert.equal(t.mine()[0].anonymous, 1);
@@ -207,10 +258,11 @@ test("a question a committee covers offers to send it, and yes leads to the name
   const t = setup();
   const a = t.student("+13235550010");
   const reply = await a.text("what's the policy on dining hall menus?");
-  assert.equal(reply.length, 2);
-  assert.ok(reply[0].includes(DINING_COMMITTEE));
-  assert.match(reply[0], /double check/);
-  assert.equal(reply[1], "want me to send them ur question?");
+  // The guess can arrive as one bubble or split in two. The offer is always the last one.
+  const guess = said(reply.slice(0, -1));
+  assert.ok(guess.includes(said([DINING_COMMITTEE])));
+  assert.match(guess, /double check/);
+  assert.equal(reply.at(-1), "want me to send them ur question?");
   assert.deepEqual(await a.text("yes"), [ASK_NAME]);
   await a.text("with my name");
   assert.equal(t.mine().length, 1);

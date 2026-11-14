@@ -1,6 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
+import { deflateRawSync } from "node:zlib";
 import type { IncomingEvent } from "../src/types.ts";
 
 // config reads the environment when it's first imported, so set it before importing anything.
@@ -9,9 +10,13 @@ process.env.TROY_ENABLED = "true";
 process.env.BLUEBUBBLES_URL = "http://bb.test:1234";
 process.env.BLUEBUBBLES_PASSWORD = "test-password";
 process.env.TROY_EMPTY_RETRY_MS = "5";
+delete process.env.TROY_HELPER_TOKEN; // the real helper channel (port 45699) must never start in tests
+delete process.env.MESSAGING_PROVIDER;
 
 const { openDb, setSetting } = await import("../src/db/index.ts");
-const { createBluebubblesAdapter, parseLocationVcard, handleFromChatId } = await import("../src/adapters/bluebubbles.ts");
+const { createBluebubblesAdapter, parseLocationVcard, handleFromChatId, buildContactCard } = await import("../src/adapters/bluebubbles.ts");
+const { createHelper, POLL_BALLOON_ID, FINDMY_BALLOON_ID } = await import("../src/adapters/helper.ts");
+type HelperClientLike = import("../src/adapters/helper.ts").HelperClientLike;
 const { allowChat, isAllowedChat } = await import("../src/adapters/gate.ts");
 const { config } = await import("../src/config.ts");
 const { getSetting } = await import("../src/db/index.ts");
@@ -54,7 +59,7 @@ beforeEach(() => {
     else if (init.body instanceof FormData) body = Object.fromEntries(init.body.entries());
     const call = { method: init.method ?? "GET", path: u.pathname.replace("/api/v1", "") + u.search.replace(/[?&]password=[^&]*/, ""), body };
     calls.push(call);
-    if (call.path.startsWith("/server/info")) return json({ private_api: privateApi, helper_connected: privateApi });
+    if (call.path.startsWith("/server/info")) return json({ private_api: privateApi, helper_connected: privateApi, detected_imessage: "troy@example.com" });
     const r = respond(call);
     return r instanceof Response ? r : json(r);
   }) as typeof fetch;
@@ -606,4 +611,274 @@ test("anything attached to another message is never passed on as typed text", as
   await handleWebhook(msg({ associatedMessageGuid: "p:0/ZZZ", associatedMessageType: null, text: 'Reacted 🎉 to "see u at 9"' }));
   await handleWebhook(msg({ associatedMessageGuid: "p:0/ZZZ", associatedMessageType: "sticker", text: "x" }));
   assert.equal(events.length, 0);
+});
+
+// ---------- the patched helper: native polls, location shares, location requests ----------
+
+type HelperCall = { cmd: string; chatGuid: string; args?: Record<string, unknown> };
+
+/** Stands in for HelperClient (no sockets), with its own allowlist like the real one. */
+function fakeHelperClient(connected = true) {
+  const helperCalls: HelperCall[] = [];
+  const allow = new Set<string>();
+  const state = { connected, answer: (_c: HelperCall): any => ({ ok: true }) };
+  const client: HelperClientLike = {
+    get connected() {
+      return state.connected;
+    },
+    start() {},
+    stop() {},
+    async allowChat(chatGuid) {
+      helperCalls.push({ cmd: "allow-chat", chatGuid });
+      allow.add(chatGuid);
+      return { ok: true, changed: true, count: allow.size };
+    },
+    async removeChat(chatGuid) {
+      helperCalls.push({ cmd: "remove-chat", chatGuid });
+      allow.delete(chatGuid);
+      return { ok: true };
+    },
+    async request(cmd, chatGuid, args) {
+      if (!allow.has(chatGuid)) throw new Error("BLOCKED: chat not in allowlist");
+      helperCalls.push({ cmd, chatGuid, args });
+      return state.answer({ cmd, chatGuid, args });
+    },
+  };
+  return { client, helperCalls, state };
+}
+
+/** Resolves once the startup registration (every ALLOWED_HANDLES chat) is done; helperCalls starts empty after it. */
+async function setupWithHelper(connected = true, db = openDb(":memory:")) {
+  const events: IncomingEvent[] = [];
+  const fake = fakeHelperClient(connected);
+  const bb = createBluebubblesAdapter({ db, onEvent: async (e) => void events.push(e) }, { helper: createHelper({ db, client: fake.client }) });
+  await bb.helper.registerAllowedChats();
+  if (connected) assert.deepEqual(fake.helperCalls.map((c) => `${c.cmd} ${c.chatGuid}`).sort(), [`allow-chat ${ALLOWED_CHAT}`, "allow-chat any;-;judge@example.com"]);
+  fake.helperCalls.length = 0;
+  /** Helper commands other than the allowlist bookkeeping. */
+  const commands = () => fake.helperCalls.filter((c) => c.cmd !== "allow-chat" && c.cmd !== "remove-chat");
+  return { db, events, ...bb, ...fake, commands };
+}
+
+// Payloads the way get-payload returns them: an archive with the URL readable inside it.
+function votePayload(optionIdentifier: string, participantHandle: string): string {
+  const body = JSON.stringify({ version: 1, item: { votes: [{ voteOptionIdentifier: optionIdentifier, participantHandle }] } });
+  return Buffer.from(`bplist00...data:,${Buffer.from(body).toString("base64")}?src=p&c=2\u0000`, "latin1").toString("base64");
+}
+
+function findMyPayload(body: Record<string, unknown>): string {
+  const zipped = encodeURIComponent(deflateRawSync(Buffer.from(JSON.stringify(body))).toString("base64"));
+  return Buffer.from(`bplist00...?FindMyMessagePayloadVersionKey=v0&FindMyMessagePayloadZippedDataKey=${zipped}\u0000`, "latin1").toString("base64");
+}
+
+// Webhook shapes from bluebubbles/docs/tapback-events.md ("Polls and votes") and the README ("Location").
+const voteEvent = (pollGuid: string, handle = ALLOWED) =>
+  msg({ text: "", associatedMessageGuid: pollGuid, associatedMessageType: "4000", balloonBundleId: POLL_BALLOON_ID, itemType: 0, chats: [{ guid: `any;-;${handle}`, chatIdentifier: handle, style: 45 }] }, handle);
+const shareEvent = (handle = ALLOWED, over: Record<string, unknown> = {}) =>
+  msg({ text: "\ufffc", balloonBundleId: FINDMY_BALLOON_ID, itemType: 0, chats: [{ guid: `any;-;${handle}`, chatIdentifier: handle, style: 45 }], ...over }, handle);
+const SHARE = {
+  initialLocation: { latitude: 34.0224, longitude: -118.2851, horizontalAccuracy: 61, verticalAccuracy: 10, altitude: 50, speed: 0, course: -1, timestamp: 784_000_000 },
+  kind: { share: { isFromRequest: false, duration: { indefinitely: {} } } },
+};
+
+test("native poll: the question as text, then the poll through the helper, and the ids are kept for votes", async () => {
+  const { adapter, db, helperCalls, state } = await setupWithHelper();
+  respond = () => ({ guid: "Q-1" });
+  state.answer = (c) => (c.cmd === "send-poll" ? { ok: true, guid: "POLL-1", optionIdentifiers: ["ID-A", "ID-B"] } : { ok: true });
+  assert.equal(adapter.capabilities().polls, true);
+  const r = await adapter.sendPoll(ALLOWED_CHAT, "real quick, which are u?", ["usc student", "hackathon judge"]);
+  assert.deepEqual(r, { optionMessageIds: ["POLL-1", "POLL-1"], mode: "native" });
+  assert.deepEqual(sends().map((c) => c.body.message), ["real quick, which are u?"]);
+  assert.deepEqual(helperCalls, [
+    { cmd: "send-poll", chatGuid: ALLOWED_CHAT, args: { options: ["usc student", "hackathon judge"], creatorHandle: "troy@example.com" } },
+  ]);
+  assert.equal(getSetting(db, "poll:POLL-1"), JSON.stringify(["ID-A", "ID-B"]));
+  assert.deepEqual(logs, []);
+});
+
+test("helper not connected, or the poll call failing: tap-to-pick bubbles, with the question said once", async () => {
+  const off = await setupWithHelper(false);
+  let i = 0;
+  respond = () => ({ guid: `T-${i++}` });
+  assert.equal(off.adapter.capabilities().polls, false);
+  assert.deepEqual(await off.adapter.sendPoll(ALLOWED_CHAT, "pick one", ["a", "b"]), { optionMessageIds: ["T-1", "T-2"], mode: "tap" });
+  assert.deepEqual(sends().map((c) => c.body.message), ["pick one\ntap ❤️ on ur pick", "a", "b"]);
+  assert.equal(off.helperCalls.length, 0);
+
+  calls = [];
+  i = 0;
+  const failing = await setupWithHelper();
+  failing.state.answer = () => ({ ok: false, error: "exception: something" });
+  assert.deepEqual(await failing.adapter.sendPoll(ALLOWED_CHAT, "pick one", ["a", "b"]), { optionMessageIds: ["T-2", "T-3"], mode: "tap" });
+  assert.deepEqual(sends().map((c) => c.body.message), ["pick one", "tap ❤️ on ur pick", "a", "b"]);
+  assert.equal(getSetting(failing.db, "poll:"), null);
+});
+
+test("a native poll is never tried for a group chat or a stranger", async () => {
+  const { adapter, db, helperCalls } = await setupWithHelper();
+  allowChat(db, { handle: null, chatId: "any;+;chat777", reason: "troy_group" });
+  respond = () => ({ guid: "G" });
+  assert.equal((await adapter.sendPoll("any;+;chat777", "q?", ["a", "b"])).mode, "tap");
+  assert.deepEqual(await adapter.sendPoll(STRANGER_CHAT, "q?", ["a", "b"]), { optionMessageIds: [null, null], mode: "tap" });
+  assert.equal(helperCalls.length, 0);
+});
+
+test("a vote on a native poll becomes pollVote with the option index, also after a restart", async () => {
+  const first = await setupWithHelper();
+  respond = () => ({ guid: "Q-1" });
+  first.state.answer = (c) => (c.cmd === "send-poll" ? { ok: true, guid: "POLL-9", optionIdentifiers: ["ID-A", "ID-B", "ID-C"] } : { ok: true, payloadBase64: votePayload("ID-C", ALLOWED) });
+  await first.adapter.sendPoll(ALLOWED_CHAT, "what do u want alerts for?", ["free food", "events", "both"]);
+  calls = [];
+  const vote = voteEvent("POLL-9");
+  await first.handleWebhook(vote);
+  assert.deepEqual(first.events, [
+    { provider: "bluebubbles", userHandle: ALLOWED, chatId: ALLOWED_CHAT, isGroup: false, messageId: vote.data.guid, text: "", images: [], receivedAt: 1_800_000_000_000, pollVote: { pollMessageId: "POLL-9", optionIndex: 2 } },
+  ]);
+  assert.deepEqual(first.commands().at(-1), { cmd: "get-payload", chatGuid: ALLOWED_CHAT, args: { messageGuid: vote.data.guid } });
+  assert.equal(calls.length, 0); // nothing asked of BlueBubbles
+
+  // a new process: the same database, an empty memory
+  const second = await setupWithHelper(true, first.db);
+  second.state.answer = () => ({ ok: true, payloadBase64: votePayload("ID-A", ALLOWED) });
+  await second.handleWebhook(voteEvent("POLL-9"));
+  assert.deepEqual(second.events.map((e) => e.pollVote), [{ pollMessageId: "POLL-9", optionIndex: 0 }]);
+  assert.deepEqual(logs, []);
+});
+
+test("a vote from a chat that isn't allowed is an ignored event with zero helper calls", async () => {
+  const { handleWebhook, events, helperCalls, db } = await setupWithHelper();
+  setSetting(db, "poll:POLL-9", JSON.stringify(["ID-A", "ID-B"]));
+  await handleWebhook(voteEvent("POLL-9", STRANGER));
+  assert.deepEqual(logs, ["ignored event"]);
+  assert.equal(helperCalls.length, 0);
+  assert.equal(calls.length, 0);
+  assert.equal(events.length, 0);
+});
+
+test("votes that can't be mapped are dropped: unknown poll, unknown option, no payload, helper away", async () => {
+  const { handleWebhook, events, commands, state, db } = await setupWithHelper();
+  // not a poll Troy sent (John's own polls with this person stay unread): no helper call at all
+  await handleWebhook(voteEvent("SOMEONE-ELSES-POLL"));
+  assert.equal(commands().length, 0);
+  setSetting(db, "poll:POLL-9", JSON.stringify(["ID-A", "ID-B"]));
+  state.answer = () => ({ ok: true, payloadBase64: votePayload("ID-ZZZ", ALLOWED) });
+  await handleWebhook(voteEvent("POLL-9"));
+  state.answer = () => ({ ok: true });
+  await handleWebhook(voteEvent("POLL-9"));
+  state.connected = false;
+  await handleWebhook(voteEvent("POLL-9"));
+  assert.equal(events.length, 0);
+});
+
+test("a Find My share from an allowed chat becomes a location event with no text", async () => {
+  const { handleWebhook, events, commands, state } = await setupWithHelper();
+  state.answer = () => ({ ok: true, payloadBase64: findMyPayload(SHARE) });
+  const share = shareEvent();
+  await handleWebhook(share);
+  assert.deepEqual(events, [
+    { provider: "bluebubbles", userHandle: ALLOWED, chatId: ALLOWED_CHAT, isGroup: false, messageId: share.data.guid, text: "", images: [], receivedAt: 1_800_000_000_000, location: { lat: 34.0224, lng: -118.2851 } },
+  ]);
+  assert.deepEqual(commands(), [{ cmd: "get-payload", chatGuid: ALLOWED_CHAT, args: { messageGuid: share.data.guid } }]);
+  assert.equal(calls.length, 0);
+  assert.ok(logs.every((l) => !l.includes("34.02")));
+  // Apple's own wording in the text field is not typed text either
+  await handleWebhook(shareEvent(ALLOWED, { text: "Started Sharing Location" }));
+  assert.equal(events[1].text, "");
+  assert.deepEqual(events[1].location, { lat: 34.0224, lng: -118.2851 });
+});
+
+test("a Find My share from a chat that isn't allowed is an ignored event with zero helper calls", async () => {
+  const { handleWebhook, events, helperCalls } = await setupWithHelper();
+  await handleWebhook(shareEvent(STRANGER));
+  assert.deepEqual(logs, ["ignored event"]);
+  assert.equal(helperCalls.length, 0);
+  assert.equal(calls.length, 0);
+  assert.equal(events.length, 0);
+});
+
+test("app bubbles never become text: the Requested Location echo, a request, a student's own poll, an unreadable share", async () => {
+  const { handleWebhook, events, commands, state } = await setupWithHelper();
+  // the echo of Troy's own "Requested Location" bubble is isFromMe
+  await handleWebhook(shareEvent(ALLOWED, { isFromMe: true }));
+  assert.deepEqual(logs, ["ignored event"]);
+  assert.equal(commands().length, 0);
+  // a Find My bubble that is a request, not a share
+  state.answer = () => ({ ok: true, payloadBase64: findMyPayload({ kind: { request: {} } }) });
+  await handleWebhook(shareEvent());
+  // a poll the student made themselves, and some other iMessage app
+  await handleWebhook(msg({ text: "\ufffc", balloonBundleId: POLL_BALLOON_ID }));
+  await handleWebhook(msg({ text: "check this out", balloonBundleId: "com.apple.messages.MSMessageExtensionBalloonPlugin:0000000000:com.example.SomeApp" }));
+  // helper away: the share can't be read, so nothing is passed on (and never the placeholder text)
+  state.connected = false;
+  await handleWebhook(shareEvent());
+  assert.equal(events.length, 0);
+  // a link preview is still a normal text
+  await handleWebhook(msg({ text: "https://example.com/menu", balloonBundleId: "com.apple.messages.URLBalloonProvider" }));
+  assert.deepEqual(events.map((e) => e.text), ["https://example.com/menu"]);
+});
+
+test("requestLocation goes through the helper for an allowed chat only, and is false without it", async () => {
+  const { adapter, commands, state, db } = await setupWithHelper();
+  state.answer = () => ({ ok: true, requested: "x", invite: "ok", bubbleGuid: "BUB-1" });
+  assert.equal(await adapter.requestLocation(ALLOWED_CHAT), true);
+  assert.deepEqual(commands(), [{ cmd: "location-request", chatGuid: ALLOWED_CHAT, args: {} }]);
+  assert.equal(await adapter.requestLocation(STRANGER_CHAT), false);
+  setSetting(db, "troy_enabled", "false");
+  assert.equal(await adapter.requestLocation(ALLOWED_CHAT), false);
+  assert.equal(commands().length, 1);
+  assert.deepEqual(logs, ["send refused", "send refused"]);
+  setSetting(db, "troy_enabled", "true");
+  state.answer = () => ({ ok: true, requested: "x", invite: "error: nope", bubbleGuid: "" });
+  assert.equal(await adapter.requestLocation(ALLOWED_CHAT), false);
+  state.connected = false;
+  assert.equal(await adapter.requestLocation(ALLOWED_CHAT), false);
+  // no helper configured at all
+  const plain = setup();
+  assert.equal(await plain.adapter.requestLocation(ALLOWED_CHAT), false);
+  assert.equal(calls.length, 0);
+});
+
+test("onAllowed and onDisallowed keep the helper's list in step, and never for a stranger", async () => {
+  const { adapter, helperCalls, db } = await setupWithHelper();
+  allowChat(db, { handle: STRANGER, chatId: STRANGER_CHAT, reason: "opt_in_phrase" });
+  await adapter.onAllowed!(STRANGER_CHAT);
+  await adapter.onAllowed!("any;-;+12135550177"); // not allowed: refused before any call
+  await adapter.onDisallowed!(STRANGER_CHAT);
+  assert.deepEqual(helperCalls, [
+    { cmd: "allow-chat", chatGuid: STRANGER_CHAT },
+    { cmd: "remove-chat", chatGuid: STRANGER_CHAT },
+  ]);
+  const plain = setup();
+  await plain.adapter.onAllowed!(ALLOWED_CHAT);
+  await plain.adapter.onDisallowed!(ALLOWED_CHAT);
+});
+
+test("getLiveLocation uses the helper's location-get when BlueBubbles has nothing fresh", async () => {
+  const { adapter, commands, state } = await setupWithHelper();
+  const now = Math.floor(Date.now() / 1000);
+  respond = () => []; // BlueBubbles' Find My list is empty (docs/bluebubbles-status.md)
+  state.answer = () => ({ ok: true, handle: "x", sharingWithMe: true, location: { latitude: 34.02, longitude: -118.28, horizontalAccuracy: 20, timestamp: now } });
+  assert.deepEqual(await adapter.getLiveLocation(ALLOWED), { lat: 34.02, lng: -118.28, at: now * 1000 });
+  assert.deepEqual(commands(), [{ cmd: "location-get", chatGuid: ALLOWED_CHAT, args: {} }]);
+  assert.deepEqual(sends().map((c) => `${c.method} ${c.path}`), ["GET /icloud/findmy/friends"]); // no slow refresh needed
+  assert.equal(await adapter.getLiveLocation(STRANGER), null);
+  assert.equal(commands().length, 1);
+  assert.ok(logs.every((l) => !l.includes("34.02")));
+});
+
+test("the contact card carries Troy's name and the mascot photo, and stays small", () => {
+  const vcf = buildContactCard();
+  assert.match(vcf, /^BEGIN:VCARD\r\nVERSION:3\.0\r\nN:;Troy;;;\r\nFN:Troy\r\n/);
+  assert.match(vcf, /\r\nEND:VCARD\r\n$/);
+  assert.ok(vcf.split("\r\n").every((line) => Buffer.byteLength(line) <= 76));
+  const unfolded = vcf.replace(/\r\n /g, "");
+  const photo = /\r\nPHOTO;ENCODING=b;TYPE=PNG:([A-Za-z0-9+\/=]+)\r\n/.exec(unfolded);
+  assert.ok(photo, "the card has a PHOTO");
+  const png = Buffer.from(photo![1], "base64");
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.equal(png.readUInt32BE(16), png.readUInt32BE(20)); // square
+  assert.ok(png.readUInt32BE(16) >= 256);
+  assert.ok(png.length < 100 * 1024);
+  assert.ok(Buffer.byteLength(vcf) < 150 * 1024);
+  assert.match(unfolded, /\r\nNOTE:ai that knows a guy · usc hackathon demo\r\n/);
 });

@@ -19,7 +19,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOOT = randomUUID();
 const TAPBACKS: TapbackType[] = ["love", "like", "dislike", "laugh", "emphasize", "question"];
 
-export type TranscriptKind = "message" | "image" | "contact" | "tapback" | "typing" | "read" | "edit" | "location";
+export type TranscriptKind = "message" | "image" | "contact" | "tapback" | "typing" | "read" | "edit" | "location" | "poll" | "poll_vote" | "location_request";
 
 /** One thing that happened in a chat. Edits and tapbacks point at an earlier entry through targetId. */
 export interface TranscriptEntry {
@@ -38,6 +38,12 @@ export interface TranscriptEntry {
   removed?: boolean;
   on?: boolean;
   location?: { lat: number; lng: number };
+  /** kind "poll": the options in order. */
+  options?: string[];
+  /** kind "poll_vote": which option, on the poll in targetId. */
+  optionIndex?: number;
+  /** kind "location": true for a Find My share (the Share button), not set for a dropped pin. */
+  shared?: boolean;
 }
 
 interface Phone {
@@ -146,12 +152,30 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
       return true;
     },
 
-    // Same shape as the real provider's fallback: a question bubble, then one bubble per option to tap.
+    // Like the real provider: the question as a normal bubble, then a native poll card the phone votes on
+    // (POST /webchat/vote). Every option id is the poll's id. WEBCHAT_POLLS=tap gives the fallback shape instead:
+    // one bubble per option to tapback.
     async sendPoll(chatId, question, options) {
       if (!canSend(chatId)) return { optionMessageIds: options.map(() => null), mode: "tap" as const };
       add(chatId, "troy", "message", { text: question });
-      return { optionMessageIds: options.map((o) => add(chatId, "troy", "message", { text: o }).id), mode: "tap" as const };
+      if ((process.env.WEBCHAT_POLLS || "").trim().toLowerCase() === "tap" || options.length < 2) {
+        return { optionMessageIds: options.map((o) => add(chatId, "troy", "message", { text: o }).id), mode: "tap" as const };
+      }
+      const poll = add(chatId, "troy", "poll", { options: [...options] });
+      return { optionMessageIds: options.map(() => poll.id), mode: "native" as const };
     },
+
+    // The "Requested Location" bubble with a Share button (POST /webchat/share). 1:1 chats only, like the real one.
+    async requestLocation(chatId): Promise<boolean> {
+      if (!canSend(chatId)) return false;
+      if (isGroupId(chatId)) return false;
+      add(chatId, "troy", "location_request");
+      return true;
+    },
+
+    // Nothing to register: the simulator has no second allowlist.
+    async onAllowed(): Promise<void> {},
+    async onDisallowed(): Promise<void> {},
 
     async createGroupChat(members, firstMessage): Promise<string | null> {
       const handles = [...new Set(members.map(normalizeHandle).filter((h): h is Handle => h !== null))];
@@ -270,6 +294,53 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
       receivedAt: entry.at,
     });
     return c.json({ ok: true, accepted: true });
+  });
+
+  // The simulated phone votes on a native poll card.
+  routes.post("/webchat/vote", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const handle = normalizeHandle(body?.handle);
+    if (!body || !handle) return bad("handle must be a phone number or email");
+    const find = (id: string) => transcripts.get(id)?.find((e) => e.id === body.pollId && e.kind === "poll");
+    const chatId = chatsFor(handle).find((id) => find(id));
+    const poll = chatId ? find(chatId) : undefined;
+    if (!chatId || !poll) return bad("poll not found");
+    const optionIndex = body.optionIndex;
+    if (typeof optionIndex !== "number" || !Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= (poll.options?.length ?? 0)) return bad("no such option");
+    if (!(await gate(handle, chatId, ""))) return c.json({ ok: true, accepted: false });
+    const entry = add(chatId, handle, "poll_vote", { targetId: poll.id, optionIndex });
+    dispatch({
+      provider: "webchat",
+      userHandle: handle,
+      chatId,
+      isGroup: isGroupId(chatId),
+      messageId: entry.id,
+      text: "",
+      images: [],
+      pollVote: { pollMessageId: poll.id, optionIndex },
+      receivedAt: entry.at,
+    });
+    return c.json({ ok: true, accepted: true });
+  });
+
+  // The simulated phone taps Share (on a "Requested Location" bubble, or on its own): a Find My share bubble
+  // in its 1:1 chat. Troy gets one event with the location and no text, and the phone keeps sharing after.
+  routes.post("/webchat/share", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const handle = normalizeHandle(body?.handle);
+    if (!body || !handle) return bad("handle must be a phone number or email");
+    const lat = body.lat;
+    const lng = body.lng;
+    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad("lat and lng must be numbers");
+    const chatId = oneToOne(handle);
+    // Gate first: a chat that hasn't opted in changes nothing, not even the simulated phone's sharing state.
+    if (!(await gate(handle, chatId, ""))) return c.json({ ok: true, accepted: false });
+    const request = transcripts.get(chatId)?.find((e) => e.id === body.requestId && e.kind === "location_request");
+    const location = { lat, lng };
+    phone(handle).location = { ...location, at: Date.now() };
+    const entry = add(chatId, handle, "location", { location, shared: true, targetId: request?.id });
+    dispatch({ provider: "webchat", userHandle: handle, chatId, isGroup: false, messageId: entry.id, text: "", images: [], location, receivedAt: entry.at });
+    return c.json({ ok: true, accepted: true, messageId: entry.id });
   });
 
   // Simulates the student tapping "Share My Location" in the chat (Find My). Send lat: null to stop sharing.

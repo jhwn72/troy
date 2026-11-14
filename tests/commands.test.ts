@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchCommand, isEmergency, TEMPLATES, DPS } from "../src/commands.ts";
+import { matchCommand, isEmergency, isHeyTroy, TEMPLATES, DPS } from "../src/commands.ts";
 
 const kind = (t: string) => matchCommand(t)?.kind ?? null;
 const EMOJI = /\p{Extended_Pictographic}/u;
@@ -17,6 +17,8 @@ test("whole-message commands, any case, trailing punctuation", () => {
   assert.equal(kind("human"), "human");
   assert.equal(kind("Delete my data"), "delete_data");
   assert.equal(kind("settings"), "settings");
+  assert.equal(kind("Forget my location"), "forget_location");
+  assert.equal(kind("forget my location."), "forget_location");
 });
 
 test("commands only match the whole message", () => {
@@ -87,7 +89,28 @@ test("emergency reply has 911 and the DPS numbers, and no emoji", () => {
 });
 
 test("welcome is the fixed spec text", () => {
-  assert.deepEqual(TEMPLATES.welcome, ["hey i'm troy", "i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy", "reply STOP anytime"]);
+  // John's words after the first live test (Nov 14 evening).
+  assert.deepEqual(TEMPLATES.welcome, [
+    "hey i'm troy",
+    "i'm an ai, but i know a guy for everything",
+    "send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'",
+    "reply STOP anytime and i'll leave u alone until u want to talk again",
+  ]);
+  assert.equal(TEMPLATES.saveContact, "save my contact if u haven't so u know it's me");
+});
+
+test("the STOP confirmation keeps the welcome's promise and says how to come back", () => {
+  const stop = TEMPLATES.stop.join(" ");
+  assert.match(stop, /leave u alone/);
+  assert.match(stop, /START or hey troy/);
+  assert.ok(!EMOJI.test(stop));
+  assert.ok(isHeyTroy("hey troy") && isHeyTroy("Hey Troy!") && isHeyTroy("heyy troy u there"));
+  assert.ok(!isHeyTroy("hey") && !isHeyTroy("troy hey") && !isHeyTroy("hey troye"));
+});
+
+test("fixed copy fits in one bubble each, so none of it is ever split", () => {
+  const all = [TEMPLATES.welcome, TEMPLATES.stop, TEMPLATES.start, TEMPLATES.help, TEMPLATES.emergency, TEMPLATES.crisis, TEMPLATES.deleteData, TEMPLATES.forgetLocation, [TEMPLATES.saveContact, TEMPLATES.locationSaved]].flat();
+  for (const b of all) assert.ok(b.length <= 160, b);
 });
 
 test("no em dashes in any template", () => {

@@ -1,5 +1,7 @@
 // Onboarding state machine, stored in flow_state (flow "onboarding").
 // Steps: email -> code -> subscriptions -> location -> done (state cleared).
+// A choice (student or judge, what to get texts about) can arrive three ways: a vote on a native poll,
+// a tapback on an option bubble, or typed text. All three are handled at every step that offers one.
 // Every reply here is fixed copy. Verification results and attempt limits are decided in code.
 
 import { randomInt } from "node:crypto";
@@ -18,8 +20,21 @@ export const MAX_ATTEMPTS = 5;
 const MAX_CODES_PER_HOUR = 5;
 
 const ASK_EMAIL = "quick thing, gotta make sure ur a trojan. what's ur usc email";
-const JUDGE_LINE = "judging the hackathon? reply JUDGE to skip this. demo only, the real campus version wouldn't have it";
-const ASK_LOCATION = "want alerts for stuff near u? tap the + in this chat, then Location, then Share to share with me, or just tell me ur usual spots";
+// Honor system: anyone could tap "hackathon judge", so the line asks them kindly not to.
+const JUDGE_LINE = "hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u";
+const JUDGE_QUESTION = "which one are u?";
+export const JUDGE_OPTIONS = ["usc student", "hackathon judge"];
+const JUDGE_CONFIRM = "ur in as a judge. this skip is demo only, the real campus version wouldn't have it";
+const STUDENT_REASK = "bet. what's ur usc email?";
+const LOCATION_KEPT = "last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it";
+const LOCATION_REQUESTED = "sent u a location request, tap it to share";
+const LOCATION_HOW = "tap the + in this chat, then Location, then Share";
+const LOCATION_OR = "or just tell me ur usual spots, or reply skip";
+
+/** What the pipeline lends onboarding: saving a location goes through src/location.ts. */
+export type OnboardingExtras = { saveLocation?: (userId: number, loc: { lat: number; lng: number }) => Promise<void> };
+
+type PollRef = { pollId: string | null; optionIds: (string | null)[]; mode: "native" | "tap" | "numbered" };
 
 type Data = Record<string, unknown>;
 
@@ -47,6 +62,8 @@ function latestCode(db: DatabaseSync, userId: number) {
 
 async function sendCode(ctx: FlowContext, email: string): Promise<void> {
   const { db, user } = ctx;
+  // The judge poll stays answerable after an email is typed.
+  const judge = ctx.state?.flow === "onboarding" ? (ctx.state.data.judge ?? null) : null;
   const recent = db.prepare("SELECT COUNT(*) AS n FROM verification_codes WHERE userId = ? AND createdAt > ?").get(user.id, Date.now() - 60 * 60 * 1000) as { n: number };
   if (recent.n >= MAX_CODES_PER_HOUR) {
     await ctx.say("that's a lot of codes. give it an hour and try again");
@@ -59,25 +76,69 @@ async function sendCode(ctx: FlowContext, email: string): Promise<void> {
   db.prepare("INSERT INTO verification_codes (userId, email, code, expiresAt, createdAt) VALUES (?, ?, ?, ?, ?)").run(user.id, email, code, now + CODE_TTL_MS, now);
   const sent = await sendVerificationEmail(email, code);
   if (!sent) {
-    ctx.setState({ flow: "onboarding", step: "email", data: {} });
+    ctx.setState({ flow: "onboarding", step: "email", data: { judge } });
     await ctx.say("couldn't send that email. text me ur usc email again to retry");
     return;
   }
-  ctx.setState({ flow: "onboarding", step: "code", data: { email } });
+  ctx.setState({ flow: "onboarding", step: "code", data: { email, judge } });
   await ctx.say(`sent a 6 digit code to ${email}`, "text it back to me. might be in spam since i'm new 👀");
+}
+
+/**
+ * Sends a poll and remembers its ids. Native: every option id is the poll's own id and a vote arrives as
+ * event.pollVote. Tap: one bubble per option. Numbered: a list, answered in text.
+ */
+async function sendPoll(ctx: FlowContext, question: string, options: string[]): Promise<PollRef> {
+  const chatId = ctx.event.chatId;
+  const none = { optionMessageIds: options.map(() => null as string | null), mode: "numbered" as const };
+  const poll = await ctx.adapter.sendPoll(chatId, question, options).catch(() => none);
+  const save = (providerMessageId: string | null, text: string) => saveMessage(ctx.db, { userId: ctx.user.id, chatId, direction: "out", providerMessageId, text });
+  if (poll.mode === "native") {
+    const pollId = poll.optionMessageIds.find((id) => !!id) ?? null;
+    save(pollId, `[poll] ${question}: ${options.join(" / ")}`);
+    return { pollId, optionIds: poll.optionMessageIds, mode: "native" };
+  }
+  save(null, question);
+  options.forEach((text, i) => save(poll.optionMessageIds[i] ?? null, text));
+  return { pollId: null, optionIds: poll.optionMessageIds, mode: poll.mode };
+}
+
+/**
+ * Which option of a poll this event picks, or -1. `positive` is false for a removed or negative tapback.
+ * A vote or tapback aimed at a different poll or bubble is -1.
+ */
+function pollChoice(ctx: FlowContext, ref: PollRef | null | undefined): { index: number; positive: boolean } {
+  const { event } = ctx;
+  if (!ref) return { index: -1, positive: false };
+  if (event.pollVote) {
+    const ours = !ref.pollId || !event.pollVote.pollMessageId || event.pollVote.pollMessageId === ref.pollId;
+    const i = event.pollVote.optionIndex;
+    return { index: ours && Number.isInteger(i) && i >= 0 && i < ref.optionIds.length ? i : -1, positive: true };
+  }
+  if (event.reaction && ref.mode !== "native") {
+    const r = event.reaction;
+    return { index: ref.optionIds.indexOf(r.targetMessageId), positive: !r.removed && (r.type === "love" || r.type === "like" || r.type === "emphasize") };
+  }
+  return { index: -1, positive: false };
+}
+
+/** True when the provider's native polls take more than one choice. Nothing says so today, so the default is one. */
+function multiChoice(ctx: FlowContext, poll: unknown): boolean {
+  const caps = ctx.adapter.capabilities() as unknown as Record<string, unknown>;
+  const p = (poll ?? {}) as Record<string, unknown>;
+  return caps.pollMultiple === true || caps.multiChoicePolls === true || p.multiple === true || p.multipleChoice === true;
 }
 
 async function askSubscriptions(ctx: FlowContext, firstBubble: string): Promise<void> {
   await ctx.say(firstBubble);
-  const chatId = ctx.event.chatId;
   const question = "what do u want texts about?";
-  const poll = await ctx.adapter.sendPoll(chatId, question, OPTION_LABELS);
-  saveMessage(ctx.db, { userId: ctx.user.id, chatId, direction: "out", providerMessageId: null, text: question });
-  OPTION_LABELS.forEach((text, i) => saveMessage(ctx.db, { userId: ctx.user.id, chatId, direction: "out", providerMessageId: poll.optionMessageIds[i] ?? null, text }));
-  ctx.setState({ flow: "onboarding", step: "subscriptions", data: { optionIds: poll.optionMessageIds, picked: [], mode: poll.mode } });
-  if (poll.mode === "tap") await ctx.say("tap a heart or thumbs up on the ones u want, then text done. or reply skip");
-  else if (poll.mode === "numbered") await ctx.say("reply with the numbers u want, like 1 3. or reply skip");
-  else await ctx.say("pick any u want, then text done. or reply skip");
+  const ref = await sendPoll(ctx, question, OPTION_LABELS);
+  const multiple = ref.mode === "native" && multiChoice(ctx, ref);
+  ctx.setState({ flow: "onboarding", step: "subscriptions", data: { pollId: ref.pollId, optionIds: ref.optionIds, picked: [], mode: ref.mode, multiple } });
+  if (ref.mode === "tap") await ctx.say("tap a heart or thumbs up on the ones u want, then text done. or reply skip");
+  else if (ref.mode === "numbered") await ctx.say("reply with the numbers u want, like 1 3. or reply skip");
+  else if (multiple) await ctx.say("pick any u want in the poll, then text done. or reply skip");
+  else await ctx.say("pick one in the poll, or text me a few like 1 and 3. or reply skip");
 }
 
 async function verified(ctx: FlowContext, fields: Record<string, string | number | null>, bubble: string): Promise<void> {
@@ -87,7 +148,7 @@ async function verified(ctx: FlowContext, fields: Record<string, string | number
 }
 
 function judgeSkip(ctx: FlowContext): Promise<void> {
-  return verified(ctx, { verifiedVia: "judge_skip" }, "ur in as a guest for the demo. the real campus version always checks a usc email");
+  return verified(ctx, { verifiedVia: "judge_skip" }, JUDGE_CONFIRM);
 }
 
 async function handleEmail(ctx: FlowContext, text: string): Promise<void> {
@@ -154,17 +215,19 @@ function parseSubscriptions(text: string): number[] | null {
 
 async function handleSubscriptions(ctx: FlowContext, data: Data): Promise<void> {
   const { event } = ctx;
-  const optionIds = (data.optionIds as (string | null)[]) ?? [];
   let picked = (data.picked as number[]) ?? [];
+  const ref: PollRef = { pollId: (data.pollId as string | null) ?? null, optionIds: (data.optionIds as (string | null)[]) ?? [], mode: (data.mode as PollRef["mode"]) ?? "tap" };
 
-  const tapped = event.reaction ? optionIds.indexOf(event.reaction.targetMessageId) : (event.pollVote?.optionIndex ?? -1);
   if (event.reaction || event.pollVote) {
-    if (tapped < 0 || tapped >= SUBSCRIPTIONS.length) return;
-    const positive = !event.reaction || (!event.reaction.removed && (event.reaction.type === "love" || event.reaction.type === "like" || event.reaction.type === "emphasize"));
-    picked = positive ? [...new Set([...picked, tapped])] : picked.filter((i) => i !== tapped);
+    const { index, positive } = pollChoice(ctx, ref);
+    if (index < 0 || index >= SUBSCRIPTIONS.length) return;
+    // A native poll that takes one choice: a new vote replaces the last one. Everything else adds up.
+    const single = !!event.pollVote && ref.mode === "native" && !data.multiple;
+    if (single) picked = [index];
+    else picked = positive ? [...new Set([...picked, index])] : picked.filter((i) => i !== index);
     ctx.setState({ flow: "onboarding", step: "subscriptions", data: { ...data, picked, nudged: true } });
     // One nudge only, so tapping three options doesn't get three replies.
-    if (!data.nudged) await ctx.say("got it. tap any others u want, then text done");
+    if (!data.nudged) await ctx.say(single ? "got it. want more? text the numbers like 1 and 3. or text done" : "got it. tap any others u want, then text done");
     return;
   }
 
@@ -178,7 +241,10 @@ async function handleSubscriptions(ctx: FlowContext, data: Data): Promise<void> 
   updateUser(ctx.db, ctx.user.id, { subscriptions: JSON.stringify(subs) });
   ctx.setState({ flow: "onboarding", step: "location", data: {} });
   const confirm = subs.length ? `bet, i'll text u about ${subs.map((s) => SUBSCRIPTION_LABELS[s]).join(", ")}` : "no alerts then. u can always text me first";
-  await ctx.say(confirm, ASK_LOCATION, "or reply skip");
+  await ctx.say(confirm, LOCATION_KEPT);
+  // The Find My "Requested Location" bubble when the provider can send one, else how to share by hand.
+  const requested = await ctx.adapter.requestLocation(ctx.event.chatId).catch(() => false);
+  await ctx.say(requested ? LOCATION_REQUESTED : LOCATION_HOW, LOCATION_OR);
 }
 
 async function finish(ctx: FlowContext, bubble: string): Promise<void> {
@@ -224,13 +290,13 @@ function parseSpots(db: DatabaseSync, text: string): string[] | null {
 }
 
 /** Returns false when the text wasn't about location at all, so the pipeline can treat it as a normal request. */
-async function handleLocation(ctx: FlowContext, data: Data): Promise<boolean> {
+async function handleLocation(ctx: FlowContext, data: Data, extras: OnboardingExtras): Promise<boolean> {
   const { event } = ctx;
   if (event.reaction || event.pollVote) return true;
   const w = word(event.text.replace(/[‘’'`]/g, ""));
-  // A pin is only used in the moment and never stored.
+  // The pipeline has already saved the share as their last known location.
   if (event.location) {
-    await finish(ctx, "got it, thanks");
+    await finish(ctx, TEMPLATES.locationSaved);
     return true;
   }
   if (DECLINE.test(w)) {
@@ -239,8 +305,10 @@ async function handleLocation(ctx: FlowContext, data: Data): Promise<boolean> {
   }
   if (!w || /^(done|shared|sharing|sent|ok|okay|did it|there|yes|yeah|yep|sure)$/.test(w)) {
     const live = await ctx.adapter.getLiveLocation(ctx.user.handle).catch(() => null);
-    if (live) await finish(ctx, "got it, i can see where u are now");
-    else await ctx.say("i'm not seeing it yet. tap the +, then Location, then Share. or tell me ur usual spots, or reply skip");
+    if (live && Number.isFinite(live.lat) && Number.isFinite(live.lng)) {
+      await extras.saveLocation?.(ctx.user.id, { lat: live.lat, lng: live.lng });
+      await finish(ctx, "got it, i can see where u are now");
+    } else await ctx.say("i'm not seeing it yet. tap the +, then Location, then Share. or tell me ur usual spots, or reply skip");
     return true;
   }
   const spots = parseSpots(ctx.db, event.text);
@@ -252,7 +320,7 @@ async function handleLocation(ctx: FlowContext, data: Data): Promise<boolean> {
   // A question about the ask itself gets one explanation, then onboarding ends either way.
   if ((event.text.includes("?") || QUESTION.test(w)) && /\b(?:location|share|sharing|spots?|where|that|this|it|need|for|track|tracking|see)\b/.test(w) && !data.explained) {
     ctx.setState({ flow: "onboarding", step: "location", data: { ...data, explained: true } });
-    await ctx.say("it's so i can tell u how far a walk something is. i use it in the moment and don't keep it", "share it, tell me ur usual spots, or reply skip");
+    await ctx.say("it's so alerts and walking times fit where u actually are. i only keep the last one u share, and forget my location erases it", "share it, tell me ur usual spots, or reply skip");
     return true;
   }
   // Anything else is not an answer. Onboarding is done; nothing is saved as a spot.
@@ -269,18 +337,28 @@ export function needsOnboarding(user: User, state: FlowContext["state"]): boolea
  * Returns true when onboarding handled the event. False means onboarding just finished without using this
  * text (the student typed a real request at the last step), so the caller should handle it normally.
  */
-export async function handleOnboarding(ctx: FlowContext): Promise<boolean> {
+export async function handleOnboarding(ctx: FlowContext, extras: OnboardingExtras = {}): Promise<boolean> {
   const { user, event, adapter } = ctx;
   const state = ctx.state?.flow === "onboarding" ? ctx.state : null;
   const text = event.text ?? "";
   const tap = !!(event.reaction || event.pollVote);
 
   if (!user.verifiedAt) {
-    if (tap) return true;
-    const judge = word(text) === "judge";
+    const atStep = !!state && (state.step === "email" || state.step === "code");
+    if (tap) {
+      // A vote or tapback on the student / judge poll. Anything else tapped before verification means nothing.
+      if (!atStep) return true;
+      const { index, positive } = pollChoice(ctx, state.data.judge as PollRef | null);
+      if (index === 1 && positive) await judgeSkip(ctx);
+      else if (index === 0 && positive) await ctx.say(STUDENT_REASK);
+      return true;
+    }
+    const w = word(text.replace(/[‘’'`]/g, ""));
+    const judge = /^(?:im |i am )?(?:a |the )?(?:hackathon )?judge$/.test(w);
     // First contact (or state lost): welcome first, even if the first text already asked for something.
-    if (!state || (state.step !== "email" && state.step !== "code")) {
-      await ctx.say(...TEMPLATES.welcome);
+    if (!atStep) {
+      await adapter.onAllowed?.(event.chatId)?.catch(() => {});
+      await ctx.say(...TEMPLATES.welcome, TEMPLATES.saveContact);
       const card = await adapter.sendContactCard(event.chatId).catch(() => null);
       if (card) saveMessage(ctx.db, { userId: user.id, chatId: event.chatId, direction: "out", providerMessageId: card.messageId, text: "[contact card]" });
       // JUDGE works from any point before verification (for example after STOP then START wiped the state).
@@ -290,11 +368,17 @@ export async function handleOnboarding(ctx: FlowContext): Promise<boolean> {
       }
       ctx.setState({ flow: "onboarding", step: "email", data: {} });
       await ctx.say(ASK_EMAIL, JUDGE_LINE);
+      const ref = await sendPoll(ctx, JUDGE_QUESTION, JUDGE_OPTIONS);
+      ctx.setState({ flow: "onboarding", step: "email", data: { judge: ref } });
       return true;
     }
     if (judge) await judgeSkip(ctx);
-    else if (state.step === "email") await handleEmail(ctx, text);
-    else await handleCode(ctx, text, state.data);
+    else if (state.step === "email") {
+      // Typed answers to the poll: the option's words or its number. A usc email means student.
+      if (w === "2") await judgeSkip(ctx);
+      else if (!findEmail(text) && /^(?:1|(?:im |i am )?(?:a )?(?:usc )?student)$/.test(w)) await ctx.say(STUDENT_REASK);
+      else await handleEmail(ctx, text);
+    } else await handleCode(ctx, text, state.data);
     return true;
   }
 
@@ -302,7 +386,7 @@ export async function handleOnboarding(ctx: FlowContext): Promise<boolean> {
     await handleSubscriptions(ctx, state.data);
     return true;
   }
-  if (state?.step === "location") return handleLocation(ctx, state.data);
+  if (state?.step === "location") return handleLocation(ctx, state.data, extras);
   // Verified with a stale onboarding state: nothing left to ask.
   ctx.setState(null);
   return true;

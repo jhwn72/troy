@@ -11,6 +11,8 @@ import type { ContactMode, FlowContext, FlowHandler, FlowState, Intent, User } f
 import { getUserById, updateUser } from "../db/index.ts";
 import { askJson } from "../ai.ts";
 import { SUBSCRIPTION_LABELS } from "../commands.ts";
+import { findPlace } from "../places.ts";
+import { describeSavedLocation, forgetUserLocation, saveUserLocation } from "../location.ts";
 
 // ---------- limits and defaults ----------
 
@@ -23,6 +25,12 @@ export const QUIET_DEFAULT_END = "08:00";
 const MAX_NOTES = 30;
 const MAX_NOTE_CHARS = 200;
 const MAX_SPOTS = 5;
+
+/** The clock for location ages. Tests swap it with setNotesClock. */
+let clock: () => number = () => Date.now();
+export function setNotesClock(fn: (() => number) | null): void {
+  clock = fn ?? (() => Date.now());
+}
 const TOPICS = ["free_food", "free_stuff", "events", "class_help"] as const;
 
 export type QuietWindow = { start: string; end: string };
@@ -349,7 +357,31 @@ export function parseSpots(text: string): SpotsOp | null {
 
 // ---------- questions, forgetting, soft preferences ----------
 
-export type Command = "recall" | "settings" | "forget_last" | "forget_all" | "forget_one" | "forget_me" | "mute_hint";
+export type Command = "recall" | "settings" | "forget_last" | "forget_all" | "forget_one" | "forget_me" | "forget_location" | "mute_hint";
+
+/** "forget my location": erases only the saved location. Checked before every other "forget ...". */
+const FORGET_LOCATION =
+  /\b(?:forget|delete|erase|clear|remove|wipe|drop|reset) (?:my |ur |the )?(?:saved |last |last known |current )?location\b|\bforget where (?:im|i am|i was|i were)\b|\b(?:stop|dont|quit) (?:saving|keeping|storing|tracking|remembering|save|keep|store|track|remember) (?:my location|where (?:im|i am))\b/;
+/** A question about the saved location, answered like one setting. */
+const LOCATION_Q =
+  /\b(?:do|did|does|have) (?:u|troy) (?:still )?(?:have|know|save|saved|keep|kept|store|stored|got|remember) (?:my (?:saved |last )?location|where (?:im|i am))\b|\bwhat(?:s| is)? (?:my (?:saved |last )?location|location do u have)\b|\bwhere do u (?:think|have) (?:im|i am)\b|\bis my location saved\b/;
+/**
+ * "i'm at leavey rn": the student saying where they are right now. Group 1 or 2 is the place.
+ * "in" needs a time word ("i'm in doheny rn") so "i'm in a rush" is never read as a place.
+ */
+const AT_NOW =
+  /^(?:hey troy |troy |btw |fyi |ok |okay |yo |hey )?(?:im|i m|currently|rn im|rn i m) (?:currently |rn |right now |still )?(?:(?:at|by|near|outside of|outside|inside|in front of|next to) (.+?)(?: (?:rn|right now|now|atm|currently|today|still))?|in (.+?) (?:rn|right now|now|atm|currently))$/;
+const NOT_A_PLACE = /^(?:a|an|my|ur|this|that|it|some|peace|ease|risk|home|work|capacity|fault|all)\b/;
+
+/** The place inside "i'm at leavey rn", or null. Text only; whether it is a campus place is checked against the database later. */
+export function parseAtNow(text: string): string | null {
+  const flat = flatten(normalize(text));
+  const m = AT_NOW.exec(flat);
+  if (!m) return null;
+  const place = (m[1] ?? m[2] ?? "").replace(/^(?:the) /, "").trim();
+  if (!place || place.split(" ").length > 5 || NOT_A_PLACE.test(place) || OTHER_FLOW.test(flat)) return null;
+  return place.slice(0, 60);
+}
 
 const RECALL = /\bwhat (?:do|did|does|have) (?:u|troy) (?:know|remember|have|got|saved?) (?:about|on) me\b|\bwhat(?:s| is| are)? (?:in )?my (?:notes|preferences|rules)\b|\b(?:show|list|see) (?:me )?my (?:notes|rules|preferences)\b|\bwhat did i tell u\b|\bwhat do u have on me\b|\bmy notes\b/;
 const SETTINGS = /\bmy settings\b|\bwhat(?:s| is| are) my (?:alert|quiet|contact|subscriptions?|alerts|spots|usual spots)\b|\bwhat am i (?:subscribed|signed up)\b|\bam i (?:on|in|set to) (?:relay|direct|no contact)\b|\b(?:are|is) my quiet hours\b|\bdo i have quiet hours\b|\bwhich alerts\b|\b(?:show|see) (?:me )?my (?:settings|profile)\b|\bcan people (?:text|message|contact) me\b|\bwho can (?:text|message|contact|see my number)\b/;
@@ -374,6 +406,8 @@ export interface Parsed {
   command: Command | null;
   /** What "forget the ..." named. */
   forgetWhat?: string;
+  /** The place in "i'm at leavey rn". Only set when the text is nothing else. */
+  at?: string | null;
   /** Reads like a soft preference ("keep it short"). */
   preference: boolean;
 }
@@ -385,12 +419,13 @@ export function parse(text: string): Parsed {
   const p: Parsed = { contact: null, groupChats: null, alert: null, quiet: null, subs: null, spots: null, command: null, preference: false };
 
   p.spots = parseSpots(text);
+  if (FORGET_LOCATION.test(flat)) return { ...p, spots: null, command: "forget_location" };
   if (MUTE_HINT.test(flat)) p.command = "mute_hint";
   else if (FORGET_ME.test(flat)) p.command = "forget_me";
   else if (!p.spots && FORGET_ALL.test(flat)) p.command = "forget_all";
   else if (FORGET_LAST.test(flat)) p.command = "forget_last";
   else if (RECALL.test(flat)) p.command = "recall";
-  else if (SETTINGS.test(flat)) p.command = "settings";
+  else if (SETTINGS.test(flat) || LOCATION_Q.test(flat)) p.command = "settings";
   else if (!p.spots) {
     const one = FORGET_ONE.exec(flat);
     if (one) {
@@ -413,6 +448,7 @@ export function parse(text: string): Parsed {
     if (p.quiet && "error" in p.quiet) p.quiet = null;
     if (hasChange(p)) p.command = null;
   }
+  if (!p.command && !hasChange(p) && !p.preference) p.at = parseAtNow(text);
   return p;
 }
 
@@ -429,13 +465,15 @@ export function notesIntent(text: string): Intent | null {
   const flat = flatten(normalize(text));
   const mk = (action: string): Intent => ({ flow: "notes", action, details: {}, source: "fallback" });
   if (p.command === "recall" || p.command === "settings") return mk("recall");
-  if (p.command === "forget_last" || p.command === "forget_all" || p.command === "forget_one" || p.command === "forget_me") return mk("forget");
+  if (p.command === "forget_last" || p.command === "forget_all" || p.command === "forget_one" || p.command === "forget_me" || p.command === "forget_location") return mk("forget");
   if (p.command === "mute_hint") return mk("add_note");
   if (p.quiet) return mk("set_quiet_hours");
   if (p.alert && ALERT_CONTEXT.test(flat)) return mk("set_alert_distance");
   if (p.contact || p.groupChats !== null || p.subs || p.spots) return mk("add_note");
   // "remember that i lost my keys" belongs to lost and found, not here.
   if (p.preference && !OTHER_FLOW.test(flat)) return mk("add_note");
+  // "i'm at leavey rn" updates where walking times are measured from.
+  if (p.at) return mk("add_note");
   return null;
 }
 
@@ -603,11 +641,23 @@ function settingsBubbles(u: User): string[] {
   return out;
 }
 
+/**
+ * Whether a location is saved and how old it is. A place name only, never coordinates:
+ * the nearest campus place within 150 m, else "a spot off campus". Only ever said to the student it belongs to.
+ */
+function locationLine(db: DatabaseSync, u: User): string {
+  const loc = describeSavedLocation(db, u.id, clock());
+  if (!loc) return "location: none saved";
+  const how = loc.source === "asked" ? "u told me" : "u shared it";
+  return `location: ${loc.place}. ${how} ${loc.age}. say "forget my location" to erase it`;
+}
+
 function recallBubbles(db: DatabaseSync, u: User): string[] {
   const out: string[] = [];
   const who = [u.name ? `ur ${u.name.toLowerCase()}` : "", u.uscEmail ? `usc email ${u.uscEmail.toLowerCase()}` : ""].filter(Boolean).join(", ");
   out.push(who ? `here's what i have. ${who}` : "here's what i have");
   out.push(...settingsBubbles(u));
+  out.push(locationLine(db, u));
   const notes = listNotes(db, u.id);
   if (!notes.length) out.push('no notes yet. tell me stuff like "keep it short" and i\'ll remember it');
   else {
@@ -620,7 +670,8 @@ function recallBubbles(db: DatabaseSync, u: User): string[] {
 }
 
 /** One line for a question about one setting, or null for the whole list. */
-function oneSetting(flat: string, u: User): string | null {
+function oneSetting(db: DatabaseSync, flat: string, u: User): string | null {
+  if (LOCATION_Q.test(flat)) return locationLine(db, u);
   if (/\bquiet\b/.test(flat)) return u.quietHours ? `quiet hours: ${quietLine(u)}` : "quiet hours are off";
   if (/\balert (?:distance|radius|range)\b/.test(flat)) return `alert distance: a ${u.alertMinutes} min walk`;
   if (/\bsubscri|signed up|which alerts|my alerts\b/.test(flat)) return u.subscriptions.length ? `ur alerts: ${topicList(u.subscriptions)}${u.paused ? ". they're paused rn" : ""}` : "ur not signed up for any alerts";
@@ -696,7 +747,7 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
   const r = ctx.event.reaction;
   // "no emoji" or "stop the food alerts" is a new request, not an answer to the question.
   const p = parse(text);
-  const request = hasChange(p) || p.preference || (!!p.command && !/^forget it\b/.test(flat));
+  const request = hasChange(p) || p.preference || !!p.at || (!!p.command && !/^forget it\b/.test(flat));
   let yes = !request && YES.test(flat);
   let no = !request && NO.test(flat);
   if (r) {
@@ -860,6 +911,14 @@ async function handleCommand(ctx: FlowContext, p: Parsed, text: string): Promise
     case "mute_hint":
       await ctx.say("to mute alerts text pause. to stop every text from me text STOP", 'or give me hours, like "no texts after midnight"');
       return;
+    case "forget_location": {
+      const had = describeSavedLocation(ctx.db, u.id, clock());
+      forgetUserLocation(ctx.db, u.id);
+      if (!had) await ctx.say("i don't have a location saved for u");
+      else if (u.usualSpots.length) await ctx.say("done. i forgot ur location", "walking times will go off ur usual spots until u share again");
+      else await ctx.say("done. i forgot ur location", "i won't show walking times until u share again or tell me where u are");
+      return;
+    }
     case "forget_me":
       await ctx.say('to wipe everything i have on u, text "delete my data"', 'to drop just the last note, say "forget that"');
       return;
@@ -890,7 +949,7 @@ async function handleCommand(ctx: FlowContext, p: Parsed, text: string): Promise
       return;
     }
     case "settings": {
-      const one = oneSetting(flatten(normalize(text)), u);
+      const one = oneSetting(ctx.db, flatten(normalize(text)), u);
       await ctx.say(...(one ? [one] : settingsBubbles(u)));
       return;
     }
@@ -899,12 +958,25 @@ async function handleCommand(ctx: FlowContext, p: Parsed, text: string): Promise
   }
 }
 
+/** "i'm at leavey rn": matched to campus_places and saved as the student's location (source "asked"). */
+async function handleAtNow(ctx: FlowContext, where: string): Promise<void> {
+  const place = findPlace(ctx.db, where);
+  if (!place) {
+    await ctx.say("i don't know that spot, so i didn't save it", 'try a campus spot, like "i\'m at leavey rn"');
+  } else {
+    saveUserLocation(ctx.db, ctx.user.id, { lat: place.lat, lng: place.lng }, "asked", clock());
+    await ctx.say(`got it, ur at ${place.name.toLowerCase()}`, 'i\'ll use that for walking times. say "forget my location" anytime');
+  }
+  if (ctx.state?.flow === "notes") ctx.setState(null);
+}
+
 async function handleRequest(ctx: FlowContext, text: string): Promise<void> {
   const p = parse(text);
   const flat = flatten(normalize(text));
   const action = ctx.intent.flow === "notes" ? ctx.intent.action : "";
 
   if (p.command) return handleCommand(ctx, p, text);
+  if (p.at) return handleAtNow(ctx, p.at);
   if (!hasChange(p) && !p.preference) {
     if (action === "recall") return handleCommand(ctx, { ...p, command: "recall" }, text);
     if (action === "forget") return handleCommand(ctx, { ...p, command: "forget_last" }, text);

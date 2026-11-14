@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Troy. He knows a guy.</title>
-<meta name="description" content="Troy is an AI you text that connects Trojans to the right person, office or item. Hackathon prototype, not an official USC service.">
-<link rel="icon" type="image/svg+xml" href="/assets/troy-avatar.svg">
+<meta name="description" content="Troy is an AI you text on iMessage that connects Trojans to the right person, office or item. Hackathon prototype, not an official USC service.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="assets/troy-avatar.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -82,7 +83,7 @@
   h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; margin: 0 0 12px; }
   .sub { color: var(--stone); max-width: 36em; margin: 0 0 36px; }
 
-  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .card { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 22px 20px 20px; display: flex; flex-direction: column; gap: 6px; }
   .card h3 { font-family: var(--serif); font-weight: 400; font-size: 27px; line-height: 1.1; margin: 0; }
   .card p { margin: 0 0 12px; font-size: 14px; color: var(--stone); }
@@ -92,6 +93,14 @@
   .bubble { max-width: 92%; padding: 9px 14px; border-radius: 20px; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
   .bubble.me { align-self: flex-end; background: var(--me-bubble); color: var(--white); border-bottom-right-radius: 6px; }
   .bubble.troy { align-self: flex-start; background: var(--troy-bubble); color: var(--ink); border-bottom-left-radius: 6px; }
+
+  .hello { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; padding-bottom: 56px; }
+  .hello .sub { margin-bottom: 0; }
+  .hello .thread { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 22px 20px; margin: 0; gap: 8px; }
+  .hello .bubble { font-size: 16px; max-width: 86%; }
+  .fine { color: var(--stone); font-size: 14px; max-width: 46em; margin: 28px 0 0; }
+  .privacy { margin: 16px 0 0; background: var(--white); border: 1px solid var(--line); border-radius: 24px; padding: 18px 20px; font-size: 15px; color: #44403C; }
+  .privacy b { color: var(--ink); font-weight: 600; }
 
   .how { background: var(--white); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; counter-reset: step; list-style: none; padding: 0; margin: 0; }
@@ -119,7 +128,7 @@
   footer img { width: 48px; height: 48px; border-radius: 50%; flex: none; }
   footer p { margin: 0; }
 
-  @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hello { gap: 24px; } }
   @media (max-width: 759px) {
     .hero-grid { grid-template-columns: 1fr; gap: 8px; padding: 0 0 48px; }
     .stage { order: -1; max-width: 260px; }
@@ -129,6 +138,7 @@
     .steps li { padding: 0 0 0 68px; min-height: 52px; }
     .steps li:not(:last-child)::after { display: none; }
     .trust { grid-template-columns: 1fr; }
+    .hello { grid-template-columns: 1fr; gap: 20px; padding-bottom: 36px; }
   }
   @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } .chip { display: none; } }
 </style>
@@ -138,13 +148,13 @@
 <header class="hero">
   <div class="wrap">
     <nav>
-      <a class="brand" href="/" aria-label="Troy home"><img src="/assets/troy-avatar.svg" alt="" width="40" height="40">Troy</a>
+      <a class="brand" href="./" aria-label="Troy home"><img src="assets/troy-avatar.svg" alt="" width="40" height="40">Troy</a>
       <span class="chip"><i></i>Hackathon prototype</span>
     </nav>
     <div class="hero-grid">
       <div>
         <h1>He knows a guy.</h1>
-        <p class="lede">Troy is an AI you text that connects Trojans to the right person, office or item.</p>
+        <p class="lede">Troy is an AI you text on iMessage. He connects Trojans to the right person, office or item.</p>
         <div class="cta-row">
           <a class="btn" id="text-troy" role="link" aria-disabled="true">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3c5 0 9 3.4 9 7.6s-4 7.6-9 7.6c-.9 0-1.8-.1-2.6-.3L5 20.500l1.1-3.600C4.2 15.5 3 13.2 3 10.6 3 6.4 7 3 12 3z" fill="currentColor"/></svg>
@@ -194,44 +204,76 @@
 <main>
   <section>
     <div class="wrap">
+      <div class="hello">
+        <div>
+          <p class="eyebrow">Say hey</p>
+          <h2>Start with &ldquo;hey troy&rdquo;.</h2>
+          <p class="sub">That first text is how Troy knows you want to talk. This is what he says back.</p>
+        </div>
+        <div class="thread" aria-label="Troy's first messages">
+          <div class="bubble me">hey troy</div>
+          <div class="bubble troy">hey i'm troy</div>
+          <div class="bubble troy">i'm an ai, but i know a guy for everything</div>
+          <div class="bubble troy">send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'</div>
+        </div>
+      </div>
+
       <p class="eyebrow">What to text</p>
       <h2>Say it like you'd text a friend.</h2>
-      <p class="sub">No app and no forms. The messages below are examples.</p>
+      <p class="sub">No app and no forms. A lot of answers are one tap, with a tapback or a poll. The messages below are examples.</p>
       <div class="cards">
         <article class="card">
           <i class="dot" style="background: var(--laurel)"></i>
           <h3>Found something</h3>
-          <p>Send a photo and where you found it. Troy looks for the owner.</p>
+          <p>Send a photo and where you found it. Troy logs it and texts you when the owner turns up.</p>
           <div class="thread"><small>Example</small>
-            <div class="bubble me">found these airpods on a bench, sending a pic</div>
-            <div class="bubble troy">on it 👀</div>
+            <div class="bubble me">found these airpods at leavey</div>
+            <div class="bubble troy">anything on it only the owner would know? that part stays between us</div>
           </div>
         </article>
         <article class="card">
           <i class="dot" style="background: var(--amber)"></i>
           <h3>Lost something</h3>
-          <p>Describe it and where you last had it. Troy checks what's been found.</p>
+          <p>Say what it is and where you last had it. Troy checks what's been found and asks you to describe it.</p>
           <div class="thread"><small>Example</small>
-            <div class="bubble me">lost my keys last night, blue lanyard</div>
-            <div class="bubble troy">i know a guy. quick check first</div>
+            <div class="bubble me">lost my airpods at leavey</div>
+            <div class="bubble troy">on it. checking what's been turned in</div>
           </div>
         </article>
         <article class="card">
           <i class="dot" style="background: var(--gold)"></i>
           <h3>Free food</h3>
-          <p>Leftovers after an event? Troy lets Trojans nearby know before it's gone.</p>
-          <div class="thread"><small>Example</small>
-            <div class="bubble me">we have 5 extra pizzas from our club meeting</div>
-            <div class="bubble troy">on it 👀</div>
+          <p>Leftovers after an event? Troy texts Trojans nearby who asked for food alerts. A tapback claims one.</p>
+          <div class="thread"><small>What they get</small>
+            <div class="bubble troy">yo acm is giving away free chipotle at leavey, about 3 bowls left</div>
+            <div class="bubble troy">react if u want one</div>
           </div>
         </article>
         <article class="card">
           <i class="dot" style="background: var(--cardinal)"></i>
           <h3>Something's broken</h3>
-          <p>Or you just don't know who to ask. Troy routes it to the office that handles it.</p>
+          <p>Troy logs it for the office that handles it and texts you when the status changes.</p>
           <div class="thread"><small>Example</small>
-            <div class="bubble me">the sink on my floor is leaking, who do i talk to</div>
-            <div class="bubble troy">i know a guy</div>
+            <div class="bubble me">the light is out on the 2nd floor of taper hall</div>
+            <div class="bubble troy">reported to fms ✅ i'll text u when it moves.</div>
+          </div>
+        </article>
+        <article class="card">
+          <i class="dot" style="background: var(--ink)"></i>
+          <h3>Ask USG</h3>
+          <p>Club funding, the LAX shuttle, thrift, dining hours. When Troy doesn't have this year's dates confirmed, he says so and points you to USG.</p>
+          <div class="thread"><small>Example</small>
+            <div class="bubble me">how does my club get funding</div>
+            <div class="bubble troy">recognized student orgs and usc undergrads can apply for usg funding on engagesc.</div>
+          </div>
+        </article>
+        <article class="card">
+          <i class="dot" style="background: var(--stone)"></i>
+          <h3>Your rules</h3>
+          <p>Tell Troy how you want to be reached and he sticks to it.</p>
+          <div class="thread"><small>Example</small>
+            <div class="bubble me">don't add me to group chats</div>
+            <div class="bubble troy">got it. i won't add u to group chats</div>
           </div>
         </article>
       </div>
@@ -248,6 +290,7 @@
         <li><h3>Troy matches and verifies</h3><p>He finds the likely person or office and runs a quick check first.</p></li>
         <li><h3>He hands you off</h3><p>Once it checks out, Troy hands off and steps back.</p></li>
       </ol>
+      <p class="fine">The first time you text, Troy asks for your USC email to make sure you're a Trojan. Hackathon judges get a skip. That skip is for this demo only and wouldn't exist in a real campus version.</p>
     </div>
   </section>
 
@@ -258,10 +301,11 @@
       <p class="sub">Troy says he's an AI up front, and the rules below are written in code.</p>
       <ul class="trust">
         <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Quick check before any handoff</b><span>An owner has to describe the item before anything changes hands.</span></div></li>
-        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Contact info only when both say yes</b><span>Nobody gets your number or name unless you and the other person agree.</span></div></li>
+        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Contact info only when both say yes</b><span>A group chat shares contact info, so Troy asks you both first. Say no and he passes messages along instead.</span></div></li>
         <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Dangerous items go to DPS</b><span>Troy doesn't match those between students. He routes them to DPS.</span></div></li>
-        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Reply STOP anytime</b><span>One word and Troy stops texting you.</span></div></li>
+        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Reply STOP anytime</b><span>One word and Troy leaves you alone until you want to talk again.</span></div></li>
       </ul>
+      <p class="privacy" id="privacy"><b>Privacy.</b> Troy only answers people who text him first. He keeps the last location you share so alerts are accurate, and other students never see it. Text &ldquo;forget my location&rdquo; to erase it, or &ldquo;delete my data&rdquo; to erase everything.</p>
     </div>
   </section>
 
@@ -274,20 +318,22 @@
         <li>USC Housing maintenance</li>
         <li>USG</li>
       </ul>
-      <p>Troy routes to these offices. In this prototype the office integrations are mocked, and none of these offices has reviewed or endorsed it.</p>
+      <p>Troy routes to these offices. In this prototype the office and committee handoffs are mocked, so nothing is filed with them, and none of these offices has reviewed or endorsed it.</p>
     </div>
   </section>
 </main>
 
 <footer>
   <div class="wrap">
-    <img src="/assets/troy-avatar.svg" alt="" width="48" height="48">
+    <img src="assets/troy-avatar.svg" alt="" width="48" height="48">
     <p>Troy is a hackathon prototype built Nov 14 to 15, 2026 for the AI@USC Hackathon. It is not an official USC service.</p>
   </div>
 </footer>
 
 <script>
 (function () {
+  // The static build (scripts/build-landing.ts) swaps this null for { smsLink, number }.
+  var baked = /*TROY_BAKED*/null/*END_TROY_BAKED*/;
   var btn = document.getElementById("text-troy");
   var label = document.getElementById("text-troy-label");
   var note = document.getElementById("cta-note");
@@ -297,6 +343,9 @@
   function pretty(n) {
     var m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(n);
     return m ? "(" + m[1] + ") " + m[2] + "-" + m[3] : n;
+  }
+  function valid(data) {
+    return !!data && typeof data.smsLink === "string" && data.smsLink.indexOf("sms:") === 0 && typeof data.number === "string";
   }
   function comingSoon() {
     btn.removeAttribute("href");
@@ -314,15 +363,15 @@
     b.textContent = pretty(data.number);
     note.append(b, ".");
     qrImg.addEventListener("load", function () { qr.classList.add("ready"); });
-    qrImg.src = "/qr.svg";
+    qrImg.src = "qr.svg";
   }
 
+  if (valid(baked)) { ready(baked); return; }
+
+  // Local server: the number comes from TROY_NUMBER at request time.
   fetch("/api/landing", { headers: { Accept: "application/json" } })
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (data) {
-      if (data && typeof data.smsLink === "string" && data.smsLink.indexOf("sms:") === 0 && typeof data.number === "string") ready(data);
-      else comingSoon();
-    })
+    .then(function (data) { if (valid(data)) ready(data); else comingSoon(); })
     .catch(comingSoon);
 })();
 </script>

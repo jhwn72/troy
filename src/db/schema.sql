@@ -34,7 +34,12 @@ CREATE TABLE IF NOT EXISTS users (
   paused INTEGER NOT NULL DEFAULT 0,
   stopped INTEGER NOT NULL DEFAULT 0,
   isExample INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL
+  createdAt INTEGER NOT NULL,
+  -- Last known location (src/location.ts is the only reader and writer). Never shown to another student or on a dashboard.
+  lastLat REAL,
+  lastLng REAL,
+  lastLocationAt INTEGER,
+  lastLocationSource TEXT CHECK (lastLocationSource IN ('find_my','pin','asked'))
 );
 
 CREATE TABLE IF NOT EXISTS flow_state (

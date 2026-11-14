@@ -1,94 +1,220 @@
 # Troy flow transcripts
 
-Every bubble below was sent by the running server on Nov 14, 2026, driven through the web chat routes (`/webchat/send`, `/webchat/react`) with simulated phones. Nothing here is hand written.
+Every bubble below was sent by the running server on Nov 14, 2026 (evening run, after the welcome copy, texting timing, native polls and saved locations landed), driven through the web chat routes with simulated phones. Nothing here is hand written.
 
 How it was run:
 
-- `PORT=3102 MESSAGING_PROVIDER=webchat SEED_EXAMPLES=true DATABASE_URL=/tmp/claude-troy-flows.db ALLOWED_HANDLES= node src/server.ts`, with no `.env` and no API key. So every reply is fixed copy, intent comes from the keyword rules, and matching and verification use the rule scores.
-- Because there is no AI check, Troy never hands an item over on the rule score alone. The finder is shown the claimant's own words and decides. That is why the finder gets a "sound like what u found?" question in every lost and found conversation here. With the API on, a strong blind description passes without that step. Every claim starts with the same blind question ("describe it for me in ur own words"), and the finder is shown only that answer.
-- Phones: A (+1 213 555 0201), B (0202), C (0203), and D (0204, only used as the late arrival in the food flow). Each opted in with "hey troy" and skipped email verification with JUDGE.
-- `troy -> A` is a bubble in A's own chat with Troy. Lines in backticks are dashboard API calls and their answers.
-- All conversations ran in one server session, in the order below.
-- Sections a, a2, b and the handoff in f were run again later on Nov 14 after the lost and found fixes (same command on `PORT=3103` with a fresh temp database), because their replies changed. Sections 0, c, d, e and g are from the first run; the match ids and counts in g belong to that run.
+- `PORT=3112 MESSAGING_PROVIDER=webchat SEED_EXAMPLES=true DATABASE_URL=<temp db> ALLOWED_HANDLES= node src/server.ts`, with no `.env` and no API key. So every reply is fixed copy, intent comes from the keyword rules, and matching and verification use the rule scores. The temp database was deleted afterwards.
+- Routes used: `/webchat/send` (texts, photos, a dropped pin), `/webchat/vote` (a vote on a native poll card), `/webchat/react` (tapbacks), `/webchat/share` (tapping Share on the "Requested Location" bubble) and `/webchat/location` (to stop a phone sharing). The verification code was read from the server's console output, where it is logged in development.
+- Because there is no AI check, Troy never hands an item over on the rule score alone. The finder is shown the claimant's own words and decides. That is why the finder gets a "sound like what u found?" question in every lost and found conversation here. With the API on, a strong blind description passes without that step.
+- Phones: A (+1 213 555 0201), B (0202), C (0203), D (0204), and E (0205, only for the tapback version of the judge poll).
+- `troy -> A` is a bubble in A's own chat with Troy. Lines in backticks are dashboard API calls, or a database check, and their answers.
+- Everything ran in one server session in the order below, with real pacing (nothing sped up). The one exception is phone E, which ran in a second session started with `WEBCHAT_POLLS=tap` so polls fall back to tap-to-pick bubbles.
+- Read receipts and typing indicators are left out of the conversations to keep them readable. The welcome timing section shows them with timestamps.
+- A like tapback from Troy on someone's text is his "got it" when his own reply is more than 3 seconds away, usually because he is texting the other person first.
+
+## Welcome timing
+
+Measured from the transcript timestamps of the four welcomes in section 0 (phones A to D). Order on every incoming text: Read shows, a pause, typing starts, the bubble lands, a short gap, typing starts again.
+
+| Step | Measured range | Average | Samples | What John asked for |
+| --- | --- | --- | --- | --- |
+| Read, then the pause before typing starts | 0.96 to 1.34 s | 1.20 s | 4 | about a second |
+| Typing before a normal bubble (80 characters or fewer) | 1.13 to 1.98 s | 1.63 s | 24 | 1 to 2 s |
+| Typing before a long bubble (over 80 characters) | 3.30 to 3.99 s | 3.65 s | 4 | 3 to 4 s |
+| Typing before the contact card or a poll | 0.72 to 0.96 s | 0.82 s | 8 | short (0.6 to 1.0 s by design) |
+| Gap after a bubble before typing starts again | 0.41 to 0.89 s | 0.62 s | 32 | a short beat (0.4 to 0.9 s by design) |
+| Whole welcome, "hey troy" to the judge poll | 20.18 to 21.89 s | 21.20 s | 4 | not specified |
+
+All four checks John asked for hold: Read shows first, typing starts about a second later (never before), normal bubbles get 1 to 2 seconds of typing and the one long welcome bubble gets 3 to 4.
+
+Phone A's welcome, event by event:
+
+| Seconds after "hey troy" | What the phone shows | Typing shown before it |
+| --- | --- | --- |
+| 0.01 | Read shows |  |
+| 1.33 | typing starts |  |
+| 2.76 | "hey i'm troy" | 1.43s of typing, 12 chars |
+| 3.41 | typing starts |  |
+| 5.03 | "i'm an ai, but i know a guy for everything" | 1.62s of typing, 42 chars |
+| 5.92 | typing starts |  |
+| 9.22 | "send me a photo of anything on campus and i'll get it to the…" | 3.30s of typing, 123 chars |
+| 9.94 | typing starts |  |
+| 11.66 | "reply STOP anytime and i'll leave u alone until u want to ta…" | 1.73s of typing, 68 chars |
+| 12.09 | typing starts |  |
+| 13.81 | "save my contact if u haven't so u know it's me" | 1.72s of typing, 46 chars |
+| 14.35 | typing starts |  |
+| 15.20 | [contact card] | 0.84s of typing |
+| 15.73 | typing starts |  |
+| 17.00 | "quick thing, gotta make sure ur a trojan. what's ur usc emai…" | 1.26s of typing, 61 chars |
+| 17.86 | typing starts |  |
+| 19.69 | "hackathon judges can skip this. not a judge? pls don't tap i…" | 1.84s of typing, 77 chars |
+| 20.17 | typing starts |  |
+| 20.93 | "which one are u?" | 0.76s of typing, 16 chars |
+| 20.93 | [poll card] | lands with its question |
+
+After the poll lands the typing indicator turns off. (In the first replay it stayed on after the poll; that was fixed in `src/pipeline.ts` and this run is from after the fix.)
 
 ## 0. Opting in
 
-_Phone A opts in and skips verification as a judge_
+_Phone A is a student: answers the poll, verifies a USC email, taps Share on the location request_
 
 **A:** hey troy  
 **troy -> A:** hey i'm troy  
-**troy -> A:** i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy  
-**troy -> A:** reply STOP anytime  
+**troy -> A:** i'm an ai, but i know a guy for everything  
+**troy -> A:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> A:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> A:** save my contact if u haven't so u know it's me  
 **troy -> A:** [contact card: Troy]  
 **troy -> A:** quick thing, gotta make sure ur a trojan. what's ur usc email  
-**troy -> A:** judging the hackathon? reply JUDGE to skip this. demo only, the real campus version wouldn't have it  
-**A:** JUDGE  
-**troy -> A:** ur in as a guest for the demo. the real campus version always checks a usc email  
+**troy -> A:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> A:** which one are u?  
+**troy -> A:** [poll: usc student / hackathon judge]  
+**A:** _(votes "usc student" in the poll)_  
+**troy -> A:** bet. what's ur usc email?  
+**A:** tommy.trojan@usc.edu  
+**troy -> A:** sent a 6 digit code to tommy.trojan@usc.edu  
+**troy -> A:** text it back to me. might be in spam since i'm new 👀  
+**A:** 000000  
+**troy -> A:** that's not the code. 4 tries left  
+**A:** 427631  
+**troy -> A:** ur verified. welcome in  
 **troy -> A:** what do u want texts about?  
-**troy -> A:** free food  
-**troy -> A:** free stuff  
-**troy -> A:** events  
-**troy -> A:** help others with classes  
-**troy -> A:** tap a heart or thumbs up on the ones u want, then text done. or reply skip  
-**A:** skip  
-**troy -> A:** no alerts then. u can always text me first  
-**troy -> A:** want alerts for stuff near u? tap the + in this chat, then Location, then Share to share with me, or just tell me ur usual spots  
-**troy -> A:** or reply skip  
-**A:** skip  
-**troy -> A:** no worries, i'll just ask where u are when it matters  
+**troy -> A:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> A:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**A:** _(votes "free food" in the poll)_  
+**troy -> A:** got it. want more? text the numbers like 1 and 3. or text done  
+**A:** done  
+**troy -> A:** bet, i'll text u about free food  
+**troy -> A:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> A:** [Requested Location bubble with a Share button]  
+**troy -> A:** sent u a location request, tap it to share  
+**troy -> A:** or just tell me ur usual spots, or reply skip  
+**A:** _(taps Share on the location request)_  
+**troy -> A:** got it, thx  
 **troy -> A:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
 
-_Phone B opts in, picks free food alerts, gives a usual spot_
+_Phone B is a judge: votes "hackathon judge" in the poll, picks alerts by typing numbers, shares location_
 
 **B:** hey troy  
 **troy -> B:** hey i'm troy  
-**troy -> B:** i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy  
-**troy -> B:** reply STOP anytime  
+**troy -> B:** i'm an ai, but i know a guy for everything  
+**troy -> B:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> B:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> B:** save my contact if u haven't so u know it's me  
 **troy -> B:** [contact card: Troy]  
 **troy -> B:** quick thing, gotta make sure ur a trojan. what's ur usc email  
-**troy -> B:** judging the hackathon? reply JUDGE to skip this. demo only, the real campus version wouldn't have it  
-**B:** JUDGE  
-**troy -> B:** ur in as a guest for the demo. the real campus version always checks a usc email  
+**troy -> B:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> B:** which one are u?  
+**troy -> B:** [poll: usc student / hackathon judge]  
+**B:** _(votes "hackathon judge" in the poll)_  
+**troy -> B:** ur in as a judge. this skip is demo only, the real campus version wouldn't have it  
 **troy -> B:** what do u want texts about?  
-**troy -> B:** free food  
-**troy -> B:** free stuff  
-**troy -> B:** events  
-**troy -> B:** help others with classes  
-**troy -> B:** tap a heart or thumbs up on the ones u want, then text done. or reply skip  
-**B:** _(love tapback on "free food")_  
-**troy -> B:** got it. tap any others u want, then text done  
-**B:** done  
-**troy -> B:** bet, i'll text u about free food  
-**troy -> B:** want alerts for stuff near u? tap the + in this chat, then Location, then Share to share with me, or just tell me ur usual spots  
-**troy -> B:** or reply skip  
-**B:** leavey  
-**troy -> B:** saved ur usual spots  
+**troy -> B:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> B:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**B:** 1 and 3  
+**troy -> B:** bet, i'll text u about free food, events  
+**troy -> B:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> B:** [Requested Location bubble with a Share button]  
+**troy -> B:** sent u a location request, tap it to share  
+**troy -> B:** or just tell me ur usual spots, or reply skip  
+**B:** _(taps Share on the location request)_  
+**troy -> B:** got it, thx  
 **troy -> B:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
 
-_Phone C opts in and skips the alert picks (it subscribes later through the notes flow)_
+_Phone C is a judge by typing, asks why Troy wants a location, then shares one_
 
 **C:** hey troy  
 **troy -> C:** hey i'm troy  
-**troy -> C:** i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy  
-**troy -> C:** reply STOP anytime  
+**troy -> C:** i'm an ai, but i know a guy for everything  
+**troy -> C:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> C:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> C:** save my contact if u haven't so u know it's me  
 **troy -> C:** [contact card: Troy]  
 **troy -> C:** quick thing, gotta make sure ur a trojan. what's ur usc email  
-**troy -> C:** judging the hackathon? reply JUDGE to skip this. demo only, the real campus version wouldn't have it  
-**C:** JUDGE  
-**troy -> C:** ur in as a guest for the demo. the real campus version always checks a usc email  
+**troy -> C:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> C:** which one are u?  
+**troy -> C:** [poll: usc student / hackathon judge]  
+**C:** i'm a judge  
+**troy -> C:** ur in as a judge. this skip is demo only, the real campus version wouldn't have it  
 **troy -> C:** what do u want texts about?  
-**troy -> C:** free food  
-**troy -> C:** free stuff  
-**troy -> C:** events  
-**troy -> C:** help others with classes  
-**troy -> C:** tap a heart or thumbs up on the ones u want, then text done. or reply skip  
-**C:** skip  
-**troy -> C:** no alerts then. u can always text me first  
-**troy -> C:** want alerts for stuff near u? tap the + in this chat, then Location, then Share to share with me, or just tell me ur usual spots  
-**troy -> C:** or reply skip  
-**C:** skip  
-**troy -> C:** no worries, i'll just ask where u are when it matters  
+**troy -> C:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> C:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**C:** free food  
+**troy -> C:** bet, i'll text u about free food  
+**troy -> C:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> C:** [Requested Location bubble with a Share button]  
+**troy -> C:** sent u a location request, tap it to share  
+**troy -> C:** or just tell me ur usual spots, or reply skip  
+**C:** why do u need that  
+**troy -> C:** it's so alerts and walking times fit where u actually are. i only keep the last one u share, and forget my location erases it  
+**troy -> C:** share it, tell me ur usual spots, or reply skip  
+**C:** _(taps Share on the location request)_  
+**troy -> C:** got it, thx  
 **troy -> C:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
+
+_Phone D answers the poll by number, and gives a usual spot instead of sharing_
+
+**D:** hey troy  
+**troy -> D:** hey i'm troy  
+**troy -> D:** i'm an ai, but i know a guy for everything  
+**troy -> D:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> D:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> D:** save my contact if u haven't so u know it's me  
+**troy -> D:** [contact card: Troy]  
+**troy -> D:** quick thing, gotta make sure ur a trojan. what's ur usc email  
+**troy -> D:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> D:** which one are u?  
+**troy -> D:** [poll: usc student / hackathon judge]  
+**D:** 2  
+**troy -> D:** ur in as a judge. this skip is demo only, the real campus version wouldn't have it  
+**troy -> D:** what do u want texts about?  
+**troy -> D:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> D:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**D:** 1  
+**troy -> D:** bet, i'll text u about free food  
+**troy -> D:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> D:** [Requested Location bubble with a Share button]  
+**troy -> D:** sent u a location request, tap it to share  
+**troy -> D:** or just tell me ur usual spots, or reply skip  
+**D:** tcc  
+**troy -> D:** saved ur usual spots  
+**troy -> D:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
+
+_Phone E is a judge on a phone without native polls (run separately with `WEBCHAT_POLLS=tap`): tapbacks pick the options_
+
+**E:** hey troy  
+**troy -> E:** hey i'm troy  
+**troy -> E:** i'm an ai, but i know a guy for everything  
+**troy -> E:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> E:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> E:** save my contact if u haven't so u know it's me  
+**troy -> E:** [contact card: Troy]  
+**troy -> E:** quick thing, gotta make sure ur a trojan. what's ur usc email  
+**troy -> E:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> E:** which one are u?  
+**troy -> E:** usc student  
+**troy -> E:** hackathon judge  
+**E:** _(love tapback on "hackathon judge")_  
+**troy -> E:** ur in as a judge. this skip is demo only, the real campus version wouldn't have it  
+**troy -> E:** what do u want texts about?  
+**troy -> E:** free food  
+**troy -> E:** free stuff  
+**troy -> E:** events  
+**troy -> E:** help others with classes  
+**troy -> E:** tap a heart or thumbs up on the ones u want, then text done. or reply skip  
+**E:** _(love tapback on "free food")_  
+**troy -> E:** got it. tap any others u want, then text done  
+**E:** _(like tapback on "events")_  
+**E:** done  
+**troy -> E:** bet, i'll text u about free food, events  
+**troy -> E:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> E:** [Requested Location bubble with a Share button]  
+**troy -> E:** sent u a location request, tap it to share  
+**troy -> E:** or just tell me ur usual spots, or reply skip  
+**E:** skip  
+**troy -> E:** no worries, i'll just ask where u are when it matters  
+**troy -> E:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
 
 ## a. Flow 1, happy path: found airpods, meet up, group chat
 
@@ -137,9 +263,10 @@ _B reports airpods lost_
 **troy -> B:** want to send the finder a quick thank-you? text it here and i'll pass it on. or say skip  
 **B:** thank u so much, u saved my week  
 **troy -> A:** the owner of the earbuds wanted u to have this:  
+**troy -> B:** _(like tapback on "thank u so much, u saved my week")_  
 **troy -> A:** "thank u so much, u saved my week"  
 **troy -> A:** that's a win. fight on 🎉  _(sent with confetti)_  
-**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_
+**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_  
 
 ## a2. Flow 1 again, DPS handoff with a pickup code
 
@@ -169,6 +296,7 @@ _B reports one lost_
 **troy -> A:** sound like what u found? yes or no  
 **A:** yes  
 **troy -> B:** good news. the person who found it says it sounds like urs  
+**troy -> A:** _(like tapback on "yes")_  
 **troy -> B:** checking how the finder wants to hand it off. i'll text u right back  
 **troy -> A:** the owner of the hydro flask u found just checked out  
 **troy -> A:** how do u wanna hand it off? 1) hold it and meet them, 2) drop it at dps  
@@ -178,10 +306,10 @@ _A picks DPS this time_
 **A:** 2  
 **troy -> A:** drop it at dps lost and found when u can  
 **troy -> A:** dps lost and found is at 3667 mcclintock ave, los angeles, ca 90089  
-**troy -> A:** tell them it's for pickup code M4WKYM  
+**troy -> A:** tell them it's for pickup code 6FUETD  
 **troy -> B:** the finder's dropping it at dps lost and found  
 **troy -> B:** dps lost and found is at 3667 mcclintock ave, los angeles, ca 90089  
-**troy -> B:** ur pickup code is M4WKYM  
+**troy -> B:** ur pickup code is 6FUETD  
 **troy -> B:** text me got it once it's back with u  
 
 _B acknowledges, asks for the code again, then picks it up_
@@ -190,18 +318,18 @@ _B acknowledges, asks for the code again, then picks it up_
 **troy -> B:** sounds good  
 **troy -> B:** text me got it once it's back with u  
 **B:** whats my pickup code  
-**troy -> B:** ur pickup code is M4WKYM  
+**troy -> B:** ur pickup code is 6FUETD  
 **troy -> B:** dps lost and found is at 3667 mcclintock ave, los angeles, ca 90089  
 **B:** got it  
 **troy -> B:** love that  
 **troy -> B:** want to send the finder a quick thank-you? text it here and i'll pass it on. or say skip  
 **B:** skip  
 **troy -> A:** that's a win. fight on 🎉  _(sent with confetti)_  
-**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_
+**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_  
 
 ## b. Flow 1, fraud: a vague claim
 
-C never sees a hidden detail (the gold star sticker, the name inside the lid). Backing out with "nvm" and reporting again gets the same first reply and does not reset the tries: two misses and C is done with that item. The finder sees C's words and keeps holding it, and C's third report does not reopen it.
+D never sees a hidden detail (the gold star sticker, the name inside the lid). Backing out with "nvm" and reporting again gets the same first reply and does not reset the tries: two misses and D is done with that item. The finder sees D's words and keeps holding it, and D's third report does not reopen it.
 
 _A finds another pair of airpods_
 
@@ -211,102 +339,77 @@ _A finds another pair of airpods_
 **troy -> A:** logged it: earbuds  
 **troy -> A:** hang onto it for now. i'll text u when the owner turns up  
 
-_C tries to claim them with nothing specific_
+_D tries to claim them with nothing specific_
 
-**C:** lost my airpods at doheny today  
-**troy -> C:** on it. checking what's been turned in  
-**troy -> C:** might have something  
-**troy -> C:** quick check first  
-**troy -> C:** describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it  
-**C:** theyre just normal airpods in a case  
-**troy -> C:** hmm, that doesn't line up with what i have  
-**troy -> C:** one more try. describe it again, anything specific u remember  
-**C:** nvm  
-**troy -> C:** ok, stopped. ur report's still open and i'll text u if something turns up  
+**D:** lost my airpods at doheny today  
+**troy -> D:** on it. checking what's been turned in  
+**troy -> D:** might have something  
+**troy -> D:** quick check first  
+**troy -> D:** describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it  
+**D:** theyre just normal airpods in a case  
+**troy -> D:** hmm, that doesn't line up with what i have  
+**troy -> D:** one more try. describe it again, anything specific u remember  
+**D:** nvm  
+**troy -> D:** ok, stopped. ur report's still open and i'll text u if something turns up  
 
-_C reports again with a guess. The first reply is the same, and the miss from before still counts_
+_D reports again with a guess. The first reply is the same, and the miss from before still counts_
 
-**C:** lost my airpods at doheny today, they have a sticker  
-**troy -> C:** on it. checking what's been turned in  
-**troy -> C:** might have something  
-**troy -> C:** quick check first  
-**troy -> C:** describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it  
-**C:** black case with a sticker on it  
-**troy -> C:** couldn't confirm it from ur description  
-**troy -> C:** got an old photo of it, or a find my screenshot? send it here, or say no  
-**C:** no  
-**troy -> C:** i'll ask the person holding it and text u back either way  
+**D:** lost my airpods at doheny today, they have a sticker  
+**troy -> D:** on it. checking what's been turned in  
+**troy -> D:** might have something  
+**troy -> D:** quick check first  
+**troy -> D:** describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it  
+**D:** black case with a sticker on it  
+**troy -> D:** couldn't confirm it from ur description  
+**troy -> D:** got an old photo of it, or a find my screenshot? send it here, or say no  
+**D:** no  
+**troy -> D:** i'll ask the person holding it and text u back either way  
 **troy -> A:** someone's trying to claim the earbuds u found  
 **troy -> A:** here's how they described it:  
 **troy -> A:** "lost my airpods at doheny today, they have a sticker"  
 **troy -> A:** "theyre just normal airpods in a case"  
 **troy -> A:** "black case with a sticker on it"  
 **troy -> A:** couldn't confirm this person. ur call: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it  
-**C:** hello?? pls i really need them back  
-**troy -> C:** still waiting to hear back from the person holding it. i'll text u either way  
+**D:** hello?? pls i really need them back  
+**troy -> D:** still waiting to hear back from the person holding it. i'll text u either way  
 
-_A reads C's words and keeps holding it_
+_A reads D's words and keeps holding it_
 
 **A:** 3  
 **troy -> A:** ok, hang onto it. i'll text u if someone else claims it  
-**troy -> C:** couldn't confirm this one's urs, so i can't connect u  
-**troy -> C:** ur report stays open in case another one turns up  
+**troy -> D:** couldn't confirm this one's urs, so i can't connect u  
+**troy -> D:** ur report stays open in case another one turns up  
 
-_C tries a third time with a new report_
+_D tries a third time with a new report_
 
-**C:** i lost my airpods at doheny library today, black case  
-**troy -> C:** on it. checking what's been turned in  
-**troy -> C:** nothing yet, still looking  
-**troy -> C:** i'll text u the second something turns up  
-**C:** can u just tell me whats on the case  
-**troy -> C:** hey, troy here  
-**troy -> C:** i can help with lost or found stuff, free food, broken things on campus, or who to talk to about a campus issue
+**D:** i lost my airpods at doheny library today, black case  
+**troy -> D:** on it. checking what's been turned in  
+**troy -> D:** nothing yet, still looking  
+**troy -> D:** i'll text u the second something turns up  
+**D:** can u just tell me whats on the case  
+**troy -> D:** hey, troy here  
+**troy -> D:** i can help with lost or found stuff, free food, broken things on campus, or who to talk to about a campus issue  
 
-## c. Flow 2: free food
+## c. Flow 2: free food, with walking times from saved locations
 
-C turns on food alerts through the notes flow. B subscribed during onboarding. The first alert bubble is edited as the count changes.
+B, C and D all asked for free food alerts in section 0. The walking bubble is worded by what Troy has for each person: "from u" for a fresh share (B), "from where u last shared" for a share older than 3 hours (C), and "from tcc" for a usual spot (D). The first alert bubble is edited as the count changes.
 
-_C turns on food alerts through the notes flow_
-
-**C:** text me about free food  
-**troy -> C:** done. ur alerts now: free food  
-
-_A fourth phone (D) joins so there is someone to arrive late_
-
-**D:** hey troy  
-**troy -> D:** hey i'm troy  
-**troy -> D:** i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy  
-**troy -> D:** reply STOP anytime  
-**troy -> D:** [contact card: Troy]  
-**troy -> D:** quick thing, gotta make sure ur a trojan. what's ur usc email  
-**troy -> D:** judging the hackathon? reply JUDGE to skip this. demo only, the real campus version wouldn't have it  
-**D:** JUDGE  
-**troy -> D:** ur in as a guest for the demo. the real campus version always checks a usc email  
-**troy -> D:** what do u want texts about?  
-**troy -> D:** free food  
-**troy -> D:** free stuff  
-**troy -> D:** events  
-**troy -> D:** help others with classes  
-**troy -> D:** tap a heart or thumbs up on the ones u want, then text done. or reply skip  
-**D:** 1  
-**troy -> D:** bet, i'll text u about free food  
-**troy -> D:** want alerts for stuff near u? tap the + in this chat, then Location, then Share to share with me, or just tell me ur usual spots  
-**troy -> D:** or reply skip  
-**D:** skip  
-**troy -> D:** no worries, i'll just ask where u are when it matters  
-**troy -> D:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
+_Setup: B shared a location minutes ago (fresh). C's share is made 4 hours old and C's phone stops sharing (stale). D only gave a usual spot (tcc)_
 
 _A posts food with a photo_
 
 **A:** [photo] 3 bowls of chipotle at leavey  
 **troy -> A:** who's it from? a club or org name, or reply skip  
 **A:** acm  
+**troy -> D:** yo acm is giving away free chipotle at leavey, about 3 bowls left  
 **troy -> B:** yo acm is giving away free chipotle at leavey, about 3 bowls left  
 **troy -> C:** yo acm is giving away free chipotle at leavey, about 3 bowls left  
-**troy -> D:** yo acm is giving away free chipotle at leavey, about 3 bowls left  
-**troy -> C:** react if u want one  
+**troy -> A:** _(like tapback on "acm")_  
+**troy -> D:** it's about a 6 min walk from tcc  
+**troy -> C:** it's about a 4 min walk from where u last shared  
 **troy -> B:** it's about a 1 min walk from u  
 **troy -> D:** react if u want one  
+**troy -> C:** react if u want one  
 **troy -> B:** react if u want one  
 **troy -> A:** posted. i texted 3 people nearby  
 **troy -> A:** text me how many are left anytime, or 'we're out' when it's done  
@@ -320,7 +423,7 @@ _B claims with a tapback_
 **troy -> B:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, 2 left  
 **troy -> C:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, 2 left  
 **troy -> D:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, 2 left  
-`GET /api/panel -> {"id":3,"clubName":"acm","description":"chipotle","locationText":"leavey","servingsTotal":3,"servingsLeft":2,"status":"live","reports":0,"isExample":false,"claims":{"held":1,"picked_up":0,"released":0},"expiresAt":1794699496447,"createdAt":1794692296447}`  
+`GET /api/panel -> {"id":3,"clubName":"acm","description":"chipotle","locationText":"leavey","servingsTotal":3,"servingsLeft":2,"status":"live","reports":0,"isExample":false,"claims":{"held":1,"picked_up":0,"released":0},"expiresAt":1794705519868,"createdAt":1794698319868}`  
 
 _C claims by text_
 
@@ -350,7 +453,6 @@ _D arrives late_
 **troy -> D:** all gone, sorry  
 **D:** me  
 **troy -> D:** all gone, sorry  
-`GET /api/panel -> {"id":3,"clubName":"acm","description":"chipotle","locationText":"leavey","servingsTotal":3,"servingsLeft":0,"status":"ended","reports":0,"isExample":false,"claims":{"held":0,"picked_up":2,"released":0},"expiresAt":1794699496447,"createdAt":1794692296447}`  
 
 ## d. Flow 3: repair report, a duplicate, and status updates
 
@@ -376,15 +478,25 @@ _Staff move the report on the dashboard_
 **troy -> B:** update on "the light is out on the 2nd floor of taper hall" at taper hall, 2nd floor: fixed ✅  
 **troy -> C:** update on "the light is out on the 2nd floor of taper hall" at taper hall, 2nd floor: fixed ✅  
 
-## e. Flow 4: USG question and concern
+## e. Flow 4: USG questions and a concern
 
-_A question the directory answers_
+_Club funding_
 
 **B:** how does my club get funding  
 **troy -> B:** recognized student orgs and usc undergrads can apply for usg funding on engagesc.  
-**troy -> B:** apps are due wednesdays by 11:59pm, six academic weeks before the event (or nine before the first payment is due, whichever comes first), and an rso can get up to 4 events funded a semester as long as it stays under $8,000 from usg a year.  
+**troy -> B:** apps are due wednesdays by 11:59pm, six academic weeks before the event (or nine before the first payment is due, whichever comes first)  
+**troy -> B:** and an rso can get up to 4 events funded a semester as long as it stays under $8,000 from usg a year.  
 **troy -> B:** the senate was looking at changing the deadline rules in oct 2026, so double check the page before u plan around them.  
 **troy -> B:** https://usg.usc.edu/branches/funding/  
+
+_The LAX shuttle and the thrift (USG's own statement, no dates invented)_
+
+**B:** does usg have an lax shuttle  
+**troy -> B:** usg runs a shuttle to lax around breaks. hit up usg for this year's dates and how to sign up.  
+**troy -> B:** u can reach them at usg@usc.edu  
+**B:** is there a usg thrift  
+**troy -> B:** usg runs a thrift for students. ask usg where and when the next one is.  
+**troy -> B:** u can reach them at usg@usc.edu  
 
 _A concern that gets routed_
 
@@ -412,8 +524,8 @@ _B sets a privacy rule_
 **B:** what do u know about me  
 **troy -> B:** here's what i have  
 **troy -> B:** contact: people i connect u with can text u directly. group chats: off  
-**troy -> B:** alerts: on. topics: free food. within a 15 min walk. quiet hours: off  
-**troy -> B:** usual spots: leavey  
+**troy -> B:** alerts: on. topics: free food, events. within a 15 min walk. quiet hours: off  
+**troy -> B:** location: near leavey library. u shared it 11 min ago. say "forget my location" to erase it  
 **troy -> B:** notes: 1. "don't add me to group chats"  
 **troy -> B:** say "forget that" to drop the last one  
 
@@ -461,40 +573,86 @@ _A picks meet, but B's rule means no group chat_
 **troy -> B:** want to send the finder a quick thank-you? text it here and i'll pass it on. or say skip  
 **B:** skip  
 **troy -> A:** that's a win. fight on 🎉  _(sent with confetti)_  
-**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_
+**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_  
+
+## h. Saved location: ask, forget, tell
+
+Troy only ever names a campus place and how old the fix is, never coordinates. "u shared it" is a Find My share or a pin; "u told me" is something the student typed.
+
+**A:** do u have my location?  
+**troy -> A:** location: near leavey library. u shared it 14 min ago. say "forget my location" to erase it  
+**A:** what do u know about me  
+**troy -> A:** here's what i have. ur tommy trojan, usc email tommy.trojan@usc.edu  
+**troy -> A:** contact: people i connect u with can text u directly. group chats: ok  
+**troy -> A:** alerts: on. topics: free food. within a 15 min walk. quiet hours: off  
+**troy -> A:** location: near leavey library. u shared it 14 min ago. say "forget my location" to erase it  
+**troy -> A:** no notes yet. tell me stuff like "keep it short" and i'll remember it  
+**A:** forget my location  
+**troy -> A:** done, i erased ur saved location. share it again anytime if u want walking times  
+**A:** do u have my location?  
+**troy -> A:** location: none saved  
+**A:** i'm at leavey rn  
+**troy -> A:** got it, ur at leavey library  
+**troy -> A:** i'll use that for walking times. say "forget my location" anytime  
+**A:** do u have my location?  
+**troy -> A:** location: near leavey library. u told me just now. say "forget my location" to erase it  
+
+_A drops a pin with no words_
+
+**A:** _(drops a pin)_  
+**troy -> A:** got it, thx  
+**A:** do u have my location?  
+**troy -> A:** location: near ronald tutor campus center. u shared it just now. say "forget my location" to erase it  
+
+## i. STOP, then "hey troy"
+
+STOP also erases the saved location. START or any text that opens with "hey troy" brings Troy back.
+
+**C:** STOP  
+**troy -> C:** ok, i'll leave u alone. text START or hey troy whenever u want to talk again  
+
+_Texts after STOP get nothing back, and nothing is kept_
+
+**C:** lost my keys at leavey  
+**C:** hey troy  
+**troy -> C:** welcome back. ur getting texts from me again  
+**C:** do u have my location?  
+**troy -> C:** location: none saved  
+`users row for C (stopped, location erased) -> +12135550203|0|1`  
 
 ## g. Demo panel data after all of the above (`/api/panel`)
 
-The public payload has no hidden details and no pickup codes (checked). The first matches listed are the live ones from the conversations above, then the seeded example pairs.
+The public payload has no hidden details, no pickup codes and no saved locations (checked by the last line).
 
 ```
-counts: {"found": 19, "lost": 20, "matches": 47, "returned": 3}
+counts: {"found":19,"lost":19,"matches":47,"returned":3}
 
-matches (first 7 of 40 returned):
-- #47 keys <-> keys | confidence 75 (fallback) | verified | same kind of item (keys); 2 specific details line up with the owner's description; found right where it was lost; lost and found within two days
-- #45 hydro flask <-> water bottle | confidence 90 (fallback) | verified | same kind of item (water bottle); same brand; 2 specific details line up with the owner's description; found right where it was lost; lost and found within two days
-- #44 earbuds <-> earbuds | confidence 83 (fallback) | verified | same kind of item (earbuds); 4 specific details line up with the owner's description; found right where it was lost; lost and found within two days
+matches (the 4 acted on, of 40 returned):
+- #47 keys <-> keys | confidence 55 (fallback) | verified | same kind of item (keys); found right where it was lost; lost and found within two days
+- #45 hydro flask <-> water bottle | confidence 70 (fallback) | verified | same kind of item (water bottle); same brand; found right where it was lost; lost and found within two days
+- #44 earbuds <-> earbuds | confidence 55 (fallback) | verified | same kind of item (earbuds); found right where it was lost; lost and found within two days
 - #46 earbuds <-> earbuds | confidence 55 (fallback) | rejected | same kind of item (earbuds); found right where it was lost; lost and found within two days
-- #37 gray patagonia fleece <-> gray patagonia fleece | confidence 100 (fallback) | proposed | same kind of item (clothing); same color (gray); same brand; 3 specific details line up with the owner's description; found right where it was lost; lost and found within two days
-- #11 blue hydro flask <-> blue hydro flask | confidence 100 (fallback) | proposed | same kind of item (water bottle); same color (blue); same brand; 2 specific details line up with the owner's description; found right where it was lost; lost and found within two days
-- #1 black airpods pro case <-> black airpods pro case | confidence 100 (fallback) | proposed | same kind of item (earbuds); same color (black); same brand; 2 specific details line up with the owner's description; found right where it was lost; lost and found within two days
 
 verifications:
-- match #47 finder_confirm | score None | pass | try 1
-- match #46 finder_confirm | score None | fail | try 1
-- match #45 finder_confirm | score None | pass | try 1
-- match #45 blind_description | score 87 | pass | try 1
-- match #44 finder_confirm | score None | pass | try 1
+- match #47 finder_confirm | score null | pass | try 1
+- match #47 blind_description | score 86 | pass | try 1
+- match #46 finder_judgment | score null | fail | try 1
+- match #46 blind_description | score 25 | fail | try 2
+- match #46 blind_description | score 5 | fail | try 1
+- match #45 finder_confirm | score null | pass | try 1
+- match #45 blind_description | score 72 | pass | try 1
+- match #44 finder_confirm | score null | pass | try 1
 - match #44 blind_description | score 90 | pass | try 1
 
 handoffs:
-- match #47 relay | pickup code on file: False | completed: True | thank-you: None
-- match #45 dps_code | pickup code on file: True | completed: True | thank-you: None
-- match #44 group_chat | pickup code on file: False | completed: True | thank-you: thank u so much, u saved my week
+- match #47 relay | pickup code on file: false | completed: true | thank-you: null
+- match #45 dps_code | pickup code on file: true | completed: true | thank-you: null
+- match #44 group_chat | pickup code on file: false | completed: true | thank-you: thank u so much, u saved my week
 
 food drops:
-- acm, chipotle at leavey | 0 of 3 left | ended | claims {"held": 0, "picked_up": 2, "released": 0}
-- Dumpling Night Collective (example club), boxes of veggie fried rice and potstickers left over from our meeting at tcc 2nd floor | 12 of 20 left | live | claims {"held": 0, "picked_up": 0, "released": 0} | example
-- Cardinal Robotics Build Team (example club), bagels, cream cheese and fruit from our morning workshop at ronald tutor hall lobby | 0 of 30 left | ended | claims {"held": 0, "picked_up": 0, "released": 0} | example
-hidden keys in public payload: [] False False
+- acm, chipotle at leavey | 0 of 3 left | ended | claims {"held":0,"picked_up":2,"released":0}
+- Dumpling Night Collective (example club), boxes of veggie fried rice and potstickers left over from our meeting at tcc 2nd floor | 12 of 20 left | live | claims {"held":0,"picked_up":0,"released":0} | example
+- Cardinal Robotics Build Team (example club), bagels, cream cheese and fruit from our morning workshop at ronald tutor hall lobby | 0 of 30 left | ended | claims {"held":0,"picked_up":0,"released":0} | example
+
+in the public payload: hidden details false, pickup codes false, coordinates or saved locations false
 ```

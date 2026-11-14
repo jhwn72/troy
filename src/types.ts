@@ -44,7 +44,7 @@ export interface AdapterCapabilities {
   tapbacks: boolean;
   typing: boolean;
   readReceipts: boolean;
-  /** False for BlueBubbles: edits crash Messages on macOS 27. Never call the edit endpoint there. */
+  /** BlueBubbles: only true with BLUEBUBBLES_EDITS on (the patched helper). Callers always keep a fallback. */
   edits: boolean;
   effects: boolean;
   polls: boolean;
@@ -71,12 +71,24 @@ export interface MessagingAdapter {
   react(chatId: string, messageId: string, type: TapbackType): Promise<boolean>;
   /** Returns false when the edit was skipped (unsupported). Callers decide whether to send a new text. */
   editMessage(chatId: string, messageId: string, text: string): Promise<boolean>;
-  /** Falls back to "tap to pick" bubbles or a numbered list. Returns the message ids of the option bubbles in order. */
+  /**
+   * "native": a real poll. Every entry of optionMessageIds is the poll's id, and a vote arrives as IncomingEvent.pollVote.
+   * "tap": one bubble per option to tapback; optionMessageIds are those bubbles in order. "numbered": a list to answer by number.
+   */
   sendPoll(chatId: string, question: string, options: string[]): Promise<{ optionMessageIds: (string | null)[]; mode: "native" | "tap" | "numbered" }>;
   /** Returns the new chat id, or null when group chats aren't available (caller uses relay mode). */
   createGroupChat(members: Handle[], firstMessage: string): Promise<string | null>;
   /** The handle's current location if they are sharing it with Troy, else null. Never stored by the adapter. */
   getLiveLocation(handle: Handle): Promise<{ lat: number; lng: number; at: number } | null>;
+  /**
+   * Asks the person in a 1:1 chat to share their location (the Find My "Requested Location" bubble).
+   * False when the provider can't do it right now; the caller then asks in text.
+   */
+  requestLocation(chatId: string): Promise<boolean>;
+  /** Called by the pipeline right after a chat is newly allowed (opt-in), so the provider can register it. */
+  onAllowed?(chatId: string): Promise<void>;
+  /** Called on STOP and "delete my data". */
+  onDisallowed?(chatId: string): Promise<void>;
   /** The 1:1 chat id for a handle (for messaging a user Troy isn't currently replying to). */
   chatIdForHandle(handle: Handle): string;
 }

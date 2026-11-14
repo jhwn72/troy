@@ -4,14 +4,18 @@ Sources for every row in `src/db/seed-data/directory.json`. All pages were fetch
 
 Rows with `isExample: true` have something unconfirmed and their details tell the student to check with USG.
 
+Two rows, the USG LAX shuttle and USG thrift, rest on USG's own statement: the USG president said at the hackathon opening session on Nov 14, 2026 that USG runs an LAX shuttle, a farmers market and a thrift, and funds RSOs. John's decision that evening ("Trust USG's own statements" in `CLAUDE.md`) is that Troy states those programs exist plainly, without hedging. Dates, prices and links still only come from confirmed sources. Neither row has one, so both tell the student to ask USG and give only the general contact.
+
 ## usg_program rows
 
-### USG LAX shuttle (isExample true, url null)
+### USG LAX shuttle (isExample false, url null)
 
+- Stored text: "usg runs a shuttle to lax around breaks. hit up usg for this year's dates and how to sign up."
+- That USG runs it: the USG president's statement at the Nov 14 opening session. The pages below back it up for earlier years.
 - USG has run a shuttle between LAX and campus around breaks: https://usg.usc.edu/blog/2024/04/02/scup-update/ (USG post dated Apr 2, 2024, about the SCUP shuttle pilot that started in 2022-23). Secondary: https://dailytrojan.com/2025/01/15/usg-presents-fire-response-shuttle-services/ (USG hosted a return shuttle from LAX on Jan 11 to 12, 2025).
 - A March 2026 USG press release mentions a "USC Transportation Shuttle Program" presented to the senate: https://usg.usc.edu/blog/2026/03/11/march-3rd-2026-senate-press-release/
 - General contact usg@usc.edu: https://usg.usc.edu/contact/
-- Not confirmed: any USG shuttle dates, price, ticket link or pickup spot for 2026-27. Nothing on usg.usc.edu (home, resources, newsroom, calendar page) lists one.
+- Not confirmed: any USG shuttle dates, price, ticket link or pickup spot for 2026-27. Nothing on usg.usc.edu (home, resources, newsroom, calendar page) lists one. So the row has no date, price or link and its url stays null.
 
 Related and confirmed, but run by USC Transportation, not USG (not in the JSON because it is an office, not a USG program):
 
@@ -28,11 +32,12 @@ Related and confirmed, but run by USC Transportation, not USG (not in the JSON b
 - The EBT sentence is on the event pages (trojan-farmers-market-36 for Nov 18, -37 for Dec 2) and on calendar.usc.edu, not on the upcoming-events page the row links to.
 - The two dates go stale after Dec 2, 2026. Spring 2027 dates were not listed.
 
-### USG thrift (isExample true, url null)
+### USG thrift (isExample false, url null)
 
-- Only source that USG runs a thrift: the USG president's remarks at the hackathon opening session, as recorded in `docs/troy-build-spec.md`. Not found on any official page.
+- Stored text: "usg runs a thrift for students. ask usg where and when the next one is."
+- That USG runs it: the USG president's statement at the Nov 14 opening session, as recorded in `docs/troy-build-spec.md`. That statement is the only source. It was not found on any official page.
 - General contact usg@usc.edu: https://usg.usc.edu/contact/
-- Not confirmed: name, dates, location, cost, link. Searches of usg.usc.edu, usc.edu, Daily Trojan and Annenberg Media found no USG thrift for 2026.
+- Not confirmed: name, dates, location, cost, link. Searches of usg.usc.edu, usc.edu, Daily Trojan and Annenberg Media found no USG thrift for 2026. So the row has no date, place or link and its url stays null.
 - Other free or cheap secondhand options turned up in search results only (not fetched, not in the JSON): Tommy's Closet (USC Sustainability with Student Basic Needs) and USC Surplus Sales pop-ups. Neither is a USG program.
 
 ### USG RSO funding (isExample false)
@@ -85,13 +90,19 @@ Checked and left as is:
 - `offices.json`: DPS Lost & Found (213-740-9759, lostandfound@dps.usc.edu, 3667 McClintock Ave, 90 days), FMS ((213) 740-6833 for UPC, service request link resolving to https://usc.assetworks.cloud/ready, which the FPM pages wrap in a urldefense.com redirect) and USC Housing (Work Orders link https://hsmtma.usc.edu:444/home.html, (800) 872-4632, housing@usc.edu) all match their pages. No changes.
 - DPS numbers in `src/commands.ts` match https://dps.usc.edu/contact/ (UPC 213-740-4321 and 213-740-6000, HSC 323-442-1000 and 323-442-1200).
 
+## Update, Nov 14 evening: USG's own statements
+
+- USG LAX shuttle and USG thrift: `isExample` went from true to false and the "i couldn't confirm" wording came out. Both now say plainly that USG runs the program, on the strength of the USG president's statement at the Nov 14 opening session, and send the student to USG for dates. No date, price or link was added, and `contactMethod` is still usg@usc.edu.
+- Why `isExample` is false: the flag marks rows with something unconfirmed in them, and `src/flows/usg.ts` adds "i'd check with usg" to any program row that has it. Nothing left in these two rows is unconfirmed (they state only that the program exists), and the extra line would hedge a sentence that is meant to be plain.
+- The farmers market row was left as it was. Its dates, place and EBT details come from USC Hospitality pages, which is why it names Hospitality.
+
 ## Could not confirm
 
 - Which of the two farmers market time listings is right (10am to 2pm or 11am to 3pm).
 - Whether the 2024 standing-committees descriptions still describe each committee's scope this year.
 
-- Any USG LAX shuttle for 2026-27: dates, price, ticket link, pickup spot.
-- Any USG thrift: that it exists online, dates, place, cost, link.
+- Any USG LAX shuttle for 2026-27: dates, price, ticket link, pickup spot. (That USG runs one is taken from the president's statement.)
+- Any USG thrift: an official page for it, dates, place, cost, link. (That USG runs one is taken from the president's statement.)
 - USG's current role in the Trojan Farmers Market, and spring 2027 market dates.
 - The committees team page shows no academic year label, but it was last modified Oct 23, 2026. The Advocacy and Programming pages are labeled 2025-26.
 - The External Affairs chair's own email.

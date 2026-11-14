@@ -100,6 +100,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     stopFoodTimers();
     clearInterval(sweepTimer);
+    // BlueBubbles mode with a helper token: closes the helper listener. Nothing to do otherwise.
+    try {
+      created.stop?.();
+    } catch {
+      /* shutting down anyway */
+    }
     for (const s of servers) s.close();
     process.exit(0);
   });

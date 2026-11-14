@@ -11,7 +11,7 @@ export const DPS = {
   hscNonEmergency: "323-442-1200",
 } as const;
 
-export type CommandKind = "stop" | "start" | "help" | "pause" | "resume" | "human" | "delete_data" | "settings" | "emergency" | "crisis";
+export type CommandKind = "stop" | "start" | "help" | "pause" | "resume" | "human" | "delete_data" | "settings" | "forget_location" | "emergency" | "crisis";
 
 /** Whole-message commands, after lowercasing and trimming punctuation. */
 const COMMANDS: Record<string, CommandKind> = {
@@ -28,6 +28,10 @@ const COMMANDS: Record<string, CommandKind> = {
   human: "human",
   "delete my data": "delete_data",
   settings: "settings",
+  "forget my location": "forget_location",
+  "forget location": "forget_location",
+  "delete my location": "forget_location",
+  "erase my location": "forget_location",
 };
 
 // Emergency detection matches phrases, not bare words, so "that's fire" or "my feet hurt" never trigger it.
@@ -111,6 +115,11 @@ export function isCrisis(text: string): boolean {
   return !!t && CRISIS_PATTERNS.some((p) => p.test(t));
 }
 
+/** A stopped user who opens with "hey troy" is asking Troy back, same as START. */
+export function isHeyTroy(text: string): boolean {
+  return typeof text === "string" && /^hey+ troy\b/.test(clean(text));
+}
+
 /** Crisis and emergency are checked first. Everything else must be the whole message. */
 export function matchCommand(text: string): { kind: CommandKind } | null {
   if (typeof text !== "string") return null;
@@ -129,7 +138,15 @@ export const SUBSCRIPTION_LABELS: Record<string, string> = {
 
 /** Fixed copy. No emoji in the emergency or STOP replies. */
 export const TEMPLATES = {
-  welcome: ["hey i'm troy", "i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy", "reply STOP anytime"],
+  // John's words (Nov 14). Don't reword.
+  welcome: [
+    "hey i'm troy",
+    "i'm an ai, but i know a guy for everything",
+    "send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'",
+    "reply STOP anytime and i'll leave u alone until u want to talk again",
+  ],
+  /** Goes out right before the contact card. */
+  saveContact: "save my contact if u haven't so u know it's me",
   emergency: [
     "if ur in danger or someone is hurt, call 911 right now",
     `usc dps emergency line: ${DPS.upcEmergency} (university park) or ${DPS.hscEmergency} (health sciences)`,
@@ -141,13 +158,14 @@ export const TEMPLATES = {
     `if ur in danger right now call 911 or usc dps at ${DPS.upcEmergency}`,
     "i'm an ai so i can't help the way a person can. pls reach out to one of those",
   ],
-  stop: ["ur unsubscribed. i won't text u again. reply START if u ever want back in"],
+  // Matches the welcome promise: quiet until they want to talk again. START or any text starting with "hey troy" brings Troy back.
+  stop: ["ok, i'll leave u alone. text START or hey troy whenever u want to talk again"],
   start: ["welcome back. ur getting texts from me again"],
   startAlready: ["ur already in. text me whenever"],
   help: [
     "i'm troy, an ai that connects trojans",
     "text me a pic of something u found, tell me what u lost, post free food, report something broken, or ask who to talk to about a campus thing",
-    "commands: STOP to opt out, pause to mute alerts, resume to unmute, settings, human, delete my data",
+    "commands: STOP to opt out, pause to mute alerts, resume to unmute, settings, human, forget my location, delete my data",
   ],
   pause: ["paused. no alerts till u text resume. i'll still answer when u text me"],
   resume: ["ur back on. alerts are live again"],
@@ -155,7 +173,10 @@ export const TEMPLATES = {
     "i'm an ai and there's no person reading this chat",
     `to reach a real person at usc dps call ${DPS.upcNonEmergency}. for an emergency call 911 or ${DPS.upcEmergency}`,
   ],
-  deleteData: ["done. i deleted ur messages, notes and profile", "text hey troy if u ever want back in"],
+  deleteData: ["done. i deleted ur messages, notes, profile and saved location", "text hey troy if u ever want back in"],
+  forgetLocation: ["done, i erased ur saved location. share it again anytime if u want walking times"],
+  /** A location share with no words. */
+  locationSaved: "got it, thx",
   settings(user: User): string[] {
     const subs = user.subscriptions.map((s) => SUBSCRIPTION_LABELS[s] ?? s).join(", ") || "none";
     const quiet = user.quietHours ? `${user.quietHours.start} to ${user.quietHours.end}` : "off";

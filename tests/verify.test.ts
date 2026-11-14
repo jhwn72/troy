@@ -413,3 +413,39 @@ test("rule score: a guess list, a self-contradiction and text aimed at the check
   assert.ok((await scoreDescription(id, "the id belongs to tyler brooks my roommate, name on it john smith", { useAi: false })).score <= CONTRADICTION_CAP);
   assert.equal(statedName("name on it john smith")?.strict, true);
 });
+
+// ---------- the rule score as a safety brake (CLAUDE.md: "No-AI verification leans on the finder") ----------
+
+test("fallback safety brake: a wrong name, color or size fails by the rules even when two hidden details are right", async () => {
+  const named: ItemProfile = { ...airpods, nameOnItem: "Kai Tanaka" };
+  const shirt: ItemProfile = { ...airpods, category: "clothing", title: "red flannel shirt", brand: null, color: "red", publicSummary: "red flannel shirt", distinguishing: ["size small", "elbow patch sewn on the right arm", "top button is missing"] };
+  const right = await scoreDescription(named, "usc sticker on the back and a green carabiner clip", off);
+  assert.equal(right.source, "fallback");
+  assert.ok(right.score >= THRESHOLDS.descriptionPass, `the same details without a contradiction would pass: ${right.score}`);
+  const cases: [ItemProfile, string][] = [
+    [named, "usc sticker on the back, green carabiner clip, the name on it is tyler brooks"],
+    [named, "white case with a usc sticker on the back and a green carabiner clip"],
+    [shirt, "red flannel, size large, elbow patch on the right arm, top button missing"],
+  ];
+  for (const [item, answer] of cases) {
+    const r = await scoreDescription(item, answer, off);
+    assert.equal(r.source, "fallback");
+    assert.ok(r.score <= CONTRADICTION_CAP, `"${answer}" got ${r.score}`);
+    assert.ok(r.score < THRESHOLDS.descriptionPass);
+  }
+});
+
+test("a model that is down or slow reports source fallback, which the flow never treats as a pass by itself", async () => {
+  setModelCall(async () => {
+    throw new Error("timeout");
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const r = await scoreDescription(airpods, "usc sticker on the back, initials KT engraved, green carabiner");
+    assert.equal(r.source, "fallback");
+    assert.ok(r.score >= THRESHOLDS.descriptionPass);
+  } finally {
+    console.warn = warn;
+  }
+});
