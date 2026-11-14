@@ -4,7 +4,7 @@
 
 import { askJson } from "../../ai.ts";
 import type { Category, ItemProfile } from "./types.ts";
-import { clampInt, normalizeCategory, tokens } from "./types.ts";
+import { clampInt, normalizeCategory } from "./types.ts";
 
 type Image = { path: string; mime: string };
 
@@ -84,7 +84,7 @@ export function sanitizeProfile(raw: unknown): ItemProfile | null {
   }
 
   // Public fields must not leak the hidden ones.
-  const nameParts = tokens(nameOnItem).filter((w) => w.length >= 3);
+  const nameParts = (nameOnItem ?? "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3);
   const leaks = (s: string): boolean => {
     const lower = s.toLowerCase();
     if (/\d{4,}/.test(s)) return true;

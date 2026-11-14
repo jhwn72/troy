@@ -21,10 +21,11 @@ Related and confirmed, but run by USC Transportation, not USG (not in the JSON b
 
 ### USG farmers market (isExample false)
 
-- Trojan Farmers Market on Nov 18, 2026 and Dec 2, 2026, 10:00 am to 2:00 pm, McCarthy Quad: https://hospitality.usc.edu/upcoming-events/
+- Trojan Farmers Market on Nov 18, 2026 and Dec 2, 2026, McCarthy Quad (this page says 10:00 am to 2:00 pm): https://hospitality.usc.edu/upcoming-events/
 - Weekly market, a different campus partner featured each week, EBT can be used for fruits, vegetables, nuts, eggs and honey: https://hospitality.usc.edu/event/trojan-farmers-market-36/
 - Not confirmed: USG's role in the market this year. The official pages present it as a USC Hospitality event and do not mention USG. The only source tying USG to it is a 2013 Daily Trojan article (https://dailytrojan.com/2013/08/28/quad-hosts-farmers-market/). The details text therefore says "listed by usc hospitality" and makes no USG claim. The row name follows the build spec.
-- Time conflict: a search result summary of calendar.usc.edu showed 11am to 3pm for fall dates. calendar.usc.edu could not be fetched (certificate error), so the row uses the times on USC Hospitality's own page.
+- Time conflict, confirmed in the Nov 14 fact-check: calendar.usc.edu ("Trojan Farmers Market Presented by USC Hospitality", https://calendar.usc.edu/event/trojan-farmers-market-presented-by-usc-hospitality-8341) lists Nov 18 and Dec 2, 2026 as 11am to 3pm, while hospitality.usc.edu lists both as 10:00 am to 2:00 pm. Two official pages disagree, so the row no longer states one time. It tells the student about both and gives the overlap (11am to 2pm). Both pages agree on the dates, McCarthy Quad and the EBT wording.
+- The EBT sentence is on the event pages (trojan-farmers-market-36 for Nov 18, -37 for Dec 2) and on calendar.usc.edu, not on the upcoming-events page the row links to.
 - The two dates go stale after Dec 2, 2026. Spring 2027 dates were not listed.
 
 ### USG thrift (isExample true, url null)
@@ -43,7 +44,8 @@ All from https://usg.usc.edu/branches/funding/ (page shows a remaining-funding n
 - Deadline: "Applications must be submitted on Wednesdays by 11:59 PM six academic weeks before the event date when using an approved vendor, and or nine academic weeks before the initial payment due date (whichever comes first) for approved USC Vendors."
 - Caps: "Each RSO can have up to 4 events funded per semester as long as it remains under $8,000 from the USG Funding Department per year."
 - Questions go to usgfunds@usc.edu.
-- Watch: the Oct 27, 2026 senate considered SB 146-09, which changes funding guidelines and deadlines (https://usg.usc.edu/blog/2026/11/03/oct-27-2026-senate-press-release/). The release does not say whether it passed, so the deadline wording could change.
+- The page says "under $8,000", so the row now says "stays under $8,000" instead of "up to $8,000". The page was last modified Oct 30, 2026.
+- Watch: the Oct 27, 2026 senate considered SB 146-09, which changes funding guidelines and deadlines (https://usg.usc.edu/blog/2026/11/03/oct-27-2026-senate-press-release/). The release does not say whether it passed, so the deadline wording could change. The row now tells the student to double check the page.
 
 ## usg_committee rows
 
@@ -61,16 +63,37 @@ USG has no committee named for dining, safety, housing or transportation. The to
 | Committee on Wellness Affairs | (extra) | Description: well-being and "sexual, mental, spiritual, and physical" health | usgwelaf@usc.edu (committees page) |
 | Committee on Accessibility Affairs | (extra) | Description: ADA compliance and needs of students with disabilities | usgaccaf@usc.edu (committees page) |
 | USG Funding Department | club funding | https://usg.usc.edu/branches/funding/ | usgfunds@usc.edu (funding page) |
-| USG general contact | other | https://usg.usc.edu/contact/ | usg@usc.edu. Senate "every Tuesday at 7pm in TCC 450": https://usg.usc.edu/legislative-branch/ |
+| USG general contact | other | https://usg.usc.edu/contact/ | usg@usc.edu. Senate "every Tuesday at 7pm in TCC 450": https://usg.usc.edu/legislative-branch/ (page last modified Aug 18, 2026). "Anyone can come" was not stated anywhere, so the row now uses the open forum line from the Oct 27, 2026 press release: "Each Senate meeting includes an open forum". That release repeats Tuesday 7 p.m. but gives no room. |
 
 Why most committee rows are `isExample: false`: the name, description and a public role email each come from an official USG page. The build spec says to mark committee entries as example data; flip these to true if you want to follow the spec strictly.
 
+## Fact-check pass, 2026-11-14
+
+Every row with `isExample: false` or a non-null url or contact was re-fetched and the raw HTML was searched for each number, email, date and quoted phrase (not just a summary of the page).
+
+Changed in `directory.json`:
+
+- USG farmers market: removed the single 10am to 2pm time (official pages conflict, see above). Changed "listed by" to "put on by" USC Hospitality (calendar.usc.edu title says "Presented by USC Hospitality").
+- USG RSO funding: "up to $8,000" became "stays under $8,000 from usg", plus a line to double check deadlines because of SB 146-09.
+- USG general contact: "anyone can come" replaced with the open forum wording.
+
+Checked and left as is:
+
+- All five chair role emails and usgfunds@usc.edu and usg@usc.edu are in the page HTML. The committees team page was last modified Oct 23, 2026, so it reflects this fall.
+- External Affairs still shows usgacaf@usc.edu (same as Academic Affairs) on that page, so the row stays `isExample: true` with the general inbox.
+- https://usg.usc.edu/branches/standing-committees/ (the url on the committee rows, and the source of the descriptions) was last modified Feb 8, 2024 and lists no emails. The committee names match the Oct 2026 team page, but the descriptions are only as current as that 2024 page.
+- `offices.json`: DPS Lost & Found (213-740-9759, lostandfound@dps.usc.edu, 3667 McClintock Ave, 90 days), FMS ((213) 740-6833 for UPC, service request link resolving to https://usc.assetworks.cloud/ready, which the FPM pages wrap in a urldefense.com redirect) and USC Housing (Work Orders link https://hsmtma.usc.edu:444/home.html, (800) 872-4632, housing@usc.edu) all match their pages. No changes.
+- DPS numbers in `src/commands.ts` match https://dps.usc.edu/contact/ (UPC 213-740-4321 and 213-740-6000, HSC 323-442-1000 and 323-442-1200).
+
 ## Could not confirm
+
+- Which of the two farmers market time listings is right (10am to 2pm or 11am to 3pm).
+- Whether the 2024 standing-committees descriptions still describe each committee's scope this year.
 
 - Any USG LAX shuttle for 2026-27: dates, price, ticket link, pickup spot.
 - Any USG thrift: that it exists online, dates, place, cost, link.
 - USG's current role in the Trojan Farmers Market, and spring 2027 market dates.
-- Which academic year the committees page (chairs and emails) reflects. It shows no year. The Advocacy and Programming pages are labeled 2025-26.
+- The committees team page shows no academic year label, but it was last modified Oct 23, 2026. The Advocacy and Programming pages are labeled 2025-26.
 - The External Affairs chair's own email.
 - Whether SB 146-09 passed and changed funding deadlines.
 - The remaining-funding dollar amount (the page shows the Sept 28, 2026 note, but the number did not load).

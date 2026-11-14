@@ -11,10 +11,16 @@ import { getDb } from "./db/index.ts";
 import { createAdapter } from "./adapters/index.ts";
 import { createPipeline, describe } from "./pipeline.ts";
 import { getGoLiveAt } from "./adapters/gate.ts";
+import { getUserById, saveMessage } from "./db/index.ts";
+import { seed } from "./db/seed.ts";
+import { createLandingRoutes } from "./web/landing.ts";
+import { createWebRoutes } from "./web/api.ts";
 
 const db = getDb();
 // Go-live is fixed the first time Troy ever starts (and kept after that), never by the first incoming text.
 getGoLiveAt(db);
+// Labeled example data for demos. Adds only what is missing.
+if (process.env.SEED_EXAMPLES === "true") seed(db);
 
 let adapter: MessagingAdapter | null = null;
 const pipeline = createPipeline({
@@ -31,6 +37,23 @@ adapter = created.adapter;
 const app = new Hono();
 app.get("/health", (c) => c.json({ ok: true, provider: config.provider, enabled: isEnabled(db) }));
 app.route("/", created.routes);
+
+/** Dashboard status updates go to the person's own 1:1 chat. Stopped users get nothing; the adapter enforces the gate and kill switch. */
+async function notify(userId: number, bubbles: string[]): Promise<boolean> {
+  if (!adapter || !isEnabled(db)) return false;
+  let delivered = false;
+  for (const text of bubbles) {
+    const user = getUserById(db, userId);
+    if (!user || user.stopped) break;
+    const sent = await adapter.sendMessage(user.chatId, text);
+    if (!sent) continue;
+    delivered = true;
+    saveMessage(db, { userId: user.id, chatId: user.chatId, direction: "out", providerMessageId: sent.messageId, text });
+  }
+  return delivered;
+}
+app.route("/", createLandingRoutes());
+app.route("/", createWebRoutes({ db, getAdapter: () => adapter!, notify }));
 app.use("/*", serveStatic({ root: join(import.meta.dirname, "..", "public") }));
 app.onError((err, c) => {
   console.error("request error:", describe(err));

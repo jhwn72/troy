@@ -1,0 +1,29 @@
+[
+  {
+    "kind": "office",
+    "name": "DPS Lost & Found",
+    "topics": ["lost and found", "lost item", "found item", "dps", "public safety"],
+    "contactMethod": "213-740-9759 or lostandfound@dps.usc.edu",
+    "url": "https://dps.usc.edu/services/lost-and-found/",
+    "details": "University Park Campus: 3667 McClintock Ave, Los Angeles, CA 90089. Students report a lost item by calling or emailing, and drop found items off at that address. Found items are kept for 90 days from the date DPS receives them.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "Facilities Management Services (FMS)",
+    "topics": ["repair", "broken", "campus building", "classroom", "restroom", "elevator", "lights", "plumbing", "grounds", "fms"],
+    "contactMethod": "Online service request, or the FMS Customer Resource Center at (213) 740-6833 for urgent problems on the University Park Campus",
+    "url": "https://fpm.usc.edu/facilities-management-services/",
+    "details": "Handles day-to-day operation, repair and maintenance of USC buildings, infrastructure and grounds. Non-urgent requests go through the online service request form linked from the FPM FAQ (https://fpm.usc.edu/faq/), which points to https://usc.assetworks.cloud/ready. Urgent facilities problems go to the Customer Resource Center by phone. Troy's link into this system is mocked for the demo.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Housing maintenance",
+    "topics": ["repair", "broken", "dorm", "residence hall", "apartment", "room", "housing", "maintenance", "work order"],
+    "contactMethod": "Work Orders link on housing.usc.edu, or the USC Housing Services Office at (800) 872-4632 or housing@usc.edu",
+    "url": "https://housing.usc.edu/",
+    "details": "Residents submit maintenance problems in USC Housing buildings through the Work Orders link on the USC Housing home page (https://hsmtma.usc.edu:444/home.html). Troy's link into this system is mocked for the demo.",
+    "isExample": false
+  }
+]

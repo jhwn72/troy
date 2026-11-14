@@ -1,0 +1,122 @@
+[
+  {
+    "key": "found-airpods-star", "user": "+12135550110", "type": "found", "hoursAgo": 20, "locationText": "leavey library 2nd floor", "status": "open", "heldBy": "finder",
+    "details": { "category": "earbuds", "title": "black airpods pro case", "brand": "Apple", "color": "black", "publicSummary": "black airpods case", "distinguishing": ["small silver star sticker on the back", "scratch next to the hinge", "only the left earbud is inside"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-airpods-star", "user": "+12135550111", "type": "lost", "hoursAgo": 22, "locationText": "leavey", "status": "open", "title": "black airpods pro case",
+    "details": { "category": "earbuds", "description": "black airpods pro case with a little silver star sticker on the back, i think only the left one was in it", "color": "black", "brand": "Apple", "locationText": "leavey" }
+  },
+  {
+    "key": "found-airpods-initials", "user": "+12135550113", "type": "found", "hoursAgo": 30, "locationText": "lyon center locker room", "status": "open", "heldBy": "finder",
+    "details": { "category": "earbuds", "title": "black airpods case with a loop", "brand": "Apple", "color": "black", "publicSummary": "black airpods case", "distinguishing": ["initials KT engraved on the front", "green silicone loop on the side", "both earbuds inside"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-airpods-glitter", "user": "+12135550118", "type": "lost", "hoursAgo": 50, "locationText": "tcc", "status": "open", "title": "black airpods case with a keychain",
+    "details": { "category": "earbuds", "description": "black airpods case, has a gold glitter keychain clipped to it", "color": "black", "brand": "Apple", "locationText": "tcc" }
+  },
+  {
+    "key": "lost-galaxy-buds", "user": "+12135550119", "type": "lost", "hoursAgo": 18, "locationText": "leavey basement", "status": "open", "title": "white galaxy buds",
+    "details": { "category": "earbuds", "description": "white samsung galaxy buds in a clear case with a cat charm", "color": "white", "brand": "Samsung", "locationText": "leavey basement" }
+  },
+  {
+    "key": "found-wallet-name", "user": "+12135550114", "type": "found", "hoursAgo": 10, "locationText": "by tommy trojan", "status": "open", "heldBy": "finder",
+    "details": { "category": "wallet", "title": "brown leather wallet", "brand": null, "color": "brown", "publicSummary": "brown wallet", "distinguishing": ["usc student id inside", "boba punch card with 6 stamps", "folded movie ticket stub"], "nameOnItem": "Priya Raman", "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-wallet-name", "user": "+12135550112", "type": "lost", "hoursAgo": 12, "locationText": "near bovard", "status": "open", "title": "brown leather wallet",
+    "details": { "category": "wallet", "description": "brown leather wallet with my usc id and a boba punch card in it", "color": "brown", "brand": null, "locationText": "near bovard" }
+  },
+  {
+    "key": "found-hydroflask-corgi", "user": "+12135550115", "type": "found", "hoursAgo": 40, "locationText": "taper hall 2nd floor", "status": "open", "heldBy": "finder",
+    "details": { "category": "water_bottle", "title": "blue hydro flask", "brand": "Hydro Flask", "color": "blue", "publicSummary": "blue water bottle", "distinguishing": ["corgi sticker near the top", "dent on the bottom edge", "black straw lid"], "nameOnItem": null, "isValuable": false, "isDangerous": false }
+  },
+  {
+    "key": "lost-hydroflask-corgi", "user": "+12135550120", "type": "lost", "hoursAgo": 44, "locationText": "thh", "status": "open", "title": "blue hydro flask",
+    "details": { "category": "water_bottle", "description": "blue hydro flask with a corgi sticker on it and a dent on the bottom", "color": "blue", "brand": "Hydro Flask", "locationText": "thh" }
+  },
+  {
+    "key": "found-bottle-owala", "user": "+12135550117", "type": "found", "hoursAgo": 41, "locationText": "village dining hall", "status": "open", "heldBy": "finder",
+    "details": { "category": "water_bottle", "title": "blue owala bottle", "brand": "Owala", "color": "blue", "publicSummary": "blue water bottle", "distinguishing": ["white flip lid", "strip of tape with the letter J on it", "pink hair tie around the handle"], "nameOnItem": null, "isValuable": false, "isDangerous": false }
+  },
+  {
+    "key": "lost-hydroflask-nasa", "user": "+12135550119", "type": "lost", "hoursAgo": 70, "locationText": "lyon center", "status": "open", "title": "blue hydro flask with a carabiner",
+    "details": { "category": "water_bottle", "description": "blue hydro flask, has a nasa sticker and an orange carabiner clipped to the handle", "color": "blue", "brand": "Hydro Flask", "locationText": "lyon center" }
+  },
+  {
+    "key": "found-keys-lanyard", "user": "+12135550116", "type": "found", "hoursAgo": 5, "locationText": "parkside dining hall", "status": "open", "heldBy": "finder",
+    "details": { "category": "keys", "title": "keys on a red lanyard", "brand": null, "color": "red", "publicSummary": "set of keys on a lanyard", "distinguishing": ["honda key fob", "tiny black flashlight", "3 keys, one with a purple cap"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-keys-lanyard", "user": "+12135550121", "type": "lost", "hoursAgo": 7, "locationText": "parkside", "status": "open", "title": "keys on a red lanyard",
+    "details": { "category": "keys", "description": "keys on a red lanyard, honda fob and a tiny flashlight, one key has a purple cap", "color": "red", "brand": null, "locationText": "parkside" }
+  },
+  {
+    "key": "lost-keys-carabiner", "user": "+12135550110", "type": "lost", "hoursAgo": 60, "locationText": "fertitta", "status": "open", "title": "keys on a blue carabiner",
+    "details": { "category": "keys", "description": "keys on a blue carabiner with a toyota fob and a bottle opener", "color": "blue", "brand": null, "locationText": "fertitta" }
+  },
+  {
+    "key": "found-macbook-sunflower", "user": "+12135550118", "type": "found", "hoursAgo": 28, "locationText": "sgm lecture hall", "status": "open", "heldBy": "finder",
+    "details": { "category": "laptop", "title": "silver macbook air", "brand": "Apple", "color": "silver", "publicSummary": "silver laptop", "distinguishing": ["sunflower sticker on the lid", "small crack on the bottom left corner", "teal keyboard cover"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-macbook-sunflower", "user": "+12135550117", "type": "lost", "hoursAgo": 29, "locationText": "sgm 123", "status": "open", "title": "silver macbook air",
+    "details": { "category": "laptop", "description": "silver macbook air with a sunflower sticker on the lid and a teal keyboard cover", "color": "silver", "brand": "Apple", "locationText": "sgm 123" }
+  },
+  {
+    "key": "found-macbook-case", "user": "+12135550119", "type": "found", "hoursAgo": 100, "locationText": "leavey library 3rd floor", "status": "open", "heldBy": "finder",
+    "details": { "category": "laptop", "title": "silver macbook in a clear case", "brand": "Apple", "color": "silver", "publicSummary": "silver laptop", "distinguishing": ["clear hard shell case", "robot sticker on the inside of the case", "charger wrapped with a red velcro tie"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "found-calculator", "user": "+12135550120", "type": "found", "hoursAgo": 75, "locationText": "ginsburg hall", "status": "open", "heldBy": "finder",
+    "details": { "category": "other", "title": "ti-84 graphing calculator", "brand": "Texas Instruments", "color": "black", "publicSummary": "graphing calculator", "distinguishing": ["pink slide cover", "label on the back that says room 204", "smiley face drawn in silver marker"], "nameOnItem": null, "isValuable": false, "isDangerous": false }
+  },
+  {
+    "key": "lost-calculator", "user": "+12135550114", "type": "lost", "hoursAgo": 77, "locationText": "kap", "status": "open", "title": "ti-84 calculator",
+    "details": { "category": "other", "description": "ti-84 calculator with a pink cover, theres a silver smiley face drawn on the back", "color": "black", "brand": "Texas Instruments", "locationText": "kap" }
+  },
+  {
+    "key": "found-fleece", "user": "+12135550121", "type": "found", "hoursAgo": 52, "locationText": "evk", "status": "open", "heldBy": "finder",
+    "details": { "category": "clothing", "title": "gray patagonia fleece", "brand": "Patagonia", "color": "gray", "publicSummary": "gray fleece jacket", "distinguishing": ["size medium", "lip balm in the left pocket", "small burn hole on the right cuff"], "nameOnItem": null, "isValuable": false, "isDangerous": false }
+  },
+  {
+    "key": "lost-fleece", "user": "+12135550115", "type": "lost", "hoursAgo": 54, "locationText": "evk", "status": "open", "title": "gray patagonia fleece",
+    "details": { "category": "clothing", "description": "grey patagonia fleece, medium, theres chapstick in the pocket and a little burn hole on one cuff", "color": "gray", "brand": "Patagonia", "locationText": "evk" }
+  },
+  {
+    "key": "found-uscard", "user": "+12135550112", "type": "found", "hoursAgo": 3, "locationText": "the village by target", "status": "open", "heldBy": "finder",
+    "details": { "category": "id_card", "title": "usc student id card", "brand": null, "color": null, "publicSummary": "usc id card", "distinguishing": ["clear sleeve with a metro tap card behind it"], "nameOnItem": "Jordan Blake", "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-uscard", "user": "+12135550113", "type": "lost", "hoursAgo": 4, "locationText": "the village", "status": "open", "title": "usc id card",
+    "details": { "category": "id_card", "description": "my usc id, its in a clear sleeve with my tap card", "color": null, "brand": null, "locationText": "the village" }
+  },
+  {
+    "key": "found-glasses", "user": "+12135550111", "type": "found", "hoursAgo": 15, "locationText": "doheny library reading room", "status": "open", "heldBy": "finder",
+    "details": { "category": "glasses", "title": "tortoiseshell glasses in a navy case", "brand": null, "color": "brown", "publicSummary": "glasses in a case", "distinguishing": ["navy hard case", "yellow cleaning cloth inside", "left arm is slightly bent"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "found-knife-dps", "user": "+12135550115", "type": "found", "hoursAgo": 26, "locationText": "mccarthy quad", "status": "handed_off", "heldBy": "dps",
+    "details": { "category": "other", "title": "folding pocket knife", "brand": null, "color": "black", "publicSummary": "item turned in to dps", "distinguishing": ["black handle", "belt clip"], "nameOnItem": null, "isValuable": false, "isDangerous": true }
+  },
+  {
+    "key": "found-iphone-dps", "user": "+12135550114", "type": "found", "hoursAgo": 90, "locationText": "outside the bookstore", "status": "open", "heldBy": "dps",
+    "details": { "category": "phone", "title": "black iphone in a clear case", "brand": "Apple", "color": "black", "publicSummary": "black iphone", "distinguishing": ["lock screen photo of a golden retriever", "cracked screen protector in the top right", "transit card tucked in the case"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "found-backpack-returned", "user": "+12135550113", "type": "found", "hoursAgo": 130, "locationText": "tcc", "status": "returned", "heldBy": "finder",
+    "details": { "category": "bag", "title": "black herschel backpack", "brand": "Herschel", "color": "black", "publicSummary": "black backpack", "distinguishing": ["chem lab notebook inside", "orange water bottle in the side pocket", "enamel pin of a taco"], "nameOnItem": null, "isValuable": true, "isDangerous": false }
+  },
+  {
+    "key": "lost-backpack-returned", "user": "+12135550116", "type": "lost", "hoursAgo": 132, "locationText": "tutor campus center", "status": "returned", "title": "black herschel backpack",
+    "details": { "category": "bag", "description": "black herschel backpack with a taco pin on it, my chem lab notebook is inside", "color": "black", "brand": "Herschel", "locationText": "tutor campus center" }
+  },
+  {
+    "key": "lost-scooter", "user": "+12135550111", "type": "lost", "hoursAgo": 35, "locationText": "bike racks by the lyon center", "status": "open", "title": "black electric scooter", "isValuable": true,
+    "details": { "category": "scooter", "description": "black segway ninebot scooter with a yellow cable lock and a sticker of a palm tree on the stem", "color": "black", "brand": "Segway", "locationText": "bike racks by the lyon center" }
+  },
+  {
+    "key": "lost-ring", "user": "+12135550120", "type": "lost", "hoursAgo": 96, "locationText": "village gym", "status": "open", "title": "silver ring", "isValuable": true,
+    "details": { "category": "jewelry", "description": "thin silver ring with a tiny green stone, took it off to lift", "color": "silver", "brand": null, "locationText": "village gym" }
+  }
+]

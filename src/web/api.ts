@@ -20,7 +20,8 @@ import { getSetting, setSetting } from "../db/index.ts";
 export interface WebDeps {
   db: DatabaseSync;
   getAdapter: () => MessagingAdapter;
-  notify: (userId: number, bubbles: string[]) => Promise<void>;
+  /** Resolves false when nothing was delivered (stopped user, kill switch, chat not allowed), so it isn't counted as texted. */
+  notify: (userId: number, bubbles: string[]) => Promise<boolean | void>;
 }
 
 type Row = Record<string, unknown>;
@@ -155,7 +156,11 @@ async function loadLatestEval(): Promise<unknown> {
     const path = "../eval.ts"; // a variable on purpose: the file is optional
     const mod = (await import(path)) as { latestEval?: () => unknown };
     if (typeof mod.latestEval !== "function") return null;
-    return (await mod.latestEval()) ?? null;
+    const result: unknown = await mod.latestEval();
+    if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+    // Summary only: the per-case list is long and the pages poll every few seconds.
+    const { cases: _cases, ...summary } = result as Record<string, unknown>;
+    return summary;
   } catch {
     return null;
   }
@@ -467,8 +472,7 @@ export function createWebRoutes(deps: WebDeps): Hono {
       for (const f of parseJson<unknown[]>(r.followers, [])) if (typeof f === "number" && Number.isInteger(f)) recipients.add(f);
       for (const userId of recipients) {
         try {
-          await deps.notify(userId, [text]);
-          notified++;
+          if ((await deps.notify(userId, [text])) !== false) notified++;
         } catch {
           failed++; // one failed text never blocks the others or the saved status
         }

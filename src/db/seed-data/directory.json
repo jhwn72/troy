@@ -14,7 +14,7 @@
     "topics": ["farmers market", "produce", "food", "groceries", "ebt"],
     "contactMethod": null,
     "url": "https://hospitality.usc.edu/upcoming-events/",
-    "details": "the trojan farmers market is on mccarthy quad, listed by usc hospitality. the next ones are wed nov 18 and wed dec 2, 10am to 2pm, and ebt works for produce, nuts, eggs and honey.",
+    "details": "the trojan farmers market is on mccarthy quad, put on by usc hospitality. the next ones are wed nov 18 and wed dec 2. usc's two listings disagree on the hours (one says 10am to 2pm, the other 11am to 3pm), so 11am to 2pm is the safe window. ebt works for produce, nuts, eggs and honey.",
     "isExample": false
   },
   {
@@ -32,7 +32,7 @@
     "topics": ["club money", "funding", "budget", "event funding", "club funding", "rso funding"],
     "contactMethod": "usgfunds@usc.edu",
     "url": "https://usg.usc.edu/branches/funding/",
-    "details": "recognized student orgs and usc undergrads can apply for usg funding on engagesc. apps are due wednesdays by 11:59pm, six academic weeks before the event (or nine before the first payment is due, whichever comes first), and an rso can get up to 4 events funded a semester and up to $8,000 a year.",
+    "details": "recognized student orgs and usc undergrads can apply for usg funding on engagesc. apps are due wednesdays by 11:59pm, six academic weeks before the event (or nine before the first payment is due, whichever comes first), and an rso can get up to 4 events funded a semester as long as it stays under $8,000 from usg a year. the senate was looking at changing the deadline rules in oct 2026, so double check the page before u plan around them.",
     "isExample": false
   },
   {
@@ -104,7 +104,7 @@
     "topics": ["other", "general", "senate", "anything else"],
     "contactMethod": "usg@usc.edu",
     "url": "https://usg.usc.edu/contact/",
-    "details": "usg's general inbox. the senate also meets tuesdays at 7pm in tcc 450 and anyone can come.",
+    "details": "usg's general inbox. usg's site says the senate meets tuesdays at 7pm in tcc 450, and each meeting has an open forum where u can bring ideas or concerns.",
     "isExample": false
   }
 ]

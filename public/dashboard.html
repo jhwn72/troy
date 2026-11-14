@@ -462,7 +462,7 @@
     const e = data.eval;
     const card = $("eval-card");
     if (!e || typeof e !== "object") return card.replaceChildren(el("div", { class: "title", text: "No eval run yet" }), el("div", { class: "meta", text: "Run the eval script to see the score here." }));
-    const total = e.total ?? e.n ?? e.count ?? e.cases;
+    const total = e.total ?? e.n ?? e.count;
     const correct = e.correct ?? e.passed;
     const wrongHandoffs = e.wrongHandoffs ?? e.wrong_handoffs ?? 0;
     const mode = e.mode ?? e.source;
@@ -502,6 +502,10 @@
   const start = location.hash.slice(1);
   const startBtn = start && document.querySelector('nav button[data-tab="' + CSS.escape(start) + '"]');
   if (startBtn) startBtn.click(); else refresh();
+  window.addEventListener("hashchange", () => {
+    const b = document.querySelector('nav button[data-tab="' + CSS.escape(location.hash.slice(1)) + '"]');
+    if (b && b.dataset.tab !== tab) b.click();
+  });
   setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
 })();
 </script>

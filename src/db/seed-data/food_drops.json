@@ -1,0 +1,26 @@
+[
+  {
+    "poster": "+12135550118",
+    "clubName": "Dumpling Night Collective (example club)",
+    "description": "boxes of veggie fried rice and potstickers left over from our meeting",
+    "locationText": "tcc 2nd floor",
+    "servingsTotal": 20,
+    "servingsLeft": 12,
+    "holdMinutes": 15,
+    "status": "live",
+    "minutesAgo": 25,
+    "expiresInMinutes": 60
+  },
+  {
+    "poster": "+12135550115",
+    "clubName": "Cardinal Robotics Build Team (example club)",
+    "description": "bagels, cream cheese and fruit from our morning workshop",
+    "locationText": "ronald tutor hall lobby",
+    "servingsTotal": 30,
+    "servingsLeft": 0,
+    "holdMinutes": 15,
+    "status": "ended",
+    "minutesAgo": 1560,
+    "expiresInMinutes": -1470
+  }
+]
