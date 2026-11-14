@@ -1,0 +1,110 @@
+[
+  {
+    "kind": "usg_program",
+    "name": "USG LAX shuttle",
+    "topics": ["lax", "airport", "break travel", "shuttle", "flight"],
+    "contactMethod": "usg@usc.edu",
+    "url": null,
+    "details": "usg has run a shuttle between lax and campus around breaks. i couldn't confirm this year's dates or price, so i'd check with usg.",
+    "isExample": true
+  },
+  {
+    "kind": "usg_program",
+    "name": "USG farmers market",
+    "topics": ["farmers market", "produce", "food", "groceries", "ebt"],
+    "contactMethod": null,
+    "url": "https://hospitality.usc.edu/upcoming-events/",
+    "details": "the trojan farmers market is on mccarthy quad, listed by usc hospitality. the next ones are wed nov 18 and wed dec 2, 10am to 2pm, and ebt works for produce, nuts, eggs and honey.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_program",
+    "name": "USG thrift",
+    "topics": ["thrift", "free clothes", "free stuff", "secondhand", "clothes"],
+    "contactMethod": "usg@usc.edu",
+    "url": null,
+    "details": "usg runs a thrift for students. i don't have confirmed dates or a spot for this year, so i'd check with usg.",
+    "isExample": true
+  },
+  {
+    "kind": "usg_program",
+    "name": "USG RSO funding",
+    "topics": ["club money", "funding", "budget", "event funding", "club funding", "rso funding"],
+    "contactMethod": "usgfunds@usc.edu",
+    "url": "https://usg.usc.edu/branches/funding/",
+    "details": "recognized student orgs and usc undergrads can apply for usg funding on engagesc. apps are due wednesdays by 11:59pm, six academic weeks before the event (or nine before the first payment is due, whichever comes first), and an rso can get up to 4 events funded a semester and up to $8,000 a year.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Committee on Sustainability and Campus Infrastructure",
+    "topics": ["dining", "safety", "infrastructure", "facilities", "sustainability"],
+    "contactMethod": "committee chair: usgcosaf@usc.edu",
+    "url": "https://usg.usc.edu/branches/standing-committees/",
+    "details": "usg's sustainability and campus infrastructure committee covers infrastructure, safety, hospitality and sustainable operations on campus.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Committee on Affordability and Basic Needs",
+    "topics": ["housing", "affordability", "basic needs", "food insecurity", "financial aid"],
+    "contactMethod": "committee chair: usgaffbn@usc.edu",
+    "url": "https://usg.usc.edu/branches/standing-committees/",
+    "details": "usg's affordability and basic needs committee covers students' financial barriers on campus and access to basic needs.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Committee on Academic Affairs",
+    "topics": ["academics", "classes", "professors", "grading", "course evaluations"],
+    "contactMethod": "committee chair: usgacaf@usc.edu",
+    "url": "https://usg.usc.edu/branches/standing-committees/",
+    "details": "usg's academic affairs committee covers the academic experience and learning environment for undergrads.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Committee on External Affairs",
+    "topics": ["transportation", "neighborhood", "community", "local government"],
+    "contactMethod": "committee chair, reached through usg@usc.edu",
+    "url": "https://usg.usc.edu/branches/standing-committees/",
+    "details": "usg's external affairs committee covers the neighborhood around usc and usc's relationship with la county and local government.",
+    "isExample": true
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Committee on Wellness Affairs",
+    "topics": ["wellness", "mental health", "health"],
+    "contactMethod": "committee chair: usgwelaf@usc.edu",
+    "url": "https://usg.usc.edu/branches/standing-committees/",
+    "details": "usg's wellness affairs committee covers student well-being: mental, physical, sexual and spiritual health.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Committee on Accessibility Affairs",
+    "topics": ["accessibility", "disability", "ada"],
+    "contactMethod": "committee chair: usgaccaf@usc.edu",
+    "url": "https://usg.usc.edu/branches/standing-committees/",
+    "details": "usg's accessibility committee covers ada compliance at usc and the needs of students with disabilities.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG Funding Department",
+    "topics": ["club funding", "funding question", "funding appeal"],
+    "contactMethod": "usgfunds@usc.edu",
+    "url": "https://usg.usc.edu/branches/funding/",
+    "details": "usg's funding department handles funding applications from student orgs and undergrads.",
+    "isExample": false
+  },
+  {
+    "kind": "usg_committee",
+    "name": "USG general contact",
+    "topics": ["other", "general", "senate", "anything else"],
+    "contactMethod": "usg@usc.edu",
+    "url": "https://usg.usc.edu/contact/",
+    "details": "usg's general inbox. the senate also meets tuesdays at 7pm in tcc 450 and anyone can come.",
+    "isExample": false
+  }
+]

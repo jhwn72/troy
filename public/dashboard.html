@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troy staff dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FAF7F2; --ink: #1C1917; --stone: #78716C; --line: #E7E2DA; --white: #FFFFFF;
+    --cardinal: #990000; --gold: #FFCC00; --laurel: #4D7C5B; --amber: #B7791F;
+    --laurel-soft: #E8F0EA; --amber-soft: #F7EEDD; --cardinal-soft: #F6E4E4; --stone-soft: #F0ECE6;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 15px; line-height: 1.45; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px 80px; }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 28px 0 18px; flex-wrap: wrap; }
+  .mark { width: 44px; height: 44px; border-radius: 50%; background: var(--cardinal); position: relative; flex: none; }
+  .mark::after { content: ""; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--gold); right: 3px; top: 3px; border: 2px solid var(--paper); }
+  h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1; margin: 0; }
+  header .sub { color: var(--stone); font-size: 13px; margin-top: 4px; }
+  header .grow { flex: 1; min-width: 160px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--stone-soft); color: var(--stone); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.pending { background: var(--amber-soft); color: var(--amber); }
+  .pill.done { background: var(--laurel-soft); color: var(--laurel); }
+  .pill.stop { background: var(--cardinal-soft); color: var(--cardinal); }
+  .tag { display: inline-block; border: 1px dashed var(--stone); color: var(--stone); border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: lowercase; vertical-align: middle; }
+
+  nav { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 18px; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 10px 20px; font-weight: 500; white-space: nowrap; }
+  nav button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  nav .count { display: inline-block; min-width: 20px; text-align: center; margin-left: 6px; border-radius: 999px; background: var(--stone-soft); color: var(--stone); font-size: 12px; padding: 0 6px; }
+  nav button[aria-selected="true"] .count { background: rgba(255,255,255,.18); color: var(--paper); }
+
+  h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 28px; margin: 26px 0 4px; }
+  h3 { font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); margin: 26px 0 10px; }
+  .lead { color: var(--stone); margin: 0 0 16px; max-width: 640px; }
+
+  .card { background: var(--white); border: 1px solid var(--line); border-radius: 26px; padding: 20px 22px; margin-bottom: 12px; }
+  .row { display: flex; gap: 16px; align-items: flex-start; }
+  .row .body { flex: 1; min-width: 0; }
+  .title { font-weight: 600; font-size: 16px; overflow-wrap: anywhere; }
+  .meta { color: var(--stone); font-size: 13px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+  .empty { border: 1px dashed var(--line); border-radius: 26px; padding: 34px 20px; text-align: center; color: var(--stone); }
+  .empty .dot { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--white); margin: 0 auto 10px; }
+
+  .btn { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 10px 20px; font-weight: 500; }
+  .btn:hover { border-color: var(--stone); }
+  .btn.primary { background: var(--cardinal); border-color: var(--cardinal); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.small { padding: 6px 14px; font-size: 13px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .field { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 12px 20px; background: var(--paper); }
+  .inline { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .statuses { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .statuses button { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 12px 22px; font-weight: 600; font-size: 15px; display: inline-flex; align-items: center; gap: 9px; }
+  .statuses button::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--stone); }
+  .statuses button:hover { border-color: var(--stone); }
+  .statuses button.current { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
+  .statuses button.current::before { background: var(--amber); border-color: var(--amber); }
+  .statuses button.current.done { background: var(--laurel-soft); border-color: var(--laurel); color: var(--laurel); }
+  .statuses button.current.done::before { background: var(--laurel); border-color: var(--laurel); }
+  .statuses button.current.closed { background: var(--stone-soft); border-color: var(--stone); color: var(--stone); }
+  .statuses button.current.closed::before { background: var(--stone); }
+  .mock { margin-top: 14px; border: 1px dashed var(--stone); background: transparent; color: var(--stone); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
+  .mock b { color: var(--ink); font-weight: 600; }
+
+  .photo { width: 84px; height: 84px; border-radius: 22px; overflow: hidden; background: var(--stone-soft); flex: none; position: relative; border: 1px solid var(--line); padding: 0; }
+  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo.blurred img { filter: blur(22px); transform: scale(1.4); }
+  .photo.blurred::after { content: "blurred, tap to reveal"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; font-weight: 600; color: #fff; background: rgba(28,25,23,.45); padding: 6px; }
+  .photo.none { display: flex; align-items: center; justify-content: center; }
+  .photo.none::before { content: ""; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); }
+
+  .hold { margin-top: 12px; }
+  .hold .bar { height: 8px; border-radius: 999px; background: var(--stone-soft); overflow: hidden; }
+  .hold .bar i { display: block; height: 100%; border-radius: 999px; background: var(--amber); }
+  .hold.over .bar i { background: var(--cardinal); }
+  .hold .txt { font-size: 13px; color: var(--stone); margin-top: 5px; }
+
+  .result { margin-top: 14px; border-radius: 20px; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line); }
+  .result.good { background: var(--laurel-soft); border-color: transparent; }
+  .result.bad { background: var(--cardinal-soft); border-color: transparent; color: var(--cardinal); }
+
+  .kill { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; border-width: 2px; padding: 26px; }
+  .kill.on { border-color: var(--laurel); }
+  .kill.off { border-color: var(--cardinal); background: var(--cardinal-soft); }
+  .kill .lamp { width: 92px; height: 92px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 20px; letter-spacing: .04em; }
+  .kill.on .lamp { background: var(--laurel); }
+  .kill.off .lamp { background: var(--cardinal); }
+  .kill .state { font-family: "Instrument Serif", Georgia, serif; font-size: 34px; line-height: 1.05; }
+  .kill .body { flex: 1; min-width: 220px; }
+  .kill .btn { padding: 16px 30px; font-size: 16px; font-weight: 600; }
+  .kill.off .btn { background: var(--laurel); border-color: var(--laurel); color: #fff; }
+  .note { font-size: 13px; color: var(--stone); margin-top: 8px; }
+  .warn { font-size: 13px; color: var(--cardinal); margin-top: 8px; font-weight: 500; }
+
+  .list { list-style: none; margin: 14px 0 0; padding: 0; }
+  .list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .list li .grow { flex: 1; min-width: 0; }
+  .mono { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--ink); color: var(--paper); border-radius: 999px; padding: 12px 22px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: calc(100vw - 32px); text-align: center; z-index: 5; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 0 14px 70px; }
+    h1 { font-size: 28px; }
+    .card { padding: 16px; border-radius: 22px; }
+    .statuses button { flex: 1 1 calc(50% - 8px); justify-content: center; padding: 14px 10px; }
+    .photo { width: 64px; height: 64px; border-radius: 18px; }
+    .kill { padding: 20px; }
+    .kill .btn { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark" aria-hidden="true"></div>
+    <div class="grow">
+      <h1>Troy staff dashboard</h1>
+      <div class="sub">For DPS, FMS, Housing and USG staff. Students never see this page.</div>
+    </div>
+    <span id="live" class="pill">checking</span>
+  </header>
+
+  <nav role="tablist" aria-label="Sections">
+    <button role="tab" data-tab="dps" aria-selected="true">DPS<span class="count" id="c-dps">0</span></button>
+    <button role="tab" data-tab="repairs" aria-selected="false">FMS and Housing<span class="count" id="c-repairs">0</span></button>
+    <button role="tab" data-tab="usg" aria-selected="false">USG<span class="count" id="c-usg">0</span></button>
+    <button role="tab" data-tab="moderation" aria-selected="false">Moderation<span class="count" id="c-moderation">0</span></button>
+    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+  </nav>
+
+  <section id="tab-dps" role="tabpanel">
+    <h2>Items in DPS custody</h2>
+    <p class="lead">Found items a finder dropped off. Each is held for 90 days. When someone comes to the counter, check their pickup code here.</p>
+    <div class="card">
+      <div class="title">Check a pickup code</div>
+      <div class="meta">Troy texts the code to the owner once they are verified.</div>
+      <form id="code-form" class="inline" style="margin-top:14px" autocomplete="off">
+        <input class="field mono" id="code-input" placeholder="6 character code" maxlength="12" aria-label="Pickup code" style="text-transform:uppercase;letter-spacing:.18em">
+        <button class="btn primary" type="submit">Check code</button>
+      </form>
+      <div id="code-result"></div>
+    </div>
+    <h3>In custody</h3>
+    <div id="dps-list"></div>
+  </section>
+
+  <section id="tab-repairs" role="tabpanel" hidden>
+    <h2>Broken things</h2>
+    <p class="lead">Reports students texted to Troy, grouped by the office they were routed to. Every status change sends a new text to the reporter and everyone following the report.</p>
+    <div id="repairs-list"></div>
+  </section>
+
+  <section id="tab-usg" role="tabpanel" hidden>
+    <h2>USG concerns</h2>
+    <p class="lead">Concerns grouped by committee. Anonymous concerns never show who sent them. Every status change sends a new text to the student and any followers.</p>
+    <div id="usg-list"></div>
+    <h3>Programs and committees Troy points students to</h3>
+    <div id="directory-list"></div>
+  </section>
+
+  <section id="tab-moderation" role="tabpanel" hidden>
+    <h2>Reported food drops</h2>
+    <p class="lead">Drops that students reported. Banning stops that person from posting new drops; they can still use the rest of Troy.</p>
+    <div id="moderation-list"></div>
+  </section>
+
+  <section id="tab-settings" role="tabpanel" hidden>
+    <h2>Settings</h2>
+    <p class="lead">The kill switch stops all sending and processing right away.</p>
+    <div id="kill"></div>
+    <h3>Manual allow-list</h3>
+    <div class="card">
+      <div class="title">Who Troy may talk to without the opt-in phrase</div>
+      <div class="meta">Add a phone number or an email. Numbers are shown by their last four digits only.</div>
+      <form id="allow-form" class="inline" style="margin-top:14px" autocomplete="off">
+        <input class="field" id="allow-input" placeholder="Phone number or email" aria-label="Handle to allow">
+        <button class="btn primary" type="submit">Add</button>
+      </form>
+      <div id="allow-error" class="warn" hidden></div>
+      <ul class="list" id="allow-list"></ul>
+    </div>
+    <h3>Matcher eval</h3>
+    <div class="card" id="eval-card"></div>
+  </section>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const POLL_MS = 4000;
+  const STATUS_LABEL = { received: "Received", in_progress: "In progress", fixed: "Fixed", on_agenda: "On the agenda", acted_on: "Acted on", closed: "Closed" };
+  const DONE = ["fixed", "acted_on"];
+  const revealed = new Set();
+  const last = {};
+  let tab = "dps";
+
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid);
+    return n;
+  }
+  const exampleTag = (on) => (on ? el("span", { class: "tag", text: "example" }) : null);
+  const empty = (text) => el("div", { class: "empty" }, el("div", { class: "dot" }), text);
+
+  async function api(path, method, body) {
+    const res = await fetch(path, { method: method || "GET", headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+    let json = {};
+    try { json = await res.json(); } catch {}
+    return { status: res.status, json };
+  }
+
+  let toastTimer;
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+  }
+
+  function ago(ms) {
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + " min ago";
+    if (s < 86400) return Math.floor(s / 3600) + " hr ago";
+    return Math.floor(s / 86400) + " days ago";
+  }
+
+  function statusPill(status) {
+    const cls = DONE.includes(status) ? "done" : status === "closed" ? "" : "pending";
+    return el("span", { class: "pill " + cls, text: STATUS_LABEL[status] || status });
+  }
+
+  /** Render only when the data changed, so buttons and inputs don't flicker under the mouse. */
+  function changed(key, data) {
+    const s = JSON.stringify(data);
+    if (last[key] === s) return false;
+    last[key] = s;
+    return true;
+  }
+
+  function photo(src, key, sensitive, has) {
+    if (!has) return el("div", { class: "photo none", "aria-label": "No photo" });
+    const blurred = sensitive && !revealed.has(key);
+    const box = el("button", { class: "photo" + (blurred ? " blurred" : ""), type: "button", "aria-label": blurred ? "Blurred photo. Press to reveal." : "Photo. Press to blur again.",
+      onclick: () => {
+        if (!sensitive) return;
+        if (revealed.has(key)) revealed.delete(key); else revealed.add(key);
+        box.classList.toggle("blurred", !revealed.has(key));
+      } }, el("img", { src, alt: "", loading: "lazy" }));
+    return box;
+  }
+
+  // ---------- DPS ----------
+  function renderDps(data) {
+    $("c-dps").textContent = data.items.length;
+    if (!changed("dps", data.items)) return;
+    const box = $("dps-list");
+    box.replaceChildren();
+    if (!data.items.length) return box.append(empty("Nothing in custody right now."));
+    for (const it of data.items) {
+      const pct = Math.min(100, Math.round((it.daysHeld / data.holdDays) * 100));
+      const state = it.pickedUpAt ? el("span", { class: "pill done", text: "Picked up" })
+        : it.hasPickupCode ? el("span", { class: "pill pending", text: "Pickup code sent" })
+        : el("span", { class: "pill", text: "Waiting for owner" });
+      box.append(el("div", { class: "card" }, el("div", { class: "row" },
+        photo("/api/photo/" + it.id + "?staff=1", "l" + it.id, it.photoSensitive, it.hasPhoto),
+        el("div", { class: "body" },
+          el("div", { class: "title" }, it.publicSummary || it.title || it.category || "Found item", " ", exampleTag(it.isExample)),
+          el("div", { class: "meta" }, state, it.locationText ? el("span", { text: "Found at " + it.locationText }) : null, it.isValuable ? el("span", { text: "Valuable" }) : null, it.isDangerous ? el("span", { class: "pill stop", text: "Dangerous item" }) : null),
+          el("div", { class: "hold" + (it.holdExpired ? " over" : "") },
+            el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(pct, 2) + "%" })),
+            el("div", { class: "txt", text: it.holdExpired ? "Day " + it.daysHeld + ". The " + data.holdDays + " day hold has ended." : "Day " + it.daysHeld + " of " + data.holdDays + ". " + it.daysLeft + " days left." }))))));
+    }
+  }
+
+  function showHandoff(h, already) {
+    const box = $("code-result");
+    const item = h.item || {};
+    const done = !!h.completedAt;
+    box.replaceChildren(el("div", { class: "result good" },
+      el("div", { class: "title" }, done ? "Already picked up" : "Code matches", " ", exampleTag(item.isExample)),
+      el("div", { class: "meta" },
+        el("span", { text: "Item: " + (item.publicSummary || item.title || "found item") }),
+        h.ownerFirstName ? el("span", { text: "Owner first name: " + h.ownerFirstName }) : null,
+        done ? el("span", { text: "Handed over " + ago(h.completedAt) }) : null),
+      done ? null : el("div", { class: "note", text: "Check their USC ID as you do today, then hand the item over." }),
+      done ? null : el("div", { style: "margin-top:12px" }, el("button", { class: "btn primary", type: "button", text: "Mark as picked up", onclick: async (e) => {
+        e.target.disabled = true;
+        const r = await api("/api/dps/complete", "POST", { handoffId: h.id });
+        if (r.json.ok) { showHandoff(r.json.handoff); toast("Marked as picked up"); refresh(); }
+        else { e.target.disabled = false; toast("Could not save. Try again."); }
+      } }))));
+  }
+
+  $("code-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = $("code-input").value.trim();
+    if (!code) return;
+    const r = await api("/api/dps/check-code", "POST", { code });
+    if (r.json.found) showHandoff(r.json.handoff);
+    else $("code-result").replaceChildren(el("div", { class: "result bad" }, el("div", { class: "title", text: "No pickup with that code" }), el("div", { text: "Check the code with the student. Nothing was changed." })));
+  });
+
+  // ---------- reports ----------
+  function renderReports(key, boxId, countId, data, emptyText) {
+    $(countId).textContent = data.total;
+    if (!changed(key, data.groups)) return;
+    const box = $(boxId);
+    box.replaceChildren();
+    if (!data.groups.length) return box.append(empty(emptyText));
+    for (const g of data.groups) {
+      box.append(el("h3", { text: g.routedTo + " (" + g.reports.length + ")" }));
+      for (const r of g.reports) {
+        const who = r.kind === "usg_concern" ? (r.anonymous ? "Sent anonymously" : r.reporterFirstName ? "From " + r.reporterFirstName : null) : null;
+        const mock = r.kind === "repair"
+          ? el("button", { class: "mock", type: "button", onclick: () => toast("Mocked. Nothing was opened or sent to " + g.routedTo + "." ) }, el("b", { text: "Mocked: " }), "would open the " + g.routedTo + " work order")
+          : null;
+        box.append(el("div", { class: "card" }, el("div", { class: "row" },
+          r.hasPhoto ? photo("/api/report-photo/" + r.id, "r" + r.id, false, true) : null,
+          el("div", { class: "body" },
+            el("div", { class: "title" }, r.description || r.category || "Report", " ", exampleTag(r.isExample)),
+            el("div", { class: "meta" }, statusPill(r.status),
+              r.locationText ? el("span", { text: r.locationText }) : null,
+              r.category && r.description ? el("span", { text: r.category }) : null,
+              who ? el("span", { text: who }) : null,
+              el("span", { text: r.followerCount === 1 ? "1 follower" : r.followerCount + " followers" }),
+              el("span", { text: ago(r.createdAt) })))),
+          el("div", { class: "statuses", role: "group", "aria-label": "Set status" }, r.statusOptions.map((s) =>
+            el("button", { type: "button", class: s === r.status ? "current" + (DONE.includes(s) ? " done" : s === "closed" ? " closed" : "") : "", "aria-pressed": s === r.status ? "true" : "false", text: STATUS_LABEL[s] || s,
+              onclick: () => setStatus(r, s) }))),
+          mock));
+      }
+    }
+  }
+
+  async function setStatus(report, status) {
+    if (report.status === status) return;
+    const r = await api("/api/reports/" + report.id + "/status", "POST", { status });
+    if (!r.json.ok) return toast("Could not change the status.");
+    const n = r.json.notified || 0;
+    toast("Set to " + (STATUS_LABEL[status] || status).toLowerCase() + ". " + (n === 0 ? "No texts sent." : n === 1 ? "Troy texted 1 student." : "Troy texted " + n + " students."));
+    refresh();
+  }
+
+  function renderDirectory(data) {
+    if (!changed("directory", data.entries)) return;
+    const box = $("directory-list");
+    box.replaceChildren();
+    const rows = data.entries.filter((e) => e.kind !== "office");
+    if (!rows.length) return box.append(empty("The directory is empty."));
+    const KIND = { usg_program: "Program", usg_committee: "Committee" };
+    box.append(el("div", { class: "card" }, el("ul", { class: "list", style: "margin-top:-10px" }, rows.map((e, i) =>
+      el("li", { style: i === 0 ? "border-top:0" : null }, el("div", { class: "grow" },
+        el("div", { class: "title", style: "font-size:15px" }, e.name, " ", exampleTag(e.isExample)),
+        el("div", { class: "meta" }, el("span", { text: KIND[e.kind] || e.kind }), e.topics.length ? el("span", { text: e.topics.join(", ") }) : null)))))));
+  }
+
+  // ---------- moderation ----------
+  function renderModeration(data) {
+    $("c-moderation").textContent = data.drops.length;
+    if (!changed("moderation", data.drops)) return;
+    const box = $("moderation-list");
+    box.replaceChildren();
+    if (!data.drops.length) return box.append(empty("No reported drops."));
+    for (const d of data.drops) {
+      const banned = d.poster.bannedFromPosting;
+      box.append(el("div", { class: "card" }, el("div", { class: "row" }, el("div", { class: "body" },
+        el("div", { class: "title" }, d.description || "Food drop", " ", exampleTag(d.isExample)),
+        el("div", { class: "meta" },
+          el("span", { class: "pill stop", text: d.reports === 1 ? "1 report" : d.reports + " reports" }),
+          d.clubName ? el("span", { text: d.clubName }) : null,
+          d.locationText ? el("span", { text: d.locationText }) : null,
+          el("span", { text: d.servingsLeft + " of " + d.servingsTotal + " left" }),
+          el("span", { text: "Drop is " + d.status })),
+        el("div", { class: "meta", style: "margin-top:12px" },
+          el("span", { text: "Posted by " + (d.poster.firstName || "student " + d.poster.id) }),
+          banned ? el("span", { class: "pill stop", text: "Banned from posting" }) : el("span", { class: "pill done", text: "Can post" })),
+        el("div", { style: "margin-top:14px" }, el("button", { class: "btn" + (banned ? "" : " primary"), type: "button", text: banned ? "Lift the ban" : "Ban from posting", onclick: async () => {
+          const r = await api("/api/moderation/ban", "POST", { userId: d.poster.id, banned: !banned });
+          toast(r.json.ok ? (banned ? "Ban lifted" : "Banned from posting") : "Could not save.");
+          refresh();
+        } }))))));
+    }
+  }
+
+  // ---------- settings ----------
+  function renderSettings(data) {
+    const live = $("live");
+    live.className = "pill " + (data.enabled ? "done" : "stop");
+    live.textContent = data.enabled ? "Troy is on" : "Troy is off";
+    if (!changed("settings", data)) return;
+
+    const on = data.enabled;
+    const envBlocks = data.envOff;
+    $("kill").replaceChildren(el("div", { class: "card kill " + (on ? "on" : "off") },
+      el("div", { class: "lamp", "aria-hidden": "true", text: on ? "ON" : "OFF" }),
+      el("div", { class: "body" },
+        el("div", { class: "state", text: on ? "Troy is on" : "Troy is off" }),
+        el("div", { class: "note", text: on ? "Troy is reading allowed chats and replying." : "Troy is not reading, replying or sending anything." }),
+        envBlocks ? el("div", { class: "warn", text: "TROY_ENABLED is set to off in the environment. That wins over this switch, so Troy stays off until it is changed in .env and the server restarts." + (data.settingOn ? "" : " This switch is also off.") }) : null,
+        !envBlocks && data.envSet ? el("div", { class: "note", text: "TROY_ENABLED is set to on in the environment." }) : null),
+      el("button", { class: "btn" + (data.settingOn ? " primary" : ""), type: "button", text: data.settingOn ? "Turn Troy off" : "Turn Troy on", "aria-pressed": data.settingOn ? "true" : "false", onclick: async () => {
+        const r = await api("/api/settings/enabled", "POST", { enabled: !data.settingOn });
+        toast(r.json.ok ? (r.json.enabled ? "Troy is on" : "Troy is off") : "Could not save.");
+        refresh();
+      } })));
+
+    const ul = $("allow-list");
+    ul.replaceChildren();
+    const REASON = { manual: "Added here", opt_in_phrase: "Opted in by text", troy_group: "Group chat Troy made" };
+    for (const e of data.allowList.envEntries) ul.append(el("li", {}, el("span", { class: "grow mono", text: e.handle }), el("span", { class: "pill", text: "From .env" })));
+    for (const e of data.allowList.entries) {
+      ul.append(el("li", {},
+        el("span", { class: "grow mono", text: e.isGroup ? "Group chat" : e.handle }),
+        el("span", { class: "pill" + (e.reason === "manual" ? " done" : ""), text: REASON[e.reason] || e.reason }),
+        e.removable ? el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove " + e.handle, onclick: async () => {
+          const r = await api("/api/settings/allow-list/" + e.id, "DELETE");
+          toast(r.json.ok ? "Removed" : "Could not remove.");
+          refresh();
+        } }) : null));
+    }
+    if (!ul.children.length) ul.append(el("li", {}, el("span", { class: "grow", style: "color:var(--stone)", text: "No one is on the list yet." })));
+  }
+
+  $("allow-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $("allow-input");
+    const err = $("allow-error");
+    err.hidden = true;
+    const r = await api("/api/settings/allow-list", "POST", { handle: input.value });
+    if (r.json.ok) { input.value = ""; toast(r.json.added ? "Added " + r.json.handle : "Already on the list"); refresh(); }
+    else { err.textContent = "That is not a phone number or an email. Try a 10 digit number or a full email address."; err.hidden = false; }
+  });
+
+  function renderEval(data) {
+    if (!changed("eval", data)) return;
+    const e = data.eval;
+    const card = $("eval-card");
+    if (!e || typeof e !== "object") return card.replaceChildren(el("div", { class: "title", text: "No eval run yet" }), el("div", { class: "meta", text: "Run the eval script to see the score here." }));
+    const total = e.total ?? e.n ?? e.count ?? e.cases;
+    const correct = e.correct ?? e.passed;
+    const wrongHandoffs = e.wrongHandoffs ?? e.wrong_handoffs ?? 0;
+    const mode = e.mode ?? e.source;
+    card.replaceChildren(
+      el("div", { class: "title", text: correct + " of " + total + " correct, " + wrongHandoffs + " wrong handoffs" }),
+      el("div", { class: "meta" }, mode ? el("span", { class: "pill", text: "Mode: " + mode }) : null, el("span", { text: "Written test pairs, including look-alikes and fraud attempts." })));
+  }
+
+  // ---------- polling ----------
+  async function refresh() {
+    try {
+      const jobs = [api("/api/settings").then((r) => r.json.ok && renderSettings(r.json))];
+      // Counts in the tab bar stay fresh on every tab; lists only re-render when their data changed.
+      jobs.push(api("/api/dps").then((r) => r.json.ok && renderDps(r.json)));
+      jobs.push(api("/api/reports?kind=repair").then((r) => r.json.ok && renderReports("repairs", "repairs-list", "c-repairs", r.json, "No repair reports yet.")));
+      jobs.push(api("/api/reports?kind=usg_concern").then((r) => r.json.ok && renderReports("usg", "usg-list", "c-usg", r.json, "No USG concerns yet.")));
+      jobs.push(api("/api/moderation").then((r) => r.json.ok && renderModeration(r.json)));
+      if (tab === "usg") jobs.push(api("/api/directory").then((r) => r.json.ok && renderDirectory(r.json)));
+      if (tab === "settings") jobs.push(api("/api/eval").then((r) => r.json.ok && renderEval(r.json)));
+      await Promise.all(jobs);
+    } catch {
+      const live = $("live");
+      live.className = "pill pending";
+      live.textContent = "Server not reachable";
+    }
+  }
+
+  for (const b of document.querySelectorAll("nav button")) {
+    b.addEventListener("click", () => {
+      tab = b.dataset.tab;
+      for (const o of document.querySelectorAll("nav button")) o.setAttribute("aria-selected", o === b ? "true" : "false");
+      for (const s of document.querySelectorAll("section[role=tabpanel]")) s.hidden = s.id !== "tab-" + tab;
+      try { history.replaceState(null, "", "#" + tab); } catch {}
+      refresh();
+    });
+  }
+  const start = location.hash.slice(1);
+  const startBtn = start && document.querySelector('nav button[data-tab="' + CSS.escape(start) + '"]');
+  if (startBtn) startBtn.click(); else refresh();
+  setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
+})();
+</script>
+</body>
+</html>

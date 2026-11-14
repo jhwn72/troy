@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troy web chat (development simulator)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FAF7F2; --ink: #1C1917; --stone: #78716C; --line: #E7E2DA;
+    --cardinal: #990000; --gold: #FFCC00; --white: #FFFFFF;
+    --troy-bubble: #E9E9EB; --me-bubble: #0A84FF;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.4; }
+  button, input, select { font: inherit; color: inherit; }
+  header { max-width: 1240px; margin: 0 auto; padding: 28px 20px 8px; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+  h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; margin: 14px 0 8px; }
+  header p { color: var(--stone); max-width: 720px; margin: 0; }
+  header code { background: var(--white); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--ink); }
+  main { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  @media (max-width: 980px) { main { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 660px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 20px 16px 4px; } }
+
+  .phone { background: var(--white); border: 1px solid var(--line); border-radius: 36px; padding: 14px; display: flex; flex-direction: column; height: 720px; max-height: calc(100vh - 40px); min-height: 520px; position: relative; overflow: hidden; }
+  .top { display: flex; flex-direction: column; gap: 8px; padding: 4px 4px 12px; border-bottom: 1px solid var(--line); }
+  .top label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .handle, .chatpick { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; background: var(--paper); }
+  .handle:focus, .text:focus, .chatpick:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .dev { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--stone); }
+  .dev label { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  .dev select { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; background: var(--white); max-width: 150px; }
+
+  .msgs { flex: 1; overflow-y: auto; padding: 14px 4px; display: flex; flex-direction: column; gap: 3px; }
+  .empty { margin: auto; text-align: center; color: var(--stone); max-width: 230px; }
+  .who { font-size: 11px; color: var(--stone); margin: 8px 12px 1px; }
+  .line { display: flex; flex-direction: column; align-items: flex-start; position: relative; }
+  .line.me { align-items: flex-end; }
+  .bubble { max-width: 78%; padding: 8px 13px; border-radius: 19px; background: var(--troy-bubble); white-space: pre-wrap; overflow-wrap: anywhere; position: relative; border: 0; text-align: left; }
+  .line.me .bubble { background: var(--me-bubble); color: #fff; }
+  .line.undelivered .bubble { background: var(--white); color: var(--stone); border: 1px dashed var(--stone); }
+  button.bubble { cursor: pointer; }
+  button.bubble:hover { filter: brightness(.97); }
+  .bubble img { display: block; max-width: 100%; max-height: 240px; border-radius: 12px; margin: 2px 0; }
+  .bubble.card { display: flex; gap: 10px; align-items: center; font-weight: 600; }
+  .bubble.card span { width: 34px; height: 34px; border-radius: 50%; background: var(--cardinal); color: #fff; display: grid; place-items: center; font-family: "Instrument Serif", serif; font-size: 20px; font-weight: 400; }
+  .bubble.pop { animation: pop .5s ease-out; }
+  @keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+  .taps { position: absolute; top: -11px; right: -8px; display: flex; gap: 2px; }
+  .line.me .taps { right: auto; left: -8px; }
+  .tap { min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px; background: var(--white); border: 1px solid var(--line); color: var(--ink); font-size: 11px; font-weight: 600; display: grid; place-items: center; }
+  .tap.mine { background: var(--me-bubble); border-color: var(--me-bubble); color: #fff; }
+  .tap svg { width: 12px; height: 12px; fill: currentColor; }
+  .has-taps { margin-top: 12px; }
+  .meta { font-size: 11px; color: var(--stone); margin: 1px 8px 4px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .meta .fx { border-bottom: 2px solid var(--gold); }
+  .picker { display: flex; gap: 6px; margin: 4px 0 6px; }
+  .picker button { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 4px 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 500; }
+  .picker button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .picker svg { width: 13px; height: 13px; fill: currentColor; }
+  .typing { display: inline-flex; gap: 4px; padding: 11px 13px; border-radius: 19px; background: var(--troy-bubble); align-self: flex-start; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--stone); animation: dot 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes dot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+  @media (prefers-reduced-motion: reduce) { .typing i, .bubble.pop, .confetti i { animation: none; } }
+
+  .confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .confetti i { position: absolute; top: -12px; width: 7px; height: 12px; border-radius: 2px; animation: fall 1.8s ease-in forwards; }
+  @keyframes fall { to { transform: translateY(760px) rotate(540deg); opacity: .2; } }
+
+  .bottom { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .chip { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--stone); }
+  .chip.on { display: flex; }
+  .chip img { width: 40px; height: 40px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+  .chip button { border: 0; background: none; color: var(--cardinal); cursor: pointer; padding: 0; font-weight: 600; }
+  .text { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px; background: var(--white); }
+  .icon { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: var(--white); cursor: pointer; display: grid; place-items: center; }
+  .icon svg { width: 18px; height: 18px; fill: none; stroke: var(--ink); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .send { flex: none; border: 0; border-radius: 999px; background: var(--cardinal); color: #fff; font-weight: 600; padding: 10px 18px; cursor: pointer; }
+  .send:hover { background: #7d0000; }
+  .quick { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 7px 12px; cursor: pointer; font-size: 12px; font-weight: 500; }
+  .judge { width: 100%; border: 1.5px solid var(--gold); background: #FFF9DB; border-radius: 999px; padding: 9px 12px; cursor: pointer; font-size: 12.5px; font-weight: 600; }
+  .judge:hover { background: #FFF2B3; }
+  .note { font-size: 11px; color: var(--stone); text-align: center; margin: -2px 0 0; }
+  .err { font-size: 12px; color: var(--cardinal); min-height: 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="badge"><i></i>Development simulator, not real iMessage</span>
+  <h1>Three pretend phones, one Troy.</h1>
+  <p>Each column is a simulated phone texting Troy through the same privacy gate as the real thing. A phone has to open with <code>hey troy</code> before Troy will see or answer it. Tap one of Troy's bubbles to react.</p>
+</header>
+<main id="phones"></main>
+
+<script>
+(() => {
+  const DEFAULTS = ["+12135550101", "+12135550102", "+12135550103"];
+  const SPOTS = [
+    ["Tommy Trojan", 34.02051, -118.28563],
+    ["Leavey Library", 34.02176, -118.28283],
+    ["USC Village", 34.02562, -118.28512],
+    ["Lyon Center", 34.02446, -118.28842],
+  ];
+  const THUMB = '<svg viewBox="0 0 24 24"><path d="M2 10h4v11H2zM22 11.5c0-1.1-.9-2-2-2h-5.3l.8-3.9c.2-1-.2-2-1-2.6L13.6 2 7.5 8.6V21h10.2c.8 0 1.5-.5 1.8-1.2l2.3-6.2c.1-.3.2-.6.2-.9z"/></svg>';
+  const HEART = '<svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+  const TAP_GLYPH = { love: HEART, like: THUMB, dislike: '<span style="display:inline-block;transform:rotate(180deg)">' + THUMB + "</span>", laugh: "ha", emphasize: "!!", question: "?" };
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  async function post(path, body) {
+    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return r.json();
+  }
+
+  function makePhone(index) {
+    const p = { handle: store.get("troy-webchat-handle-" + index) || DEFAULTS[index], since: 0, boot: null, entries: [], local: [], chats: [], chat: null, picker: null, image: null, seenFx: new Set(), first: true };
+
+    const root = el("section", "phone");
+    root.innerHTML = `
+      <div class="top">
+        <label for="h${index}">Phone ${index + 1} number</label>
+        <div class="row"><input class="handle" id="h${index}" inputmode="tel" autocomplete="off" spellcheck="false"></div>
+        <div class="row chatrow" hidden><select class="chatpick" aria-label="Which chat"></select></div>
+        <div class="dev">
+          <label><input type="checkbox" class="share"> Share My Location</label>
+          <select class="spot" aria-label="Simulated location"></select>
+          <label title="Pretend this chat already had messages before Troy went live. It can then never opt in with hey troy."><input type="checkbox" class="old"> Has old history</label>
+        </div>
+      </div>
+      <div class="msgs" aria-live="polite"></div>
+      <div class="bottom">
+        <div class="err" role="alert"></div>
+        <div class="chip"><img alt=""><span></span><button type="button">Remove</button></div>
+        <form class="row">
+          <input type="file" accept="image/png,image/jpeg" hidden>
+          <button type="button" class="icon pick" title="Attach a photo (JPEG or PNG)" aria-label="Attach a photo"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4 4 3 3-2 4 3"/></svg></button>
+          <input class="text" placeholder="iMessage" autocomplete="off" aria-label="Message">
+          <button class="send">Send</button>
+        </form>
+        <div class="row"><button type="button" class="quick hey">Send "hey troy"</button><button type="button" class="quick pin">Send location pin</button></div>
+        <button type="button" class="judge">Hackathon judge? Skip USC verification (demo only)</button>
+        <p class="note">The skip exists for this hackathon demo. The real campus version always checks a USC email.</p>
+      </div>`;
+    const $ = (s) => root.querySelector(s);
+    const handleIn = $(".handle"), msgs = $(".msgs"), textIn = $(".text"), fileIn = $("input[type=file]"), chip = $(".chip"), err = $(".err");
+    const chatRow = $(".chatrow"), chatPick = $(".chatpick"), share = $(".share"), spot = $(".spot"), old = $(".old");
+    handleIn.value = p.handle;
+    for (const [name] of SPOTS) spot.append(new Option(name, name));
+
+    const fail = (m) => { err.textContent = m || ""; };
+    const mine = (e) => e.from !== "troy" && e.from === p.normalized;
+
+    function reset() {
+      Object.assign(p, { since: 0, entries: [], local: [], chats: [], chat: null, picker: null, first: true });
+      p.seenFx.clear();
+      share.checked = false; old.checked = false;
+      render();
+    }
+
+    async function send(body) {
+      fail("");
+      const text = body.text || "";
+      try {
+        const res = await post("/webchat/send", { handle: p.handle, chatId: p.chat, ...body });
+        if (!res.ok) return fail(res.error);
+        // The server keeps nothing for a chat that has not opted in, so show it on this phone only.
+        if (!res.accepted) { p.local.push({ id: "local" + Date.now(), at: Date.now(), seq: Infinity, chatId: p.chat, from: p.normalized, kind: "message", text: text || "(photo or location)", undelivered: true }); render(true); }
+        poll();
+      } catch { fail("Could not reach the Troy server."); }
+    }
+
+    function burst() {
+      const box = el("div", "confetti");
+      for (let i = 0; i < 26; i++) {
+        const c = el("i");
+        c.style.left = Math.random() * 100 + "%";
+        c.style.background = ["#990000", "#FFCC00", "#0A84FF", "#1C1917"][i % 4];
+        c.style.animationDelay = Math.random() * 0.5 + "s";
+        box.append(c);
+      }
+      root.append(box);
+      setTimeout(() => box.remove(), 2600);
+    }
+
+    function render(toBottom) {
+      const nearBottom = toBottom || msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80;
+      const chatId = p.chat;
+      const list = [...p.entries, ...p.local].filter((e) => e.chatId === chatId).sort((a, b) => a.at - b.at || a.seq - b.seq);
+      const isGroup = (p.chats.find((c) => c.chatId === chatId) || {}).isGroup;
+
+      // Replay events into what the phone would show right now.
+      const bubbles = [], byId = new Map(), taps = new Map();
+      let typing = false, readSeq = 0;
+      for (const e of list) {
+        if (e.kind === "typing") typing = !!e.on;
+        else if (e.kind === "read") readSeq = e.seq;
+        else if (e.kind === "tapback") {
+          const m = taps.get(e.targetId) || new Map();
+          if (e.removed) m.delete(e.from); else m.set(e.from, e.tapback);
+          taps.set(e.targetId, m);
+        } else if (e.kind === "edit") {
+          const t = byId.get(e.targetId);
+          if (t) { t.text = e.text; t.edited = true; }
+        } else {
+          const b = { ...e };
+          bubbles.push(b); byId.set(e.id, b);
+          if (e.from === "troy") typing = false;
+        }
+      }
+      const lastMine = [...bubbles].reverse().find((b) => mine(b) && !b.undelivered);
+
+      msgs.textContent = "";
+      if (!bubbles.length && !typing) msgs.append(el("div", "empty", 'No messages yet. Troy only answers a chat that opens with "hey troy".'));
+      let prevFrom = null;
+      for (const b of bubbles) {
+        const me = mine(b), fromTroy = b.from === "troy";
+        if (isGroup && !me && b.from !== prevFrom) msgs.append(el("div", "who", fromTroy ? "Troy" : b.from));
+        prevFrom = b.from;
+        const line = el("div", "line" + (me ? " me" : "") + (b.undelivered ? " undelivered" : ""));
+        const bubble = el(fromTroy ? "button" : "div", "bubble" + (b.kind === "contact" ? " card" : ""));
+        if (fromTroy) { bubble.type = "button"; bubble.title = "Tap to react"; bubble.onclick = () => { p.picker = p.picker === b.id ? null : b.id; render(); }; }
+        if (b.kind === "contact") { bubble.append(el("span", "", "T"), document.createTextNode("Troy (contact card)")); }
+        else if (b.kind === "location") bubble.textContent = "Location pin: " + b.location.lat.toFixed(4) + ", " + b.location.lng.toFixed(4);
+        else {
+          if (b.imageUrl) { const img = el("img"); img.src = b.imageUrl; img.alt = fromTroy ? "Photo from Troy" : "Photo you sent"; bubble.append(img); }
+          if (b.text) bubble.append(document.createTextNode(b.text));
+        }
+        const t = taps.get(b.id);
+        if (t && t.size) {
+          const wrap = el("div", "taps");
+          for (const [who, type] of t) { const tag = el("span", "tap" + (who === p.normalized ? " mine" : "")); tag.innerHTML = TAP_GLYPH[type] || "?"; tag.title = (who === "troy" ? "Troy" : who) + ": " + type; wrap.append(tag); }
+          bubble.append(wrap); line.classList.add("has-taps");
+        }
+        if (b.effect && !p.seenFx.has(b.id)) { p.seenFx.add(b.id); if (!p.first) { bubble.classList.add("pop"); burst(); } }
+        line.append(bubble);
+        if (p.picker === b.id) {
+          const mineNow = t && t.get(p.normalized);
+          const pick = el("div", "picker");
+          for (const [type, label, glyph] of [["love", "Love", HEART], ["like", "Like", THUMB]]) {
+            const btn = el("button", mineNow === type ? "on" : ""); btn.type = "button"; btn.innerHTML = glyph + "<span>" + label + "</span>";
+            btn.onclick = async () => { p.picker = null; fail(""); const r = await post("/webchat/react", { handle: p.handle, messageId: b.id, type, removed: mineNow === type }).catch(() => null); if (r && !r.ok) fail(r.error); poll(); };
+            pick.append(btn);
+          }
+          line.append(pick);
+        }
+        const meta = [];
+        if (b.effect) meta.push('<span class="fx">sent with ' + b.effect + "</span>");
+        if (b.edited) meta.push("Edited");
+        if (b.undelivered) meta.push("Not seen by Troy. This chat has not opted in.");
+        if (b === lastMine && readSeq > b.seq) meta.push("<b>Read</b>");
+        if (meta.length) { const m = el("div", "meta"); m.innerHTML = meta.join(" · "); line.append(m); }
+        msgs.append(line);
+      }
+      if (typing) { const d = el("div", "typing"); d.setAttribute("aria-label", "Troy is typing"); d.append(el("i"), el("i"), el("i")); msgs.append(d); }
+      if (nearBottom) msgs.scrollTop = msgs.scrollHeight;
+      p.first = false;
+    }
+
+    function renderChats() {
+      chatRow.hidden = p.chats.length < 2;
+      chatPick.textContent = "";
+      for (const c of p.chats) chatPick.append(new Option(c.isGroup ? "Group: Troy + " + c.members.length + " people" : "Troy (1:1)", c.chatId));
+      chatPick.value = p.chat;
+    }
+
+    let busy = false;
+    async function poll() {
+      if (busy) return;
+      busy = true;
+      try {
+        const r = await fetch("/webchat/transcript?handle=" + encodeURIComponent(p.handle) + "&since=" + p.since);
+        const data = await r.json();
+        if (!data.ok) return fail(data.error);
+        if (p.boot && p.boot !== data.boot) { p.boot = data.boot; reset(); return; }
+        p.boot = data.boot;
+        p.normalized = data.phone.handle;
+        const chatsChanged = data.chats.length !== p.chats.length;
+        p.chats = data.chats;
+        if (!p.chat || !p.chats.some((c) => c.chatId === p.chat)) p.chat = p.chats[0].chatId;
+        if (chatsChanged) renderChats();
+        p.since = data.cursor;
+        if (p.first) { share.checked = data.phone.sharingLocation; old.checked = data.phone.hasOldHistory; }
+        // Nothing left to skip once this phone is verified.
+        $(".judge").hidden = $(".note").hidden = !!data.phone.verified;
+        if (data.entries.length || p.first) { p.entries.push(...data.entries); render(); }
+        if (err.textContent === "Could not reach the Troy server.") fail("");
+      } catch { fail("Could not reach the Troy server."); }
+      finally { busy = false; }
+    }
+
+    handleIn.onchange = () => { p.handle = handleIn.value.trim(); store.set("troy-webchat-handle-" + index, p.handle); fail(""); reset(); poll(); };
+    chatPick.onchange = () => { p.chat = chatPick.value; p.picker = null; render(true); };
+    $("form").onsubmit = (ev) => {
+      ev.preventDefault();
+      const text = textIn.value.trim();
+      if (!text && !p.image) return;
+      const body = { text };
+      if (p.image) { body.imageBase64 = p.image.data; body.imageMime = p.image.mime; }
+      textIn.value = ""; p.image = null; chip.classList.remove("on"); fileIn.value = "";
+      send(body);
+    };
+    $(".pick").onclick = () => fileIn.click();
+    fileIn.onchange = () => {
+      const f = fileIn.files[0];
+      if (!f) return;
+      if (f.type !== "image/png" && f.type !== "image/jpeg") { fileIn.value = ""; return fail("Pick a JPEG or PNG photo."); }
+      const reader = new FileReader();
+      reader.onload = () => { p.image = { data: String(reader.result).split(",")[1], mime: f.type }; chip.querySelector("img").src = reader.result; chip.querySelector("span").textContent = f.name; chip.classList.add("on"); };
+      reader.readAsDataURL(f);
+    };
+    chip.querySelector("button").onclick = () => { p.image = null; fileIn.value = ""; chip.classList.remove("on"); };
+    $(".hey").onclick = () => send({ text: "hey troy" });
+    // Troy only hears a chat that opened with "hey troy", so the judge button sends that first when it's needed.
+    $(".judge").onclick = async () => {
+      if (!p.entries.some((e) => e.from === "troy")) await send({ text: "hey troy" });
+      await send({ text: "JUDGE" });
+    };
+    const here = () => { const s = SPOTS.find((x) => x[0] === spot.value) || SPOTS[0]; return { lat: s[1], lng: s[2] }; };
+    $(".pin").onclick = () => send({ location: here() });
+    const shareNow = () => post("/webchat/location", { handle: p.handle, ...(share.checked ? here() : { lat: null }) }).then((r) => { if (!r.ok) fail(r.error); }).catch(() => fail("Could not reach the Troy server."));
+    share.onchange = shareNow;
+    spot.onchange = () => { if (share.checked) shareNow(); };
+    old.onchange = () => post("/webchat/history", { handle: p.handle, hasOldHistory: old.checked }).catch(() => fail("Could not reach the Troy server."));
+
+    document.getElementById("phones").append(root);
+    render();
+    poll();
+    setInterval(poll, 700);
+  }
+
+  DEFAULTS.forEach((_, i) => makePhone(i));
+})();
+</script>
+</body>
+</html>

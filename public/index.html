@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troy. He knows a guy.</title>
+<meta name="description" content="Troy is an AI you text that connects Trojans to the right person, office or item. Hackathon prototype, not an official USC service.">
+<link rel="icon" type="image/svg+xml" href="/assets/troy-avatar.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FAF7F2; --ink: #1C1917; --stone: #78716C; --line: #E7E2DA;
+    --cardinal: #990000; --gold: #FFCC00; --laurel: #4D7C5B; --amber: #B7791F; --white: #FFFFFF;
+    --me-bubble: #0A84FF; --troy-bubble: #E9E9EB;
+    --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.5; overflow-x: hidden; }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+  /* Painted backdrop: layered gradients plus grain, CSS only. */
+  .hero { position: relative; isolation: isolate; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .hero::before { content: ""; position: absolute; inset: -40px; z-index: -2; filter: blur(28px) saturate(1.05);
+    background:
+      radial-gradient(38% 46% at 78% 30%, rgba(255, 204, 0, .34), transparent 70%),
+      radial-gradient(34% 40% at 88% 78%, rgba(153, 0, 0, .22), transparent 70%),
+      radial-gradient(42% 50% at 60% 92%, rgba(183, 121, 31, .26), transparent 72%),
+      radial-gradient(40% 44% at 12% 14%, rgba(77, 124, 91, .18), transparent 70%),
+      radial-gradient(50% 60% at 30% 80%, rgba(214, 190, 150, .45), transparent 75%),
+      linear-gradient(160deg, #FBF6EA 0%, #F3E7D0 55%, #EBD9BC 100%); }
+  .hero::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .34; mix-blend-mode: multiply; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .27 0 0 0 0 .18 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--serif); font-size: 26px; text-decoration: none; }
+  .brand img { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--white); }
+  .chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, .8); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--stone); }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+
+  .hero-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 32px; align-items: center; padding: 24px 0 72px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(56px, 10vw, 112px); line-height: .95; letter-spacing: -.01em; margin: 0 0 20px; }
+  .lede { font-size: clamp(17px, 2.2vw, 21px); max-width: 30em; margin: 0 0 28px; color: #44403C; }
+  .cta-row { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 60px; padding: 0 34px; border-radius: 999px; border: 0; background: var(--cardinal); color: var(--white); font: 600 19px Inter, system-ui, sans-serif; text-decoration: none; cursor: pointer; box-shadow: 0 10px 24px -10px rgba(153, 0, 0, .7); transition: transform .15s ease, box-shadow .15s ease; }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -10px rgba(153, 0, 0, .75); }
+  .btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .btn[aria-disabled="true"] { background: #D6CFC4; color: #57534E; box-shadow: none; cursor: not-allowed; pointer-events: none; }
+  .btn svg { width: 22px; height: 22px; }
+  .cta-note { font-size: 14px; color: var(--stone); margin: 14px 0 0; min-height: 21px; }
+  .cta-note b { color: var(--ink); font-weight: 600; }
+  .qr { display: none; align-items: center; gap: 14px; background: rgba(255, 255, 255, .85); border: 1px solid var(--line); border-radius: 24px; padding: 12px 16px 12px 12px; }
+  .qr img { width: 104px; height: 104px; display: block; border-radius: 12px; }
+  .qr span { font-size: 13px; color: var(--stone); max-width: 9.5em; line-height: 1.35; }
+  .qr b { display: block; color: var(--ink); font-weight: 600; }
+  @media (min-width: 760px) { .qr.ready { display: flex; } }
+
+  /* Mascot */
+  .stage { position: relative; display: grid; place-items: center; aspect-ratio: 1; max-width: 440px; width: 100%; margin: 0 auto; }
+  .stage::before { content: ""; position: absolute; inset: 4%; border-radius: 50%; border: 1px solid rgba(28, 25, 23, .08);
+    background: radial-gradient(60% 60% at 35% 30%, rgba(255, 255, 255, .85), rgba(255, 244, 214, .55) 55%, rgba(235, 200, 140, .35) 100%); }
+  .stage::after { content: ""; position: absolute; left: 30%; right: 30%; bottom: 13%; height: 5%; border-radius: 50%; background: rgba(28, 25, 23, .22); filter: blur(8px); animation: troy-shadow 4.2s ease-in-out infinite; }
+  .troy { position: relative; z-index: 1; width: 74%; height: auto; overflow: visible; animation: troy-bob 4.2s ease-in-out infinite; }
+  .troy-helmet { transform-box: fill-box; transform-origin: 50% 80%; animation: troy-tilt 8.4s ease-in-out infinite; }
+  .troy-eye { transform-box: fill-box; transform-origin: 50% 55%; animation: troy-blink 5.2s infinite; }
+  @keyframes troy-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.2%); } }
+  @keyframes troy-shadow { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.88); opacity: .7; } }
+  @keyframes troy-tilt { 0%, 40%, 100% { transform: rotate(0deg); } 50%, 80% { transform: rotate(-2.5deg); } 90% { transform: rotate(.8deg); } }
+  @keyframes troy-blink { 0%, 44%, 48%, 92%, 96%, 100% { transform: scaleY(1); } 46%, 94% { transform: scaleY(.08); } }
+  @media (prefers-reduced-motion: reduce) {
+    .troy, .troy-helmet, .troy-eye, .stage::after { animation: none; }
+    .btn { transition: none; }
+    .btn:hover { transform: none; }
+  }
+
+  section { padding: 72px 0; }
+  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--stone); margin: 0 0 10px; }
+  h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; margin: 0 0 12px; }
+  .sub { color: var(--stone); max-width: 36em; margin: 0 0 36px; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .card { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 22px 20px 20px; display: flex; flex-direction: column; gap: 6px; }
+  .card h3 { font-family: var(--serif); font-weight: 400; font-size: 27px; line-height: 1.1; margin: 0; }
+  .card p { margin: 0 0 12px; font-size: 14px; color: var(--stone); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; margin-bottom: 8px; }
+  .thread { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+  .thread small { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--stone); }
+  .bubble { max-width: 92%; padding: 9px 14px; border-radius: 20px; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+  .bubble.me { align-self: flex-end; background: var(--me-bubble); color: var(--white); border-bottom-right-radius: 6px; }
+  .bubble.troy { align-self: flex-start; background: var(--troy-bubble); color: var(--ink); border-bottom-left-radius: 6px; }
+
+  .how { background: var(--white); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; counter-reset: step; list-style: none; padding: 0; margin: 0; }
+  .steps li { counter-increment: step; position: relative; padding-top: 68px; }
+  .steps li::before { content: counter(step); position: absolute; top: 0; left: 0; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--paper); font-family: var(--serif); font-size: 28px; }
+  .steps li:not(:last-child)::after { content: ""; position: absolute; top: 26px; left: 64px; right: -16px; border-top: 2px dotted var(--line); }
+  .steps h3 { font-family: var(--serif); font-weight: 400; font-size: 27px; line-height: 1.1; margin: 0 0 6px; }
+  .steps p { margin: 0; color: var(--stone); font-size: 15px; }
+
+  .trust { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; list-style: none; padding: 0; margin: 0; }
+  .trust li { display: flex; gap: 14px; align-items: flex-start; background: var(--white); border: 1px solid var(--line); border-radius: 24px; padding: 18px 20px; }
+  .trust .tick { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--laurel); display: grid; place-items: center; }
+  .trust .tick svg { width: 16px; height: 16px; }
+  .trust b { display: block; font-weight: 600; }
+  .trust span { color: var(--stone); font-size: 15px; }
+
+  .partners { text-align: center; padding: 64px 0 80px; }
+  .partners blockquote { font-family: var(--serif); font-size: clamp(30px, 4.6vw, 48px); line-height: 1.1; margin: 0 0 22px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 0; margin: 0 0 16px; list-style: none; }
+  .pills li { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 500; }
+  .partners p { color: var(--stone); font-size: 14px; max-width: 40em; margin: 0 auto; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--stone); font-size: 13px; }
+  footer .wrap { display: flex; gap: 14px; align-items: center; }
+  footer img { width: 48px; height: 48px; border-radius: 50%; flex: none; }
+  footer p { margin: 0; }
+
+  @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 759px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 8px; padding: 0 0 48px; }
+    .stage { order: -1; max-width: 260px; }
+    .btn { width: 100%; }
+    section { padding: 52px 0; }
+    .steps { grid-template-columns: 1fr; gap: 28px; }
+    .steps li { padding: 0 0 0 68px; min-height: 52px; }
+    .steps li:not(:last-child)::after { display: none; }
+    .trust { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } .chip { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="/" aria-label="Troy home"><img src="/assets/troy-avatar.svg" alt="" width="40" height="40">Troy</a>
+      <span class="chip"><i></i>Hackathon prototype</span>
+    </nav>
+    <div class="hero-grid">
+      <div>
+        <h1>He knows a guy.</h1>
+        <p class="lede">Troy is an AI you text that connects Trojans to the right person, office or item.</p>
+        <div class="cta-row">
+          <a class="btn" id="text-troy" role="link" aria-disabled="true">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3c5 0 9 3.4 9 7.6s-4 7.6-9 7.6c-.9 0-1.8-.1-2.6-.3L5 20.500l1.1-3.600C4.2 15.5 3 13.2 3 10.6 3 6.4 7 3 12 3z" fill="currentColor"/></svg>
+            <span id="text-troy-label">Text Troy</span>
+          </a>
+          <div class="qr" id="qr">
+            <img id="qr-img" alt="QR code that opens a text to Troy with hey troy filled in" width="104" height="104">
+            <span><b>On a laptop?</b>Scan with your phone camera to text Troy.</span>
+          </div>
+        </div>
+        <p class="cta-note" id="cta-note" aria-live="polite">Checking for Troy's number...</p>
+      </div>
+      <div class="stage">
+        <svg class="troy" viewBox="0 0 320 320" role="img" aria-label="Troy, a round black character with white pill eyes wearing a gold Trojan helmet with a cardinal crest"><defs>
+    <linearGradient id="t-gold" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FFE066"/><stop offset=".45" stop-color="#FFCC00"/><stop offset="1" stop-color="#D99A00"/></linearGradient>
+    <linearGradient id="t-crest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B80F0F"/><stop offset="1" stop-color="#990000"/></linearGradient>
+  </defs>
+  <g class="troy-body">
+    <circle cx="160" cy="200" r="100" fill="#141210"/>
+    <path d="M92 262a100 100 0 0 0 136 0" fill="none" stroke="#2E2A26" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+  </g>
+  <g class="troy-eyes" fill="#fff">
+    <rect class="troy-eye" x="109" y="190" width="26" height="48" rx="13"/>
+    <rect class="troy-eye" x="185" y="190" width="26" height="48" rx="13"/>
+  </g>
+  <g class="troy-helmet">
+    <g class="troy-crest">
+      <path d="M81.2 118.4L45.0 90.1A146 146 0 0 1 275.0 90.1L238.8 118.4A100 100 0 0 0 81.2 118.4Z" fill="url(#t-crest)" stroke="#5E0000" stroke-width="3" stroke-linejoin="round"/>
+      <g stroke="#5E0000" stroke-width="2.5" stroke-linecap="round" opacity=".55"><path d="M76.6 96.6L61.7 81.7"/><path d="M90.6 84.5L78.3 67.5"/><path d="M106.4 74.9L96.9 56.2"/><path d="M123.5 67.8L117.0 47.8"/><path d="M141.5 63.5L138.3 42.7"/><path d="M160.0 62.0L160.0 41.0"/><path d="M178.5 63.5L181.7 42.7"/><path d="M196.5 67.8L203.0 47.8"/><path d="M213.6 74.9L223.1 56.2"/><path d="M229.4 84.5L241.7 67.5"/><path d="M243.4 96.6L258.3 81.7"/></g>
+    </g>
+    <path d="M54 180A106 106 0 0 1 266 180L266 204Q262 236 240 246Q231 216 234 184Q200 164 172 172L171 204Q160 213 149 204L148 172Q120 164 86 184Q89 216 80 246Q58 236 54 204Z" fill="url(#t-gold)" stroke="#8A6400" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M160 76V166" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
+    <path d="M62 170Q112 144 160 161Q208 144 258 170" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
+    <path d="M68 154Q112 128 160 146Q208 128 252 154" fill="none" stroke="#FFE98A" stroke-width="2.5" stroke-linecap="round" opacity=".9"/>
+    <path d="M84 126Q104 90 142 80" fill="none" stroke="#FFF3B8" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+    <path d="M251 192Q254 216 245 232M69 192Q66 216 75 232" fill="none" stroke="#B38600" stroke-width="2.5" stroke-linecap="round"/>
+    <g fill="#8A6400"><circle cx="250" cy="181" r="3.5"/><circle cx="70" cy="181" r="3.5"/><circle cx="160" cy="195" r="3"/></g>
+    <path d="M67.7 120.1A110 110 0 0 1 252.3 120.1" fill="none" stroke="#8A6400" stroke-width="13" stroke-linecap="round"/>
+    <path d="M67.7 120.1A110 110 0 0 1 252.3 120.1" fill="none" stroke="#F2B800" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">What to text</p>
+      <h2>Say it like you'd text a friend.</h2>
+      <p class="sub">No app and no forms. The messages below are examples.</p>
+      <div class="cards">
+        <article class="card">
+          <i class="dot" style="background: var(--laurel)"></i>
+          <h3>Found something</h3>
+          <p>Send a photo and where you found it. Troy looks for the owner.</p>
+          <div class="thread"><small>Example</small>
+            <div class="bubble me">found these airpods on a bench, sending a pic</div>
+            <div class="bubble troy">on it 👀</div>
+          </div>
+        </article>
+        <article class="card">
+          <i class="dot" style="background: var(--amber)"></i>
+          <h3>Lost something</h3>
+          <p>Describe it and where you last had it. Troy checks what's been found.</p>
+          <div class="thread"><small>Example</small>
+            <div class="bubble me">lost my keys last night, blue lanyard</div>
+            <div class="bubble troy">i know a guy. quick check first</div>
+          </div>
+        </article>
+        <article class="card">
+          <i class="dot" style="background: var(--gold)"></i>
+          <h3>Free food</h3>
+          <p>Leftovers after an event? Troy lets Trojans nearby know before it's gone.</p>
+          <div class="thread"><small>Example</small>
+            <div class="bubble me">we have 5 extra pizzas from our club meeting</div>
+            <div class="bubble troy">on it 👀</div>
+          </div>
+        </article>
+        <article class="card">
+          <i class="dot" style="background: var(--cardinal)"></i>
+          <h3>Something's broken</h3>
+          <p>Or you just don't know who to ask. Troy routes it to the office that handles it.</p>
+          <div class="thread"><small>Example</small>
+            <div class="bubble me">the sink on my floor is leaking, who do i talk to</div>
+            <div class="bubble troy">i know a guy</div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="how">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2>Three steps, then he's out of the way.</h2>
+      <p class="sub">Troy connects you and steps back. The people and offices do the rest.</p>
+      <ol class="steps">
+        <li><h3>Text a photo</h3><p>Or just say what's going on, in your own words.</p></li>
+        <li><h3>Troy matches and verifies</h3><p>He finds the likely person or office and runs a quick check first.</p></li>
+        <li><h3>He hands you off</h3><p>Once it checks out, Troy hands off and steps back.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">Trust</p>
+      <h2>Careful by default.</h2>
+      <p class="sub">Troy says he's an AI up front, and the rules below are written in code.</p>
+      <ul class="trust">
+        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Quick check before any handoff</b><span>An owner has to describe the item before anything changes hands.</span></div></li>
+        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Contact info only when both say yes</b><span>Nobody gets your number or name unless you and the other person agree.</span></div></li>
+        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Dangerous items go to DPS</b><span>Troy doesn't match those between students. He routes them to DPS.</span></div></li>
+        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Reply STOP anytime</b><span>One word and Troy stops texting you.</span></div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="partners">
+    <div class="wrap">
+      <blockquote>Troy is the front door. The offices stay in charge.</blockquote>
+      <ul class="pills">
+        <li>DPS Lost &amp; Found</li>
+        <li>FMS</li>
+        <li>USC Housing maintenance</li>
+        <li>USG</li>
+      </ul>
+      <p>Troy routes to these offices. In this prototype the office integrations are mocked, and none of these offices has reviewed or endorsed it.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="/assets/troy-avatar.svg" alt="" width="48" height="48">
+    <p>Troy is a hackathon prototype built Nov 14 to 15, 2026 for the AI@USC Hackathon. It is not an official USC service.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var btn = document.getElementById("text-troy");
+  var label = document.getElementById("text-troy-label");
+  var note = document.getElementById("cta-note");
+  var qr = document.getElementById("qr");
+  var qrImg = document.getElementById("qr-img");
+
+  function pretty(n) {
+    var m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(n);
+    return m ? "(" + m[1] + ") " + m[2] + "-" + m[3] : n;
+  }
+  function comingSoon() {
+    btn.removeAttribute("href");
+    btn.setAttribute("aria-disabled", "true");
+    label.textContent = "Text Troy";
+    note.textContent = "number coming soon";
+    qr.classList.remove("ready");
+  }
+  function ready(data) {
+    btn.setAttribute("href", data.smsLink);
+    btn.removeAttribute("aria-disabled");
+    note.textContent = "";
+    note.append("Opens Messages with “hey troy” filled in. Or text it to ");
+    var b = document.createElement("b");
+    b.textContent = pretty(data.number);
+    note.append(b, ".");
+    qrImg.addEventListener("load", function () { qr.classList.add("ready"); });
+    qrImg.src = "/qr.svg";
+  }
+
+  fetch("/api/landing", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (data && typeof data.smsLink === "string" && data.smsLink.indexOf("sms:") === 0 && typeof data.number === "string") ready(data);
+      else comingSoon();
+    })
+    .catch(comingSoon);
+})();
+</script>
+</body>
+</html>

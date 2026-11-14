@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Troy contact photo">
+  <!-- Troy mascot. Original artwork drawn for the AI@USC Hackathon, Nov 14 2026. -->
+  <defs>
+    <linearGradient id="gold" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FFE066"/><stop offset=".45" stop-color="#FFCC00"/><stop offset="1" stop-color="#D99A00"/></linearGradient>
+    <linearGradient id="crest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B80F0F"/><stop offset="1" stop-color="#990000"/></linearGradient>
+  </defs>
+  <rect width="320" height="320" fill="#FAF7F2"/>
+  <circle cx="160" cy="160" r="160" fill="#F1E7D3"/>
+  <g transform="translate(160 164) scale(.82) translate(-160 -168)">
+  <g class="troy-body">
+    <circle cx="160" cy="200" r="100" fill="#141210"/>
+    <path d="M92 262a100 100 0 0 0 136 0" fill="none" stroke="#2E2A26" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+  </g>
+  <g class="troy-eyes" fill="#fff">
+    <rect class="troy-eye" x="109" y="190" width="26" height="48" rx="13"/>
+    <rect class="troy-eye" x="185" y="190" width="26" height="48" rx="13"/>
+  </g>
+  <g class="troy-helmet">
+    <g class="troy-crest">
+      <path d="M81.2 118.4L45.0 90.1A146 146 0 0 1 275.0 90.1L238.8 118.4A100 100 0 0 0 81.2 118.4Z" fill="url(#crest)" stroke="#5E0000" stroke-width="3" stroke-linejoin="round"/>
+      <g stroke="#5E0000" stroke-width="2.5" stroke-linecap="round" opacity=".55"><path d="M76.6 96.6L61.7 81.7"/><path d="M90.6 84.5L78.3 67.5"/><path d="M106.4 74.9L96.9 56.2"/><path d="M123.5 67.8L117.0 47.8"/><path d="M141.5 63.5L138.3 42.7"/><path d="M160.0 62.0L160.0 41.0"/><path d="M178.5 63.5L181.7 42.7"/><path d="M196.5 67.8L203.0 47.8"/><path d="M213.6 74.9L223.1 56.2"/><path d="M229.4 84.5L241.7 67.5"/><path d="M243.4 96.6L258.3 81.7"/></g>
+    </g>
+    <path d="M54 180A106 106 0 0 1 266 180L266 204Q262 236 240 246Q231 216 234 184Q200 164 172 172L171 204Q160 213 149 204L148 172Q120 164 86 184Q89 216 80 246Q58 236 54 204Z" fill="url(#gold)" stroke="#8A6400" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M160 76V166" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
+    <path d="M62 170Q112 144 160 161Q208 144 258 170" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
+    <path d="M68 154Q112 128 160 146Q208 128 252 154" fill="none" stroke="#FFE98A" stroke-width="2.5" stroke-linecap="round" opacity=".9"/>
+    <path d="M84 126Q104 90 142 80" fill="none" stroke="#FFF3B8" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+    <path d="M251 192Q254 216 245 232M69 192Q66 216 75 232" fill="none" stroke="#B38600" stroke-width="2.5" stroke-linecap="round"/>
+    <g fill="#8A6400"><circle cx="250" cy="181" r="3.5"/><circle cx="70" cy="181" r="3.5"/><circle cx="160" cy="195" r="3"/></g>
+    <path d="M67.7 120.1A110 110 0 0 1 252.3 120.1" fill="none" stroke="#8A6400" stroke-width="13" stroke-linecap="round"/>
+    <path d="M67.7 120.1A110 110 0 0 1 252.3 120.1" fill="none" stroke="#F2B800" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  </g>
+</svg>

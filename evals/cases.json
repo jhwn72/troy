@@ -1,0 +1,290 @@
+{
+  "label": "EXAMPLE DATA. Every person, item and message in this file is fictional and was written for the Troy eval on Nov 14, 2026. No real student, item or report is described.",
+  "isExample": true,
+  "cases": [
+    {
+      "id": "tm-01", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "earbuds", "title": "AirPods Pro case", "brand": "Apple", "color": "white", "publicSummary": "white airpods case", "distinguishing": ["small yellow smiley sticker on the lid", "initials MJ engraved on the front", "scuffed bottom left corner"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Leavey Library, 2nd floor", "hoursAgo": 5 },
+      "lost": { "category": "earbuds", "description": "lost my airpods pros at leavey last night", "color": "white", "brand": "Apple", "locationText": "leavey", "hoursAgo": 20 },
+      "ownerDescription": "white airpods pro case, has a lil yellow smiley sticker on top and my initals MJ engraved on it",
+      "note": "Real owner, names both hidden details with a typo."
+    },
+    {
+      "id": "tm-02", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "phone", "title": "iPhone in a clear case", "brand": "Apple", "color": "black", "publicSummary": "black iphone in a clear case", "distinguishing": ["polaroid photo of a golden retriever tucked behind the clear case", "crack in the top right corner of the screen", "lock screen is a beach sunset"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Lyon Center", "hoursAgo": 3 },
+      "lost": { "category": "phone", "description": "left my phone at the gym this morning, black iphone", "color": "black", "brand": "Apple", "locationText": "lyon center", "hoursAgo": 6 },
+      "ownerDescription": "black iphone, clear case w a pic of my dog in the back, screen is cracked in the corner",
+      "note": "Real owner, says dog instead of golden retriever."
+    },
+    {
+      "id": "tm-03", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "wallet", "title": "brown leather bifold wallet", "brand": null, "color": "brown", "publicSummary": "brown leather wallet", "distinguishing": ["California driver license inside", "boba shop punch card with 6 stamps", "torn stitching on the coin pocket"], "nameOnItem": "Priya Raman", "isValuable": true, "isDangerous": false, "locationText": "Tutor Campus Center", "hoursAgo": 8 },
+      "lost": { "category": "wallet", "description": "i think i dropped my wallet at tcc at lunch, brown one", "color": "brown", "brand": null, "locationText": "tcc", "hoursAgo": 10 },
+      "ownerDescription": "brown leather wallet, my license is in it, name is priya raman. theres a boba punch card in there too",
+      "note": "Real owner gives the name on the license and one inside detail."
+    },
+    {
+      "id": "tm-04", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "id_card", "title": "USC student ID on a lanyard", "brand": null, "color": "red", "publicSummary": "usc id on a lanyard", "distinguishing": ["clear plastic sleeve", "cardinal lanyard printed with Marshall"], "nameOnItem": "Marcus Delgado", "isValuable": true, "isDangerous": false, "locationText": "Fertitta Hall", "hoursAgo": 2 },
+      "lost": { "category": "id_card", "description": "lost my usc id somewhere around fertitta", "color": null, "brand": null, "locationText": "fertitta", "hoursAgo": 4 },
+      "ownerDescription": "my usc id, marcus delgado, its in a clear holder on a red marshall lanyard",
+      "note": "Real owner, name and lanyard both right."
+    },
+    {
+      "id": "tm-05", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "keys", "title": "keys on a blue carabiner", "brand": null, "color": "blue", "publicSummary": "set of keys on a carabiner", "distinguishing": ["blue carabiner", "Honda key fob", "mini Tommy Trojan keychain", "gym membership tag"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "McCarthy Quad", "hoursAgo": 12 },
+      "lost": { "category": "keys", "description": "lost my keys on mccarthy quad yesterday afternoon", "color": null, "brand": null, "locationText": "mccarthy quad", "hoursAgo": 26 },
+      "ownerDescription": "keys on a blue carabiner, honda fob and a little tommy trojan keychain thing",
+      "note": "Real owner, three of four hidden details."
+    },
+    {
+      "id": "tm-06", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "water_bottle", "title": "green Hydro Flask", "brand": "Hydro Flask", "color": "green", "publicSummary": "green water bottle with stickers", "distinguishing": ["Yosemite sticker", "sticker of a frog wearing a cowboy hat", "dent near the bottom"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Taper Hall", "hoursAgo": 4 },
+      "lost": { "category": "water_bottle", "description": "left my hydroflask in taper after class", "color": "green", "brand": "Hydro Flask", "locationText": "taper hall", "hoursAgo": 7 },
+      "ownerDescription": "green hydroflask w stickers on it, yosemite one and a frog w a cowboy hat lol. its dented at the bottom",
+      "note": "Real owner, all three hidden details."
+    },
+    {
+      "id": "tm-07", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "laptop", "title": "silver MacBook Air", "brand": "Apple", "color": "silver", "publicSummary": "silver macbook", "distinguishing": ["NASA worm logo sticker on the lid", "sticker that says ctrl alt defeat", "small chip on the front right corner"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Doheny Library", "hoursAgo": 6 },
+      "lost": { "category": "laptop", "description": "left my macbook in doheny, pls tell me someone found it", "color": "silver", "brand": "Apple", "locationText": "doheny", "hoursAgo": 9 },
+      "ownerDescription": "silver macbook air, nasa sticker and one that says ctrl alt defeat on the lid",
+      "note": "Real owner, both stickers."
+    },
+    {
+      "id": "tm-08", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "clothing", "title": "gray Nike hoodie", "brand": "Nike", "color": "gray", "publicSummary": "gray hoodie", "distinguishing": ["size medium", "bleach spot on the left sleeve", "drawstring is missing"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Lyon Center", "hoursAgo": 20 },
+      "lost": { "category": "clothing", "description": "forgot my hoodie at lyon yesterday", "color": "gray", "brand": "Nike", "locationText": "lyon center", "hoursAgo": 30 },
+      "ownerDescription": "grey nike hoodie medium, no drawstring bc i lost it, bleach stain on the sleeve",
+      "note": "Real owner, grey vs gray spelling."
+    },
+    {
+      "id": "tm-09", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "scooter", "title": "black Segway Ninebot scooter", "brand": "Segway", "color": "black", "publicSummary": "black electric scooter", "distinguishing": ["red grip tape wrapped on the left handlebar", "SC sticker on the stem", "bell is broken off"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "outside Leavey Library", "hoursAgo": 10 },
+      "lost": { "category": "scooter", "description": "my scooter is gone from the racks by leavey", "color": "black", "brand": "Segway", "locationText": "leavey", "hoursAgo": 14 },
+      "ownerDescription": "black ninebot scooter, i wrapped red tape on the left handlebar and theres an sc sticker on the pole part",
+      "note": "Real owner, says pole instead of stem."
+    },
+    {
+      "id": "tm-10", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "glasses", "title": "round black glasses in a case", "brand": "Warby Parker", "color": "black", "publicSummary": "black glasses in a case", "distinguishing": ["navy hard case", "cleaning cloth with a cat print", "left temple tip looks chewed"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Annenberg Hall", "hoursAgo": 5 },
+      "lost": { "category": "glasses", "description": "lost my glasses in annenberg today", "color": "black", "brand": null, "locationText": "annenberg", "hoursAgo": 8 },
+      "ownerDescription": "round black glasses in a dark blue case, cloth inside has cats on it",
+      "note": "Real owner, dark blue instead of navy."
+    },
+    {
+      "id": "tm-11", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "earbuds", "title": "AirPods in a silicone cover", "brand": "Apple", "color": "purple", "publicSummary": "airpods in a colored case cover", "distinguishing": ["lavender silicone cover", "boba tea keychain charm", "pencil mark on the back"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "USC Village", "hoursAgo": 3 },
+      "lost": { "category": "earbuds", "description": "dropped my airpods somewhere at the village", "color": "purple", "brand": "Apple", "locationText": "the village", "hoursAgo": 5 },
+      "ownerDescription": "airpods in a purple silicon case w a boba keychan hanging off",
+      "note": "Real owner, two typos, purple instead of lavender."
+    },
+    {
+      "id": "tm-12", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "phone", "title": "Samsung Galaxy in a blue case", "brand": "Samsung", "color": "blue", "publicSummary": "samsung phone in a blue case", "distinguishing": ["sunflower pop socket", "dark blue case with a card slot", "transit tap card in the card slot"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Parkside", "hoursAgo": 7 },
+      "lost": { "category": "phone", "description": "lost my phone near parkside, its a samsung", "color": "blue", "brand": "Samsung", "locationText": "parkside", "hoursAgo": 9 },
+      "ownerDescription": "its a samsung, dark blue case w a sunflower popsocket and my tap card in the back slot",
+      "note": "Real owner, all hidden details."
+    },
+    {
+      "id": "tm-13", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "water_bottle", "title": "pink Stanley tumbler", "brand": "Stanley", "color": "pink", "publicSummary": "pink tumbler", "distinguishing": ["vinyl name decal on the side", "strawberry shaped straw topper", "handle has a hair tie wrapped on it"], "nameOnItem": "Lena", "isValuable": false, "isDangerous": false, "locationText": "Fertitta Hall", "hoursAgo": 2 },
+      "lost": { "category": "water_bottle", "description": "left my stanley in fertitta", "color": "pink", "brand": "Stanley", "locationText": "fertitta hall", "hoursAgo": 3 },
+      "ownerDescription": "pink stanley w my name lena on it and a strawbery straw cover",
+      "note": "Real owner, name decal plus topper, one typo."
+    },
+    {
+      "id": "tm-14", "kind": "true_match", "expected": "handoff",
+      "found": { "category": "bag", "title": "black JanSport backpack", "brand": "JanSport", "color": "black", "publicSummary": "black backpack", "distinguishing": ["ramen bowl pin on the front pocket", "zipper pull replaced with a paperclip", "economics textbook inside"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Leavey Library", "hoursAgo": 15 },
+      "lost": { "category": "bag", "description": "left my backpack in leavey last night", "color": "black", "brand": "JanSport", "locationText": "leavey library", "hoursAgo": 18 },
+      "ownerDescription": "black jansport, ramen pin on the front, zipper pull is a paperclip lol",
+      "note": "Real owner, two of three hidden details."
+    },
+
+    {
+      "id": "la-01", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "earbuds", "title": "AirPods Pro case", "brand": "Apple", "color": "white", "publicSummary": "white airpods case", "distinguishing": ["green frog sticker on the lid", "initials KT engraved on the front"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Leavey Library", "hoursAgo": 4 },
+      "lost": { "category": "earbuds", "description": "lost my airpods pro at leavey", "color": "white", "brand": "Apple", "locationText": "leavey", "hoursAgo": 6 },
+      "ownerDescription": "white airpods pro case, nothing on it really, maybe a scratch on the back. no engraving",
+      "note": "Honest student with a different plain case. Same place, same day."
+    },
+    {
+      "id": "la-02", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "phone", "title": "iPhone in a clear case", "brand": "Apple", "color": "black", "publicSummary": "black iphone in a case", "distinguishing": ["clear case", "concert ticket stub behind the case", "lock screen is a mountain lake"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "USC Village", "hoursAgo": 5 },
+      "lost": { "category": "phone", "description": "lost my iphone at the village", "color": "black", "brand": "Apple", "locationText": "village", "hoursAgo": 8 },
+      "ownerDescription": "black iphone 14 in a black otterbox, lock screen is my girlfriend and me",
+      "note": "Honest student, different case and lock screen."
+    },
+    {
+      "id": "la-03", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "wallet", "title": "brown leather wallet", "brand": null, "color": "brown", "publicSummary": "brown leather wallet", "distinguishing": ["Arizona driver license inside", "gym card", "two dollar bill folded in the back"], "nameOnItem": "Jordan Whitfield", "isValuable": true, "isDangerous": false, "locationText": "Tutor Campus Center", "hoursAgo": 6 },
+      "lost": { "category": "wallet", "description": "lost my brown wallet at tcc", "color": "brown", "brand": null, "locationText": "tutor campus center", "hoursAgo": 9 },
+      "ownerDescription": "brown leather wallet, has my debit card and my id, name on it is tyler brooks",
+      "note": "Honest student, different name on the cards."
+    },
+    {
+      "id": "la-04", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "id_card", "title": "USC student ID on a lanyard", "brand": null, "color": "red", "publicSummary": "usc id on a lanyard", "distinguishing": ["cardinal lanyard", "sticker of a star on the back of the card"], "nameOnItem": "Hannah Seo", "isValuable": true, "isDangerous": false, "locationText": "Doheny Library", "hoursAgo": 3 },
+      "lost": { "category": "id_card", "description": "lost my usc id by doheny", "color": null, "brand": null, "locationText": "doheny", "hoursAgo": 5 },
+      "ownerDescription": "usc id on a lanyard, name is hannah lee",
+      "note": "Same first name, different last name. Must not hand off."
+    },
+    {
+      "id": "la-05", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "keys", "title": "keys on a black carabiner", "brand": null, "color": "black", "publicSummary": "set of keys with a car fob", "distinguishing": ["black carabiner", "Toyota key fob", "bottle opener keychain"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Parkside", "hoursAgo": 10 },
+      "lost": { "category": "keys", "description": "lost my keys near parkside, has my car key on it", "color": null, "brand": null, "locationText": "parkside", "hoursAgo": 12 },
+      "ownerDescription": "keys w a toyota fob, on a plain silver ring w a red usc lanyard",
+      "note": "Honest student, same car brand but a different key ring."
+    },
+    {
+      "id": "la-06", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "water_bottle", "title": "black Hydro Flask", "brand": "Hydro Flask", "color": "black", "publicSummary": "black water bottle with stickers", "distinguishing": ["sticker of a pizza slice", "surf shop sticker", "paint worn off around the lid"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Lyon Center", "hoursAgo": 4 },
+      "lost": { "category": "water_bottle", "description": "left my black hydroflask at lyon", "color": "black", "brand": "Hydro Flask", "locationText": "lyon center", "hoursAgo": 6 },
+      "ownerDescription": "black hydroflask, has a patagonia sticker and a sticker from my hometown coffee shop",
+      "note": "Honest student, also has stickers but different ones."
+    },
+    {
+      "id": "la-07", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "laptop", "title": "silver MacBook Pro", "brand": "Apple", "color": "silver", "publicSummary": "silver macbook", "distinguishing": ["octocat sticker on the lid", "Viterbi sticker next to the logo", "no case"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Leavey Library", "hoursAgo": 7 },
+      "lost": { "category": "laptop", "description": "left my macbook at leavey", "color": "silver", "brand": "Apple", "locationText": "leavey", "hoursAgo": 9 },
+      "ownerDescription": "silver macbook, no stickers, has a clear hard shell case and a pink keyboard cover",
+      "note": "Honest student, different laptop in a case."
+    },
+    {
+      "id": "la-08", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "clothing", "title": "gray USC hoodie", "brand": "Champion", "color": "gray", "publicSummary": "gray usc hoodie", "distinguishing": ["size large", "hole in the right cuff", "screen printed letters, cracked"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Taper Hall", "hoursAgo": 22 },
+      "lost": { "category": "clothing", "description": "lost my grey usc hoodie in taper", "color": "gray", "brand": null, "locationText": "taper", "hoursAgo": 26 },
+      "ownerDescription": "grey usc hoodie, size small, its the one w the embroidered letters, pretty new",
+      "note": "Honest student, different size and lettering."
+    },
+    {
+      "id": "la-09", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "scooter", "title": "black Xiaomi scooter", "brand": "Xiaomi", "color": "black", "publicSummary": "black electric scooter", "distinguishing": ["phone mount on the handlebar", "blue cable lock wrapped on the stem", "rear fender cracked"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "outside Fertitta Hall", "hoursAgo": 6 },
+      "lost": { "category": "scooter", "description": "cant find my scooter, left it outside fertitta", "color": "black", "brand": null, "locationText": "fertitta", "hoursAgo": 8 },
+      "ownerDescription": "black scooter, segway i think, has a basket hook thing and a green lock",
+      "note": "Honest student, different brand and lock color."
+    },
+    {
+      "id": "la-10", "kind": "look_alike", "expected": "no_handoff",
+      "found": { "category": "glasses", "title": "black rectangular glasses", "brand": "Ray-Ban", "color": "black", "publicSummary": "black glasses", "distinguishing": ["rectangular frames", "black soft pouch", "small scratch on the right lens"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Doheny Library", "hoursAgo": 5 },
+      "lost": { "category": "glasses", "description": "left my glasses in doheny", "color": "black", "brand": null, "locationText": "doheny library", "hoursAgo": 7 },
+      "ownerDescription": "black glasses, theyre oakleys, in a hard white case",
+      "note": "Honest student, different brand and case."
+    },
+
+    {
+      "id": "fr-01", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "earbuds", "title": "AirPods Pro case", "brand": "Apple", "color": "white", "publicSummary": "white airpods case", "distinguishing": ["sticker of a red chili pepper on the back", "initials DR engraved on the front", "lid hinge is loose"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "USC Village", "hoursAgo": 2 },
+      "lost": { "category": "earbuds", "description": "lost my airpods at the village", "color": "white", "brand": "Apple", "locationText": "village", "hoursAgo": 3 },
+      "ownerDescription": "white airpods case. its apple. normal looking",
+      "note": "Claimant only repeats what anyone could see."
+    },
+    {
+      "id": "fr-02", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "phone", "title": "iPhone in a green case", "brand": "Apple", "color": "black", "publicSummary": "black iphone in a case", "distinguishing": ["sage green silicone case", "sticker of a cartoon avocado inside the case", "lock screen is a black cat"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Tutor Campus Center", "hoursAgo": 3 },
+      "lost": { "category": "phone", "description": "lost my iphone at tcc", "color": "black", "brand": "Apple", "locationText": "tcc", "hoursAgo": 4 },
+      "ownerDescription": "its an iphone, black, has a case on it. screen might have a small crack idk",
+      "note": "Guesses a common detail (cracked screen) that is not true of this phone."
+    },
+    {
+      "id": "fr-03", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "wallet", "title": "black card wallet", "brand": null, "color": "black", "publicSummary": "black wallet", "distinguishing": ["slim card holder, no cash pocket", "student ID and one debit card", "metro tap card"], "nameOnItem": "Sofia Marin", "isValuable": true, "isDangerous": false, "locationText": "Leavey Library", "hoursAgo": 5 },
+      "lost": { "category": "wallet", "description": "lost my black wallet in leavey", "color": "black", "brand": null, "locationText": "leavey", "hoursAgo": 6 },
+      "ownerDescription": "black wallet with cards and some cash in it, my id is in there",
+      "note": "Generic, never gives the name, and guesses cash that isn't there."
+    },
+    {
+      "id": "fr-04", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "laptop", "title": "silver MacBook Air", "brand": "Apple", "color": "silver", "publicSummary": "silver macbook with stickers", "distinguishing": ["holographic sticker of a jellyfish", "sticker that says touch grass", "dent on the left hinge"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Doheny Library", "hoursAgo": 4 },
+      "lost": { "category": "laptop", "description": "left my macbook in doheny", "color": "silver", "brand": "Apple", "locationText": "doheny", "hoursAgo": 5 },
+      "ownerDescription": "macbook, silver, has some stickers on it",
+      "note": "Says stickers but can't say which. A bystander could see that much."
+    },
+    {
+      "id": "fr-05", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "water_bottle", "title": "blue Hydro Flask", "brand": "Hydro Flask", "color": "blue", "publicSummary": "blue water bottle with stickers", "distinguishing": ["sticker of a corgi", "national park sticker from Zion", "straw lid with a bite mark"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Lyon Center", "hoursAgo": 6 },
+      "lost": { "category": "water_bottle", "description": "lost my blue hydroflask at the gym", "color": "blue", "brand": "Hydro Flask", "locationText": "lyon center", "hoursAgo": 7 },
+      "ownerDescription": "hydroflask w stickers on it, blue",
+      "note": "Repeats the public summary and nothing else."
+    },
+    {
+      "id": "fr-06", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "keys", "title": "keys with a car fob", "brand": null, "color": "silver", "publicSummary": "set of keys with a car fob", "distinguishing": ["Subaru key fob", "pink pom pom keychain", "small brass mailbox key"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "McCarthy Quad", "hoursAgo": 8 },
+      "lost": { "category": "keys", "description": "lost my keys on the quad", "color": null, "brand": null, "locationText": "mccarthy quad", "hoursAgo": 9 },
+      "ownerDescription": "set of keys w a car key and a keychain",
+      "note": "Could describe almost any set of keys."
+    },
+    {
+      "id": "fr-07", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "scooter", "title": "black Segway scooter", "brand": "Segway", "color": "black", "publicSummary": "black electric scooter", "distinguishing": ["orange zip tie on the brake cable", "sticker of a skull on the deck", "no bell"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "outside Taper Hall", "hoursAgo": 5 },
+      "lost": { "category": "scooter", "description": "my scooter got taken from outside taper", "color": "black", "brand": null, "locationText": "taper hall", "hoursAgo": 6 },
+      "ownerDescription": "black electric scooter, its mine i left it outside, has a bell",
+      "note": "Guesses a bell. This scooter has none."
+    },
+    {
+      "id": "fr-08", "kind": "fraud", "expected": "no_handoff",
+      "found": { "category": "id_card", "title": "USC student ID", "brand": null, "color": null, "publicSummary": "usc id card", "distinguishing": ["gold star sticker on the corner", "card is slightly bent"], "nameOnItem": "Ethan Park", "isValuable": true, "isDangerous": false, "locationText": "Parkside", "hoursAgo": 2 },
+      "lost": { "category": "id_card", "description": "lost my usc id at parkside", "color": null, "brand": null, "locationText": "parkside", "hoursAgo": 3 },
+      "ownerDescription": "its my usc id card, has my picture on it, i need it back asap for the dining hall",
+      "note": "Pressure and urgency, but no name and no detail."
+    },
+
+    {
+      "id": "wi-01", "kind": "wrong_item", "expected": "no_handoff",
+      "found": { "category": "umbrella", "title": "black compact umbrella", "brand": null, "color": "black", "publicSummary": "black umbrella", "distinguishing": ["wooden hook handle", "one bent rib"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Taper Hall", "hoursAgo": 5 },
+      "lost": { "category": "water_bottle", "description": "lost my blue hydroflask in taper", "color": "blue", "brand": "Hydro Flask", "locationText": "taper hall", "hoursAgo": 6 },
+      "ownerDescription": "blue hydroflask with a usc sticker on it",
+      "note": "Different category and color. Same building."
+    },
+    {
+      "id": "wi-02", "kind": "wrong_item", "expected": "no_handoff",
+      "found": { "category": "earbuds", "title": "AirPods case", "brand": "Apple", "color": "white", "publicSummary": "white airpods case", "distinguishing": ["blue marker dot on the lid", "one earbud missing"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Annenberg Hall", "hoursAgo": 6 },
+      "lost": { "category": "earbuds", "description": "lost my sony headphones in annenberg, the big over ear ones", "color": "black", "brand": "Sony", "locationText": "annenberg", "hoursAgo": 8 },
+      "ownerDescription": "black sony over ear headphones in a grey zip case",
+      "note": "Same broad category, different brand, color and shape."
+    },
+    {
+      "id": "wi-03", "kind": "wrong_item", "expected": "no_handoff",
+      "found": { "category": "clothing", "title": "red North Face rain jacket", "brand": "The North Face", "color": "red", "publicSummary": "red rain jacket", "distinguishing": ["size small", "lift ticket still on the zipper"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Lyon Center", "hoursAgo": 12 },
+      "lost": { "category": "clothing", "description": "lost my grey hoodie at lyon", "color": "gray", "brand": "Nike", "locationText": "lyon center", "hoursAgo": 14 },
+      "ownerDescription": "grey nike hoodie, size large, has a kangaroo pocket",
+      "note": "Both clothing, clearly different item."
+    },
+    {
+      "id": "wi-04", "kind": "wrong_item", "expected": "no_handoff",
+      "found": { "category": "book", "title": "calculus textbook", "brand": null, "color": "blue", "publicSummary": "blue calculus textbook", "distinguishing": ["used sticker on the spine", "notes in pencil on the first chapter"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Leavey Library", "hoursAgo": 9 },
+      "lost": { "category": "laptop", "description": "left my laptop in leavey, its a dell", "color": "black", "brand": "Dell", "locationText": "leavey", "hoursAgo": 10 },
+      "ownerDescription": "black dell laptop with a cracked corner and a usc sticker",
+      "note": "Different category entirely."
+    },
+    {
+      "id": "wi-05", "kind": "wrong_item", "expected": "no_handoff",
+      "found": { "category": "phone", "title": "pink iPhone", "brand": "Apple", "color": "pink", "publicSummary": "pink iphone", "distinguishing": ["glitter case", "charm strap with beads"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "USC Village", "hoursAgo": 30 },
+      "lost": { "category": "phone", "description": "lost my pixel on the row, black one", "color": "black", "brand": "Google", "locationText": "28th street", "hoursAgo": 100 },
+      "ownerDescription": "black google pixel, no case, cracked back glass",
+      "note": "Same category, different brand, color, place and day."
+    },
+
+    {
+      "id": "hd-01", "kind": "hard", "expected": "handoff",
+      "found": { "category": "earbuds", "title": "AirPods case", "brand": "Apple", "color": "white", "publicSummary": "white airpods case", "distinguishing": ["gold star sticker on the front", "crack on the lid hinge"], "nameOnItem": null, "isValuable": true, "isDangerous": false, "locationText": "Doheny Library", "hoursAgo": 4 },
+      "lost": { "category": "earbuds", "description": "lost my airpods in doheny", "color": "white", "brand": "Apple", "locationText": "doheny", "hoursAgo": 6 },
+      "ownerDescription": "theyre just airpods in the white case, i think theres a sticker on it?",
+      "note": "Real owner, vague first try. The live flow would ask one more blind question; a single try may fairly miss."
+    },
+    {
+      "id": "hd-02", "kind": "hard", "expected": "handoff",
+      "found": { "category": "keys", "title": "keys on a ring", "brand": null, "color": "silver", "publicSummary": "set of keys", "distinguishing": ["four keys on a plain ring", "green rubber cap on one key", "tiny flashlight keychain"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Fertitta Hall", "hoursAgo": 9 },
+      "lost": { "category": "keys", "description": "lost my keys in fertitta i think", "color": null, "brand": null, "locationText": "fertitta", "hoursAgo": 12 },
+      "ownerDescription": "like 3 or 4 keys and a keychain, cant remember which one tbh. one is my apartment key",
+      "note": "Real owner with a weak memory of their own keys."
+    },
+    {
+      "id": "hd-03", "kind": "hard", "expected": "handoff",
+      "found": { "category": "clothing", "title": "black hoodie", "brand": "Carhartt", "color": "black", "publicSummary": "black hoodie", "distinguishing": ["size medium", "faded logo patch on the chest", "frayed left cuff"], "nameOnItem": null, "isValuable": false, "isDangerous": false, "locationText": "Annenberg Hall", "hoursAgo": 28 },
+      "lost": { "category": "clothing", "description": "left my black hoodie in annenberg yesterday", "color": "black", "brand": null, "locationText": "annenberg", "hoursAgo": 32 },
+      "ownerDescription": "black hoodie, kinda old, i think its a medium",
+      "note": "Real owner, only one hidden detail and unsure of it."
+    }
+  ]
+}
