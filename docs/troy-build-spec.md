@@ -65,11 +65,21 @@ Creating a separate Apple ID for Troy was blocked by Apple. So Troy sends and re
 - Production pricing for the pitch: Pro is $260/month for 200 contacts; location sharing is $79/month extra.
 - Pitch line: "Running on my Mac today to keep costs at zero. To launch, we'd move to Linq, the same iMessage infrastructure behind Poke: $260 a month for a 200-student pilot, plus $79 for live location."
 
-## Location (until live location exists)
-1. **One-tap location link (main).** Troy texts "tap to share where u are" with a link to a tiny web page that asks the browser for location once and posts it back. Used to compute walking time, then not kept.
-2. **iMessage location pin**, if testing shows it arrives through the webhook.
-3. **Just ask.** "where are u rn?" Troy matches the reply to a small table of campus buildings with coordinates and nicknames.
-4. Usual spots saved in the profile, for students who'd rather not share.
+## Location (updated Nov 14 evening)
+Decision (John): Troy keeps each student's last known location so alerts and walking times are accurate. This replaces the earlier "used once, then not kept" rule.
+
+What testing showed: on iOS 26 a location share in the chat arrives as one Find My message with a single location fix. BlueBubbles' Find My friends list stayed empty, so there are no continuous live updates, and BlueBubbles cannot send a location request.
+
+1. **Share in the chat (main).** During onboarding Troy asks the student to tap + > Location > Share in the chat. Troy reads the fix through the patched helper (`bluebubbles/scripts/helper-client.ts`, `decodeFindMyPayload`) and saves it on the user: lastLat, lastLng, lastLocationAt, lastLocationSource.
+2. **Refresh.** Every new share or location pin replaces the saved fix. If BlueBubbles' Find My friends list starts returning the student, that fix is used and saved too.
+3. **Just ask.** "where are u rn?" Troy matches the reply to the campus_places table and saves that as the fix (source "asked").
+4. **Usual spots** from the profile are the fallback when there is no saved fix.
+
+Rules:
+- Walking times use the saved fix. When it is more than 3 hours old, Troy still uses it but words it as "from where u last shared", and may ask "still near [place]?" before a time-sensitive handoff.
+- A saved location is never shown to another student. Other people only ever see a walking time or a meeting place both sides agreed to. Staff dashboards don't show it.
+- "delete my data" and STOP erase the saved location. "forget my location" erases just the location.
+- Only allowed chats ever have a location saved; the gate runs first, as for every other message.
 
 ## Architecture
 **Messaging adapter (the most important design rule).** One interface, one file per provider. Nothing outside the adapter knows which provider is in use. The isFromMe filter, allow-list check and send lock live inside the adapter for BlueBubbles.
@@ -118,7 +128,7 @@ Each user has a notes list Troy keeps from things they say about how they want T
 
 ## Data model
 - allow_list: id, handle or chatId, reason (opt_in_phrase | manual | troy_group), addedAt.
-- users: id, handle (phone or email), name, uscEmail, verifiedAt, contactMode, groupChatsAllowed, subscriptions (json), usualSpots (json), alertMinutes (default 15), quietHours (default null), bannedFromPosting (bool), createdAt.
+- users: id, handle (phone or email), name, uscEmail, verifiedAt, contactMode, groupChatsAllowed, subscriptions (json), usualSpots (json), lastLat, lastLng, lastLocationAt, lastLocationSource (find_my | pin | asked), alertMinutes (default 15), quietHours (default null), bannedFromPosting (bool), createdAt.
 - user_notes: id, userId, kind (rule | preference), text, createdAt.
 - messages: id, userId, chatId, direction (in | out), providerMessageId, text, media (json), createdAt. (Only allowed chats are ever stored.)
 - listings: id, userId, type (found | lost | ride), category, title, details (json from vision or text; for rides: destination and departure window), photoUrl, locationText, lat, lng, happenedAt, status (open | matched | verifying | verified | handed_off | returned | expired), isValuable, isDangerous, heldBy (finder | dps), createdAt.
@@ -198,7 +208,7 @@ Only if flows 1 to 4 work.
 1. Student texts "hey troy" (usually by tapping the landing page button). That phrase adds them to the allow-list. Welcome (fixed template from code): "hey i'm troy" / "i'm an ai that connects trojans. lost something, found something, free food nearby? i know a guy" / "reply STOP anytime". Then send Troy's contact card so he saves as "Troy."
 2. "quick thing, gotta make sure ur a trojan. what's ur usc email" then send a 6-digit code with Resend; they text it back. Troy adds: "might be in spam since i'm new 👀".
 3. Subscriptions: iMessage poll if supported, otherwise a numbered list: free food, free stuff, events, help others with classes.
-4. Location: offer the one-tap link, or let them tell Troy their usual spots.
+4. Location: ask them to share location in the chat (+ > Location > Share), or let them tell Troy their usual spots. Troy says plainly that he keeps the last location they share so alerts are accurate, and that "forget my location" erases it.
 
 ## Texting budget
 - Instant, uncapped: time-sensitive alerts within each student's alert distance, and every reply to the student's own request.
@@ -209,7 +219,6 @@ Only if flows 1 to 4 work.
 - Staff dashboard with tabs: DPS (items in custody, 90-day hold, pickup code check), FMS and Housing (reports, status buttons), USG (concerns by committee, status buttons, poll results), Moderation (reported food drops, ban from posting), Settings (TROY_ENABLED kill switch, manual allow-list).
 - Under-the-hood panel (demo only): live listings, candidate matches with confidence and reasons, verification scores, food drop counts updating, eval score. Blur card numbers and faces.
 - Landing page with the "He knows a guy." headline, a "Text Troy" button using an sms: link to Troy's number with "hey troy" prefilled, and a QR code for the same link.
-- Location page: one tap to share location once.
 - Optional student page: reports, settings (alert distance, quiet hours, subscriptions), privacy. Never pushed in chat.
 - Design: paper #FAF7F2 background, ink #1C1917 text, stone #78716C, line #E7E2DA, cardinal #990000 buttons, gold #FFCC00 tiny highlights, laurel #4D7C5B success, amber #B7791F pending. Instrument Serif headlines, Inter for UI. Big soft corners, pill buttons.
 
