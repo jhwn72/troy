@@ -35,7 +35,8 @@ Troy runs on John's personal Apple ID, so BlueBubbles sees all of his iMessages.
 
 ## Decisions (John, Nov 14 afternoon)
 
-- **Edits are off.** The BlueBubbles edit endpoint crashes Messages on macOS 27. The adapter's `editMessage` returns false and never calls it. Flow 2 sends new short texts at "last one" and "all gone" instead of editing the alert.
+- **Edits are allowed again** (John, Nov 14 evening). The stock BlueBubbles 1.9.12 helper crashed Messages on edits; the patched helper in `bluebubbles/` fixes it. `editMessage` only calls the endpoint when `BLUEBUBBLES_EDITS=true`, and returns false otherwise or on failure. Callers must always have the fallback: Flow 2 edits the alert count when it can and sends a new short text ("last one", "all gone") when it can't.
+- **`bluebubbles/` belongs to the BlueBubbles setup session.** Don't edit or commit it from here. Port 45699 is reserved for its helper channel.
 - **Judge skip.** At the USC email step Troy offers a clearly labeled skip for hackathon judges: reply `JUDGE` (and a visible button in web forms). Sets `verifiedVia = 'judge_skip'`. Copy must say it's for this demo only and wouldn't exist in the real campus version.
 - **Location.** Troy needs live location. Order: (1) Find My sharing read through the adapter's `getLiveLocation` (student taps "Share My Location" in the iMessage chat), (2) an iMessage location pin, (3) "where are u rn?" matched against `campus_places`, (4) saved usual spots. Location is used to compute walking time and then not kept.
 - **Emergency words** match phrases ("there's a fire", "i'm hurt", "being followed"), not bare words. "that's fire" must not trigger it.

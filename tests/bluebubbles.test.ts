@@ -325,7 +325,25 @@ test("kill switch off: nothing is sent to an allowed chat either", async () => {
   assert.ok(logs.every((l) => l === "send refused"));
 });
 
-test("editMessage never fetches, even for an allowed chat", async () => {
+test("with BLUEBUBBLES_EDITS on, editMessage edits an allowed chat and still refuses a stranger", async () => {
+  process.env.BLUEBUBBLES_EDITS = "true";
+  try {
+    const { adapter } = setup();
+    assert.equal(adapter.capabilities().edits, true);
+    assert.equal(await adapter.editMessage(ALLOWED_CHAT, "MSG-1", "2 left"), true);
+    const edit = calls.find((c) => c.path.includes("/edit"));
+    assert.equal(edit?.method, "POST");
+    assert.equal(edit?.path, "/message/MSG-1/edit");
+    assert.equal(edit?.body.editedMessage, "2 left");
+    calls = [];
+    assert.equal(await adapter.editMessage(STRANGER_CHAT, "MSG-2", "x"), false);
+    assert.equal(calls.length, 0);
+  } finally {
+    delete process.env.BLUEBUBBLES_EDITS;
+  }
+});
+
+test("without BLUEBUBBLES_EDITS, editMessage never fetches, even for an allowed chat", async () => {
   const { adapter } = setup();
   assert.equal(await adapter.editMessage(ALLOWED_CHAT, "MSG-1", "new text"), false);
   assert.equal(calls.length, 0);

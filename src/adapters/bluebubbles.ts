@@ -113,6 +113,8 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
 
   // ---------- the send lock ----------
 
+  const editsOn = () => ["true", "1", "on", "yes"].includes((process.env.BLUEBUBBLES_EDITS || "").trim().toLowerCase());
+
   /**
    * The ONLY way this adapter makes a request that acts on a chat.
    * `target` is the chat id, or the member list when creating a group.
@@ -224,7 +226,7 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
         tapbacks: on,
         typing: on,
         readReceipts: on,
-        edits: false, // the edit endpoint crashes Messages on macOS 27
+        edits: on && editsOn(),
         effects: on,
         polls: false,
         groupChats: on,
@@ -273,10 +275,24 @@ export function createBluebubblesAdapter(deps: AdapterDeps): {
       return r !== null;
     },
 
-    // Never calls the API: /message/:guid/edit crashes the Messages app on this macOS version.
-    async editMessage(chatId, _messageId, _text) {
-      if (!sendAllowed(db, chatId, handleFromChatId(chatId))) console.log("send refused");
-      return false;
+    // Edits crashed Messages with the stock 1.9.12 helper; the patched helper (bluebubbles/README.md) fixes it.
+    // Off unless BLUEBUBBLES_EDITS is on, so a machine with the old helper can never reach the endpoint.
+    // Returns false when skipped; the caller sends a new text instead.
+    async editMessage(chatId, messageId, text) {
+      if (!editsOn()) {
+        if (!sendAllowed(db, chatId, handleFromChatId(chatId))) console.log("send refused");
+        return false;
+      }
+      const r = await guardedSend(chatId, (privateApi) =>
+        privateApi
+          ? {
+              method: "POST",
+              path: `/message/${enc(messageId)}/edit`,
+              body: { editedMessage: text, backwardsCompatibilityMessage: `Edited to "${text}"`, partIndex: 0 },
+            }
+          : null,
+      );
+      return r !== null;
     },
 
     // Native polls don't work through BlueBubbles. "Tap to pick": the question, then one bubble per option
