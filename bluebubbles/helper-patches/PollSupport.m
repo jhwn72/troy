@@ -263,7 +263,7 @@ static NSDictionary *TroyLocationDict(id loc) {
                 NSString *bubbleGuid = @"";
                 if (![req[@"bubble"] isEqual:@NO]) {
                     NSDictionary *json = @{@"kind": @{@"request": @{}}, @"timestamp": @([[NSDate date] timeIntervalSinceReferenceDate]),
-                                           @"isFromResend": @NO, @"id": [[NSUUID UUID] UUIDString]};
+                                           @"isFromResend": @NO, @"id": ([req[@"bubbleId"] isKindOfClass:[NSString class]] ? req[@"bubbleId"] : [[NSUUID UUID] UUIDString])};
                     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:json options:0 error:nil];
                     NSData *zipped = [jsonData compressedDataUsingAlgorithm:NSDataCompressionAlgorithmZlib error:nil]; // raw DEFLATE
                     NSString *b64 = [[[zipped base64EncodedStringWithOptions:0] stringByReplacingOccurrencesOfString:@"=" withString:@"%3D"]
@@ -302,7 +302,8 @@ static NSDictionary *TroyLocationDict(id loc) {
                     else r = [NSString stringWithFormat:@"completed with value %lu", (unsigned long)p];
                     dispatch_async(dispatch_get_main_queue(), ^{ finish(r); });
                 };
-                if (fromHandle && [(id)session respondsToSelector:@selector(sendFriendshipInviteToHandle:from:isFromGroup:completion:)])
+                if ([req[@"invite"] isEqual:@NO]) { finish(@"skipped"); }
+                else if (fromHandle && [(id)session respondsToSelector:@selector(sendFriendshipInviteToHandle:from:isFromGroup:completion:)])
                     [session sendFriendshipInviteToHandle:handle from:fromHandle isFromGroup:NO completion:inviteDone];
                 else
                     [session sendFriendshipInviteToHandle:handle isFromGroup:NO completion:inviteDone];

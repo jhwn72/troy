@@ -20,6 +20,7 @@ Everything for the BlueBubbles side of Troy, added 2026-11-14 from the BlueBubbl
 | `scripts/helper-client.ts` | Persistent helper connection for the Troy server (`HelperClient`): about 3 ms per request once connected, with its own chat allowlist |
 | `scripts/troy-control.ts` | One-shot CLI for the helper: `get-payload`, `send-balloon` (can't run while the Troy server holds port 45699) |
 | `scripts/decode-payload.py` | Decodes a balloon payload (keyed archive or plist) to JSON |
+| `scripts/autostart.sh` | `on` / `off` / `status`: BlueBubbles at login plus caffeinate via launch agents (`off` after the hackathon) |
 | `scripts/build-helper.sh` | Builds the helper from `helper-src/` with clang (no Xcode needed) |
 | `helper-patches/PollSupport.m` | Troy's addition to the helper (tracked copy; the build uses the one in `helper-src/`) |
 | `helper-src/` | Clone of BlueBubblesApp/bluebubbles-helper with PollSupport.m added. Gitignored |
@@ -113,7 +114,22 @@ cp helper-patches/PollSupport.m "helper-src/bluebubbles-helper/Messages/MacOS-11
   ```
   Then quit BlueBubbles, copy `build/BlueBubblesHelper.dylib` to `/Applications/BlueBubbles.app/Contents/Resources/appResources/private-api/macos11/`, and reopen it.
 - **Undo the patch:** same steps, but copy `backups/BlueBubblesHelper.original.dylib` instead.
-- **After the hackathon:** turn SIP back on (Recovery → `csrutil enable`), and turn library validation back on:
-  ```bash
-  sudo defaults delete /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation
-  ```
+
+## After the hackathon (checklist)
+
+1. **Turn off auto-start** (BlueBubbles at login, caffeinate, and the Troy server agent if it was added):
+   ```bash
+   ./scripts/autostart.sh off
+   ```
+2. **Website notices:** add the notices the public site needs (privacy notice and terms covering iMessage data, location, polls and email; what Troy stores and how to opt out).
+3. **Turn SIP back on:** shut down, hold power for startup options, Options → Continue, Utilities → Terminal, run `csrutil enable`, restart.
+4. **Turn library validation back on:**
+   ```bash
+   sudo defaults delete /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation
+   ```
+5. **Change the BlueBubbles password** (BlueBubbles settings), then update `.env`. Rotate `TROY_HELPER_TOKEN` too.
+6. **Clear the helper allowlist** (or put back the stock helper: quit BlueBubbles, copy `backups/BlueBubblesHelper.original.dylib` into the app, reopen).
+7. **Remove the BlueBubbles webhooks** if Troy isn't running anymore.
+8. **Delete local test data:** `tmp-captures/` (includes the test phone's location) and `tmp-downloads/`.
+9. **Turn BlueBubbles update checks back on** if you keep using it.
+

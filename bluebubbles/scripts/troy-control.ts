@@ -57,7 +57,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     cmd === "get-payload" ? { messageGuid: a } :
     cmd === "send-balloon" ? { balloonBundleID: a, payloadBase64: b, ...(c ? { text: c } : {}) } :
     cmd === "send-poll" ? { options: process.argv.slice(3), creatorHandle } :
-    cmd === "location-request" ? { fromHandle: creatorHandle, ...(a === "--no-bubble" ? { bubble: false } : {}) } :
+    cmd === "location-request" ? { fromHandle: creatorHandle, ...(a === "--no-bubble" ? { bubble: false } : {}), ...(a === "--bubble-only" ? { invite: false, bubbleId: b } : {}) } :
     cmd === "location-get" ? (a ? { priority: Number(a) } : {}) :
     cmd === "location-friends" ? {} :
     cmd === "allow-chat" || cmd === "remove-chat" ? { chatGuid: a } :

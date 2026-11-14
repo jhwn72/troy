@@ -10,6 +10,7 @@
 // Only one process can own port 45699. The helper also enforces its own chat allowlist.
 
 import { createServer, type Server, type Socket } from "node:net";
+import { execFile } from "node:child_process";
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 
@@ -73,6 +74,20 @@ export class HelperClient {
       const t = setTimeout(() => reject(new Error("helper not connected (is BlueBubbles running with the patched helper?)")), timeoutMs);
       this.waiters.push(() => { clearTimeout(t); resolve(); });
     });
+  }
+
+  /**
+   * Send a Find My location request the reliable way:
+   * 1) open the Find My app hidden in the background so the Mac's Find My data is fresh
+   *    (a stale cache made requests silently do nothing during testing),
+   * 2) send the request without the chat bubble (the bubble can't show a Share button).
+   * Then text the user: "I sent you a location request: open Find My → People to accept it."
+   * Returns the helper's reply; invite "error … error 7" can still mean the request was delivered.
+   */
+  async requestLocation(chatGuid: string): Promise<any> {
+    await new Promise<void>((resolve) => execFile("/usr/bin/open", ["-g", "-j", "-b", "com.apple.findmy"], () => resolve()));
+    await new Promise((r) => setTimeout(r, 3000));
+    return this.request("location-request", chatGuid, { bubble: false }, 30_000);
   }
 
   /** Add an opted-in student's 1:1 chat to BOTH this client's allowlist and the helper's saved allowlist. */
