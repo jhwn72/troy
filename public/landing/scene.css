@@ -32,30 +32,28 @@
 
 /* ---------- Problem section: the line Troy completes ---------- */
 
+/* scene.js sets --line-p (0 to 1) from the scroll position, so the line draws and un-draws with the scroll. */
 .pair-line-fill {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
   height: 2px;
+  border-radius: 2px;
   background: var(--gold);
-  transform: scaleX(0);
+  transform: scaleX(var(--line-p, 0));
   transform-origin: 0 50%;
-  transition: transform 0.6s ease-in-out var(--line-delay, 0s);
 }
 .pair-line::before,
-.pair-line::after {
-  transition: opacity 0.3s linear var(--line-delay, 0s);
-}
+.pair-line::after { transition: opacity 0.2s linear; }
 .pair-line.is-connected::before,
 .pair-line.is-connected::after { opacity: 0; }
-.pair-line.is-connected .pair-line-fill { transform: none; }
 
 @media (max-width: 767px) {
   .pair-line-fill {
     width: 2px;
     height: 100%;
-    transform: scaleY(0);
+    transform: scaleY(var(--line-p, 0));
     transform-origin: 50% 0;
   }
 }
@@ -82,36 +80,45 @@
   transform-origin: 50% 50%;
 }
 
-/* ---------- Troy in the hero: drop in, land, then bob and blink ---------- */
+/* ---------- Troy, the traveling mascot (built and moved by scene.js) ---------- */
 
+#troy-traveler {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+  will-change: transform;
+}
+/* The root is a point at the bottom center of his box, so only the scaled mascot takes up room. */
+#troy-traveler .troy-pose {
+  position: absolute;
+  left: -70px;
+  top: -140px;
+  width: 140px;
+  height: 140px;
+  transform-origin: 50% 94%;
+  will-change: transform;
+}
+#troy-traveler svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+#troy-traveler .troy-helmet { transform-origin: 160px 200px; }
+
+/* With motion allowed, the two still mascots are only anchors for the traveling one. */
 @media (prefers-reduced-motion: no-preference) {
-  #troy-hero {
-    animation: troy-drop 1s 0.5s both;
-  }
-  #troy-hero svg {
-    animation: troy-bob 4.5s 1.6s ease-in-out infinite alternate;
-  }
-  #troy-hero .troy-eye {
-    animation: troy-blink 5.5s 2.5s infinite;
-  }
+  html:not(.troy-static) #troy-hero svg,
+  html:not(.troy-static) #troy-sleep svg { opacity: 0; }
 }
 
-@keyframes troy-drop {
-  0%   { transform: translateY(-220px); opacity: 0; animation-timing-function: ease-in; }
-  15%  { opacity: 1; }
-  55%  { transform: translateY(0); opacity: 1; animation-timing-function: ease-out; }
-  72%  { transform: translateY(-14px); animation-timing-function: ease-in; }
-  86%  { transform: translateY(0); animation-timing-function: ease-out; }
-  93%  { transform: translateY(-4px); animation-timing-function: ease-in; }
-  100% { transform: translateY(0); opacity: 1; }
-}
-@keyframes troy-bob {
-  from { transform: translateY(0); }
-  to { transform: translateY(-5px); }
-}
-@keyframes troy-blink {
-  0%, 95%, 100% { transform: scaleY(1); }
-  97.5% { transform: scaleY(0.1); }
+/* Mouse depth: the painting is a touch oversized so its edges never show when it shifts. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  #sky { will-change: transform; }
 }
 
 /* ---------- Troy in the footer: asleep on the chat bubble ---------- */
@@ -127,20 +134,6 @@
 }
 #troy-sleep .troy-eye { transform: scaleY(0.14); }
 
-@media (prefers-reduced-motion: no-preference) {
-  #troy-sleep {
-    transform-origin: 50% 94%;
-    animation: troy-breathe 3.8s ease-in-out infinite alternate;
-  }
-  #troy-sleep .troy-eye { transition: transform 0.18s ease-out; }
-  /* One eye opens while the visitor is on the footer button. */
-  #footer.is-peek #troy-sleep .troy-eye:last-child { transform: scaleY(1); }
-}
-@keyframes troy-breathe {
-  from { transform: scale(1, 1); }
-  to { transform: scale(1.02, 1.045); }
-}
-
 /* The floating z's (added by scene.js when motion is allowed) */
 .sleep-z {
   position: absolute;
@@ -152,10 +145,11 @@
   line-height: 1;
   color: var(--white);
   opacity: 0;
-  animation: sleep-z 4.5s linear infinite;
 }
-.sleep-z:nth-of-type(2) { animation-delay: 1.5s; }
-.sleep-z:nth-of-type(3) { animation-delay: 3s; }
+/* They only rise once he is actually asleep. */
+#footer.is-asleep .sleep-z { animation: sleep-z 4.5s linear infinite; }
+#footer.is-asleep .sleep-z:nth-of-type(2) { animation-delay: 1.5s; }
+#footer.is-asleep .sleep-z:nth-of-type(3) { animation-delay: 3s; }
 @keyframes sleep-z {
   0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
   20%  { opacity: 0.9; }

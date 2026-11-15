@@ -109,3 +109,167 @@
 
 /* The hero phone can be paused with a tap */
 .convo.is-live[data-convo-loop] .phone { cursor: pointer; }
+
+/* ---------- The demo stage (#demos): four pill tabs above one two-screen stage ----------
+   Without chat.js (no JavaScript, reduced motion) the tabs are hidden and the four demos are stacked,
+   each in its finished state. chat.js adds .is-tabbed and from then on one demo shows at a time. */
+.demo-tabs { display: none; }
+.demo + .demo { margin-top: 96px; }
+.demo > h2 { max-width: 26ch; margin: 0 auto; }
+
+#demos.is-tabbed .demo-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+.demo-tab {
+  position: relative;
+  min-height: var(--tap);
+  padding: 9px 22px 13px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+  cursor: pointer;
+}
+.demo-tab.is-active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+/* Time left: a thin line inside the active pill that fills as the demo plays. */
+.demo-tab-bar {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 7px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(var(--paper-rgb), 0.28);
+  overflow: hidden;
+  opacity: 0;
+}
+.demo-tab.is-active .demo-tab-bar { opacity: 1; }
+.demo-tab-bar i {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
+#demos.is-paused .demo-tab-bar i { opacity: 0.55; }
+
+/* The four panels share one place. Only the active one shows. */
+#demos.is-tabbed .demo-panels { display: grid; }
+#demos.is-tabbed .demo {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin-top: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+#demos.is-tabbed .demo:not(.is-active) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s 0.2s;
+}
+#demos.is-tabbed .stage { margin-top: 36px; }
+@media (min-width: 1024px) {
+  #demos.is-tabbed .stage .phone { height: 560px; }
+}
+@media (min-width: 1024px) and (max-width: 1199px) {
+  #demos .stage.has-steps .convo { gap: 180px; }
+}
+
+/* Small labels naming the two screens. Only used when one screen shows at a time. */
+.stage-who { display: none; }
+
+/* Not enough room for two screens: show the one that is speaking and switch by itself. */
+@media (max-width: 1023px) {
+  #demos.is-tabbed .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    align-items: center;
+    gap: 14px;
+  }
+  #demos.is-tabbed .stage .convo { display: contents; }
+  #demos.is-tabbed .stage .convo::before { display: none; }
+  #demos.is-tabbed .stage-who {
+    grid-row: 1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .stage-who span {
+    padding: 6px 12px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--stone);
+  }
+  .stage-who span.is-on {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+  #demos.is-tabbed .stage .phone,
+  #demos.is-tabbed .stage .map-figure {
+    grid-row: 2;
+    grid-column: 1;
+    margin-top: 0;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  #demos.is-tabbed .stage .phone::after { content: none; }
+  #demos.is-tabbed .stage[data-focus] .phone,
+  #demos.is-tabbed .stage[data-focus] .map-figure {
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.97);
+    transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s 0.25s;
+  }
+  #demos.is-tabbed .stage[data-focus="left"] .phone[data-phone="left"],
+  #demos.is-tabbed .stage[data-focus="right"] .phone[data-phone="right"],
+  #demos.is-tabbed .stage[data-focus="map"] .map-figure {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  #demos.is-tabbed .stage .map-figure { width: 100%; max-width: 420px; }
+
+  /* Reported, On it, Fixed sit in a row under the phone. */
+  #demos.is-tabbed .repair-steps {
+    position: static;
+    grid-row: 3;
+    width: auto;
+    grid-auto-flow: column;
+    justify-content: center;
+    gap: 28px;
+    margin-top: 4px;
+  }
+  #demos.is-tabbed .repair-steps li { gap: 8px; }
+  #demos.is-tabbed .repair-steps li + li::after {
+    left: -22px;
+    bottom: 50%;
+    width: 16px;
+    height: 1px;
+  }
+}
+@media (max-width: 767px) {
+  #demos.is-tabbed .demo-tabs { gap: 8px; margin-bottom: 28px; }
+  .demo-tab { padding-left: 16px; padding-right: 16px; }
+  .demo-tab-bar { left: 16px; right: 16px; }
+  #demos.is-tabbed .stage { margin-top: 24px; }
+}

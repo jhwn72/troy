@@ -11,7 +11,7 @@
 
    Inside .msg-list:
    .bubble.from-me | .bubble.from-them, plus .tail on the last bubble of a group
-   .bubble.is-image[data-image="airpods|food-trays|broken-door|fixed-door"]  (drawn in CSS, no image file)
+   .bubble.is-image[data-image="airpods|food-trays|broken-door|fixed-door"]  (a photo from img/photos/ when it exists, else drawn in CSS)
    .bubble.from-them.count   the live count line
    .typing > i*3             typing dots
    .msg-status               "Delivered" or "Read"
@@ -430,3 +430,23 @@
 .convo[data-convo="food"] .phone[data-phone="left"]::after { content: "A club officer"; }
 .convo[data-convo="broken"] .phone[data-phone="left"]::after { content: "The student"; }
 .convo[data-convo="broken"] .phone[data-phone="right"]::after { content: "An FMS technician"; }
+
+/* Real photos. chat.js adds <img class="bubble-photo"> and .has-photo when the file exists in img/photos/
+   (see the README there); the drawing above is the fallback. Shown like a photo in Messages: rounded, cropped to fill. */
+.bubble.is-image.has-photo {
+  width: 200px;
+  height: 150px;                 /* 4:3 */
+  background: var(--line);
+}
+.bubble.is-image.has-photo[data-image$="-door"] {
+  width: 156px;
+  height: 208px;                 /* 3:4, doors are tall */
+}
+.bubble.is-image.has-photo::before,
+.bubble.is-image.has-photo::after { content: none; }
+.bubble-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

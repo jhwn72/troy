@@ -52,15 +52,15 @@
   #food-map.is-armed:not(.is-playing) .map-dot-on { opacity: 0; }
 
   /* Pin drops, circle spreads for 1.5 seconds, then the dots light up one by one, nearest first. */
-  #food-map.is-playing .map-pin { animation: map-pin-drop 0.45s cubic-bezier(0.3, 0, 0.4, 1) both; }
-  #food-map.is-playing .map-range { animation: map-spread 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) 0.5s both; }
+  #food-map.is-playing .map-pin { animation: map-pin-drop 0.35s cubic-bezier(0.3, 0, 0.4, 1) both; }
+  #food-map.is-playing .map-range { animation: map-spread 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) 0.3s both; }
   #food-map.is-playing .map-dot-on {
     animation: map-fade 0.25s ease-out both;
-    animation-delay: calc(2.1s + var(--i) * 0.14s);
+    animation-delay: calc(1.7s + var(--i) * 0.08s);
   }
   #food-map.is-playing .map-bubble {
-    animation: map-pop 1.3s ease-out both;
-    animation-delay: calc(2.15s + var(--i) * 0.14s);
+    animation: map-pop 1s ease-out both;
+    animation-delay: calc(1.75s + var(--i) * 0.08s);
   }
 }
 

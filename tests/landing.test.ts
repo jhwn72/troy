@@ -70,8 +70,14 @@ test("landing page follows the design reference's rules", () => {
   assert.ok(html.includes("ChatGPT gives you information. Troy gets you connected."));
   // Sections, in the reference's order.
   const ids = [...html.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ["hero", "problem", "lost-found", "concern", "food", "broken", "why", "engine", "safe", "next", "faq"]);
+  assert.deepEqual(ids, ["hero", "problem", "demos", "lost-found", "concern", "food", "broken", "why", "engine", "safe", "next", "faq"]);
   assert.ok(html.includes('<footer id="footer">'));
+  // One demo stage: four tabs, each with its panel inside #demos.
+  const tabs = [...html.matchAll(/<button class="demo-tab" type="button" data-demo="([^"]+)"><span class="demo-tab-label">([^<]+)</g)].map((m) => `${m[1]}: ${m[2]}`);
+  assert.deepEqual(tabs, ["lost-found: Lost and found", "concern: Raise a concern", "food: Free food", "broken: Broken things"]);
+  assert.equal([...html.matchAll(/<section id="[^"]+" class="demo"/g)].length, 4);
+  assert.ok(html.includes("Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it."));
+  assert.ok(html.includes("<li>🏀 pickup basketball at Lyon Center</li>"));
   // Voice and the "never" list.
   assert.ok(!html.includes("—"), "no em dashes");
   for (const word of ["revolutionary", "seamless", "AI-powered"]) assert.ok(!html.toLowerCase().includes(word.toLowerCase()), word);

@@ -1,28 +1,44 @@
 // Troy landing: scene motion.
-// Day to night crossfade, the problem section's lines, connection chips, and the small parts of
-// Troy's footer scene that need a script (the z's, the stars, the one-eye peek).
-// Troy's own animations (drop, bob, blink, breathing) are CSS in scene.css.
+// Day to night crossfade, the problem section's lines, connection chips, the mouse depth effect,
+// and Troy himself: one traveling mascot that lands on the hero phone, perches on each section as
+// it comes into view, and falls asleep on the footer's chat bubble.
+// Only opacity and transform are written. Under reduced motion everything is static.
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const byId = (id) => document.getElementById(id);
 
-const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const clamp01 = (x) => clamp(x, 0, 1);
+const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (x) => x * x * (3 - 2 * x);
+const easeOut = (u) => 1 - (1 - u) * (1 - u);
+const easeIn = (u) => u * u;
+
+// Piecewise keyframes: [[time, value, ease], ...]
+function kf(t, frames) {
+  if (t <= frames[0][0]) return frames[0][1];
+  for (let i = 1; i < frames.length; i += 1) {
+    if (t <= frames[i][0]) {
+      const [t0, v0] = frames[i - 1];
+      const [t1, v1, ease] = frames[i];
+      const u = (t - t0) / (t1 - t0);
+      return v0 + (v1 - v0) * (ease ? ease(u) : u);
+    }
+  }
+  return frames[frames.length - 1][1];
+}
 
 /* ---------- Day to night ---------- */
 
+const skyEl = $('#sky');
 const skyGolden = $('#sky-golden');
 const skyNight = $('#sky-night');
-const sections = {
-  problem: $('#problem'),
-  lostFound: $('#lost-found'),
-  broken: $('#broken'),
-  safe: $('#safe'),
-};
 
 let stars = null;
-if (!reduced && $('#sky')) {
+if (!reduced && skyEl) {
   // A few twinkling stars in the sky part of the night painting. Fixed spots so they never jump.
   const spots = [
     [6, 9], [13, 22], [21, 6], [29, 15], [36, 27], [43, 8], [50, 19],
@@ -38,30 +54,55 @@ if (!reduced && $('#sky')) {
     star.style.animationDelay = -(i * 0.9) + 's';
     stars.appendChild(star);
   });
-  $('#sky').appendChild(stars);
+  skyEl.appendChild(stars);
 }
 
 // Scroll positions (of the middle of the viewport) where each fade begins and ends.
 let fade = null;
-let lineMarks = [];
+let lineRange = null;
 let viewH = window.innerHeight;
+let viewW = document.documentElement.clientWidth;
 
 function measure() {
   const y = window.scrollY;
   viewH = window.innerHeight;
+  viewW = document.documentElement.clientWidth;
   const box = (el) => {
     const r = el.getBoundingClientRect();
-    return { top: r.top + y, bottom: r.bottom + y, mid: r.top + y + r.height / 2 };
-  };
-  if (sections.problem && sections.lostFound && sections.broken && sections.safe) {
-    fade = {
-      goldenStart: box(sections.problem).bottom,  // day until the end of "The problem"
-      goldenEnd: box(sections.lostFound).bottom,  // the change to golden hour runs behind "Lost and found"
-      nightStart: box(sections.broken).bottom,    // golden hour until the end of "Broken things"
-      nightEnd: box(sections.safe).top,           // night from the top of "Safe by design"
+    return {
+      top: r.top + y, bottom: r.bottom + y, left: r.left, right: r.right,
+      width: r.width, height: r.height, mid: r.top + y + r.height / 2,
     };
+  };
+  const first = (ids) => ids.map(byId).find(Boolean);
+
+  // Day to night from whatever sections exist. Looked up by id; missing ones fall back to neighbours.
+  const all = $$('main > section');
+  const footerEl = byId('footer');
+  const docEnd = footerEl ? box(footerEl).top : document.documentElement.scrollHeight - viewH;
+  const dayEl = first(['problem', 'hero']) || all[0];
+  if (dayEl) {
+    const goldenStart = box(dayEl).bottom;                    // day until the end of "The problem"
+    const goldenEl = first(['lost-found']) || all[all.indexOf(dayEl) + 1];
+    let goldenEnd = goldenEl ? box(goldenEl).bottom : goldenStart + viewH;
+    goldenEnd = clamp(goldenEnd, goldenStart + viewH * 0.5, goldenStart + viewH * 1.6);
+    const nightEl = first(['safe', 'next', 'faq']);           // night from the top of "Safe by design"
+    let nightEnd = nightEl ? box(nightEl).top : docEnd - viewH * 0.5;
+    const lastDemo = first(['broken', 'food', 'concern', 'demos']);    // golden hour until the demos end
+    let nightStart = lastDemo ? box(lastDemo).bottom : nightEnd - viewH * 1.4;
+    nightStart = Math.max(nightStart, goldenEnd);
+    nightEnd = Math.max(nightEnd, nightStart + viewH * 0.5);
+    fade = { goldenStart, goldenEnd, nightStart, nightEnd };
   }
-  lineMarks = lines.map((line) => box(line).mid);
+
+  // Problem lines: all four are complete when the cards are centered in the viewport.
+  const pairs = $('.pairs');
+  if (pairs) {
+    const b = box(pairs);
+    lineRange = { start: b.top - viewH * 0.3, end: b.mid };
+  }
+
+  measureTroy(box, all, footerEl);
 }
 
 let lastGolden = -1;
@@ -87,7 +128,6 @@ function paintSky() {
     night = Math.round(night * 1000) / 1000;
   }
   // Day stays at full opacity underneath; golden fades in over it, then night over golden.
-  // Nothing ever fades out while the layer below is showing, so the wrong painting can't flash.
   if (golden !== lastGolden) {
     setOpacity(skyGolden, golden);
     lastGolden = golden;
@@ -102,8 +142,7 @@ function paintSky() {
 /* ---------- Problem section lines ---------- */
 
 const lines = $$('.pair-line');
-const lineDone = lines.map(() => false);
-let nextLineAt = 0;
+const lineShown = lines.map(() => -1);
 
 lines.forEach((line) => {
   const fill = document.createElement('span');
@@ -112,17 +151,443 @@ lines.forEach((line) => {
 });
 
 function connectLines() {
-  // A line completes once its pair has scrolled up into the top third of the screen, so the broken state is read first.
-  const trigger = window.scrollY + viewH * 0.33;
-  const now = performance.now();
+  // Progress follows the scroll position both ways. Each line starts a little after the one before it.
+  if (!lineRange || !lines.length) return;
+  const mid = window.scrollY + viewH / 2;
+  const p = clamp01((mid - lineRange.start) / Math.max(1, lineRange.end - lineRange.start));
+  const lag = 0.18;
+  const span = 1 + lag * (lines.length - 1);
   lines.forEach((line, i) => {
-    if (lineDone[i] || lineMarks[i] === undefined || lineMarks[i] > trigger) return;
-    lineDone[i] = true;
-    // One at a time, even when the visitor scrolls past several at once.
-    const wait = Math.max(0, nextLineAt - now);
-    nextLineAt = now + wait + 450;
-    line.style.setProperty('--line-delay', reduced ? '0s' : wait / 1000 + 's');
-    line.classList.add('is-connected');
+    const v = Math.round(clamp01(p * span - i * lag) * 500) / 500;
+    if (v === lineShown[i]) return;
+    lineShown[i] = v;
+    line.style.setProperty('--line-p', String(v));
+    line.classList.toggle('is-connected', v >= 1);
+  });
+}
+
+/* ---------- Troy, the traveling mascot ---------- */
+
+const BOX = 140;                 // Troy's box at full size, in px
+const FEET = 0.94;               // where his feet are in the box (matches the CSS transform origin)
+const heroSpot = byId('troy-hero');
+const sleepSpot = byId('troy-sleep');
+const footer = byId('footer');
+const heroConvo = $('#hero .convo');
+const qr = byId('qr');
+const sleepBubble = $('.sleep-bubble');
+
+// Cached anchor positions in document coordinates.
+const A = { hero: null, footer: null, secs: [] };
+
+function measureTroy(box, all, footerEl) {
+  const spot = (el) => {
+    if (!el) return null;
+    const b = box(el);
+    if (!b.width) return null;
+    return { x: (b.left + b.right) / 2, y: b.bottom, s: b.width / BOX };
+  };
+  A.hero = spot(heroSpot);
+  A.footer = footerEl ? spot(sleepSpot) : null;
+  const narrow = viewW < 768;
+  A.secs = [];
+  all.forEach((sec) => {
+    if (sec.id === 'hero') return;
+    const b = box($('.panel', sec) || sec);
+    if (!b.height) return;
+    const i = A.secs.length;
+    const right = narrow || i % 2 === 0;     // alternate sides; always top right on narrow screens
+    const s = narrow ? 0.4 : 0.6;
+    const gutter = right ? viewW - b.right : b.left;
+    const inset = narrow ? 56 : 68;
+    A.secs.push({
+      top: b.top,
+      bottom: b.bottom,
+      s,
+      face: right ? -1 : 1,                  // he looks toward the content
+      x: right ? b.right - inset : b.left + inset,
+      y: b.top + 3 + BOX * (1 - FEET) * s,   // sitting on the top edge
+      sideOk: !narrow && gutter >= 100,      // room to float beside the panel
+      sideX: right ? b.right + gutter / 2 : b.left - gutter / 2,
+    });
+  });
+}
+
+const T = {
+  el: null, pose: null, eyes: null, eyeL: null, eyeR: null, helmet: null,
+  key: null, hop: null, intro: null, cur: null,
+  sq: 0, sqV: 0,                 // squash spring
+  dip: 0, dipV: 0, dipOn: '',    // what he landed on dips a few px
+  helmT: 0, shakeT: 0,
+  blinks: [], nextBlink: 0,
+  sleep: 0, sleepTarget: 0,
+  gx: 0, gy: 0, lean: 0, pk: 0, peek: false,
+  seq: [], parked: null, fixed: null, last: 0, clock: 0,
+};
+
+// Mouse depth
+const M = { x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, cx: 0, cy: 0, has: false };
+const written = new Map();
+function setT(el, value) {
+  if (!el || written.get(el) === value) return;
+  written.set(el, value);
+  el.style.transform = value;
+}
+
+// Where an anchor is on screen right now (viewport coordinates of the bottom center of his box).
+function anchorPos(key, sy) {
+  if (key === 'hero' && A.hero) {
+    return { x: A.hero.x, y: A.hero.y - sy, s: A.hero.s, par: 1, face: 0, bob: 5, fixed: false };
+  }
+  if (key === 'footer' && A.footer) {
+    return { x: A.footer.x, y: A.footer.y - sy, s: A.footer.s, par: 1, face: 0, bob: 0, fixed: false };
+  }
+  const sec = A.secs[Number(key.slice(key.indexOf(':') + 1))];
+  if (!sec) return T.cur || { x: viewW / 2, y: -200, s: 0.6, par: 0, face: 0, bob: 0, fixed: true };
+  if (key[0] === 's') {
+    // Floating in the painting beside a tall panel, so he stays with the visitor.
+    return { x: sec.sideX, y: Math.min(190, sec.bottom - sy - 24), s: sec.s, par: 1, face: sec.face, bob: 8, fixed: true };
+  }
+  return { x: sec.x, y: sec.y - sy, s: sec.s, par: 0, face: sec.face, bob: 2, fixed: false };
+}
+
+function keyIndex(key) {
+  if (!key || key === 'hero') return -1;
+  if (key === 'footer') return A.secs.length;
+  return Number(key.slice(key.indexOf(':') + 1));
+}
+
+// Which anchor should he be at for this scroll position. Small hysteresis so he doesn't flip-flop.
+function pickKey(sy) {
+  const cur = keyIndex(T.key);
+  if (A.footer && A.footer.y - sy < viewH * (T.key === 'footer' ? 0.97 : 0.88)) return 'footer';
+  let idx = -1;
+  for (let i = 0; i < A.secs.length; i += 1) {
+    if (A.secs[i].top - sy < viewH * (cur >= i ? 0.68 : 0.6)) idx = i;
+  }
+  if (idx < 0) return A.hero ? 'hero' : (A.secs.length ? 't:0' : 'footer');
+  const sec = A.secs[idx];
+  const side = sec.sideOk && sec.top - sy < (T.key === 's:' + idx ? 150 : 100);
+  return (side ? 's:' : 't:') + idx;
+}
+
+function at(delay, fn) {
+  T.seq.push({ at: T.clock + delay, fn });
+}
+const blink = (now, dur = 150) => T.blinks.push({ t0: now, dur });
+
+function startHop(key, now, sy) {
+  const from = T.cur || anchorPos(key, sy);
+  const to = anchorPos(key, sy);
+  const fromY = clamp(from.y, -180, viewH + 180);   // if he was left off screen, come in from the edge
+  const dist = Math.hypot(to.x - from.x, to.y - fromY);
+  const fall = key === 'footer';
+  if (T.key === 'footer') {
+    // Waking up
+    T.sleepTarget = 0;
+    if (footer) footer.classList.remove('is-asleep');
+    blink(now + 120);
+  }
+  T.seq.length = 0;
+  T.hop = {
+    to: key,
+    from: { x: from.x, y: from.fixed ? fromY : fromY + sy, s: from.s, par: from.par, bob: from.bob, fixed: from.fixed },
+    t0: now,
+    dur: fall ? clamp(420 + dist * 0.5, 520, 900) : clamp(380 + dist * 0.3, 420, 760),
+    arc: fall ? 36 : clamp(40 + dist * 0.16, 50, 150),
+    dir: Math.sign(to.x - from.x),
+    fall,
+  };
+  T.key = key;
+}
+
+function land(hop, now) {
+  if (hop.to === 'footer') {
+    T.sqV += 6;
+    T.dipV += 130;
+    T.dipOn = 'footer';
+    at(140, () => { T.shakeT = T.clock; });
+    at(520, () => blink(T.clock));
+    at(900, () => blink(T.clock, 620));       // one long slow blink
+    at(1500, () => { T.sleepTarget = 1; });
+    at(2100, () => { if (footer) footer.classList.add('is-asleep'); });
+  } else {
+    T.sqV += 3.6;
+    at(260, () => blink(T.clock));
+  }
+}
+
+// Helmet pop after the hero impact, in SVG units (the mascot is 320 units tall), time in ms.
+const HELM_Y = [
+  [0, 0], [230, -80, easeOut], [330, -86, smooth], [430, -80, smooth], [600, 0, easeIn],
+  [690, -18, easeOut], [780, 0, easeIn], [830, -5, easeOut], [880, 0, easeIn],
+];
+const HELM_R = [[0, 0], [230, 9, easeOut], [430, 6], [600, 0, easeIn], [690, -4, easeOut], [780, 0, easeIn]];
+const FALL_MS = 460;
+
+function troyFrame(stamp) {
+  requestAnimationFrame(troyFrame);
+  const dt = Math.min(0.05, (stamp - T.last) / 1000);
+  T.last = stamp;
+  // His own clock: it only advances by real, capped frames, so a stalled tab never skips a beat of the landing.
+  T.clock += dt * 1000;
+  const now = T.clock;
+  const sy = window.scrollY;
+
+  // Springs, in small steps so a slow frame can't blow them up.
+  for (let left = dt; left > 0; left -= 1 / 120) {
+    const h = Math.min(left, 1 / 120);
+    T.sqV += (-420 * T.sq - 20 * T.sqV) * h;
+    T.sq += T.sqV * h;
+    T.dipV += (-320 * T.dip - 22 * T.dipV) * h;
+    T.dip += T.dipV * h;
+    M.vx += ((M.tx - M.x) * 90 - M.vx * 13) * h;
+    M.x += M.vx * h;
+    M.vy += ((M.ty - M.y) * 90 - M.vy * 13) * h;
+    M.y += M.vy * h;
+  }
+
+  // Depth: the painting moves a little against the cursor, floating things a little more.
+  const fgx = -M.x * 20;
+  const fgy = -M.y * 14;
+  if (finePointer) {
+    setT(skyEl, `translate3d(${(-M.x * 12).toFixed(2)}px, ${(-M.y * 8).toFixed(2)}px, 0) scale(1.035)`);
+    setT(qr, `translate3d(${(fgx * 0.7).toFixed(2)}px, ${(fgy * 0.7).toFixed(2)}px, 0)`);
+  }
+  setT(heroConvo, `translate3d(${fgx.toFixed(2)}px, ${(fgy + (T.dipOn === 'hero' ? T.dip : 0)).toFixed(2)}px, 0)`);
+  setT(sleepBubble, `translate3d(${fgx.toFixed(2)}px, ${(fgy + (T.dipOn === 'footer' ? T.dip : 0)).toFixed(2)}px, 0)`);
+
+  if (!T.el) return;
+
+  // Scheduled beats (shake, blink, fall asleep)
+  for (let i = T.seq.length - 1; i >= 0; i -= 1) {
+    if (now >= T.seq[i].at) T.seq.splice(i, 1)[0].fn();
+  }
+
+  // Where should he be
+  let dropY = 0;
+  let tilt = 0;
+  let stretch = 0;
+  if (T.intro) {
+    const t = now - T.intro.t0;
+    if (t < 0) return;
+    if (!T.intro.shown) {
+      T.intro.shown = true;
+      T.intro.height = (A.hero ? A.hero.y - sy : 400) + 200;
+      T.el.style.opacity = '1';
+    }
+    if (t < FALL_MS) {
+      // Falling with acceleration
+      const u = t / FALL_MS;
+      dropY = -T.intro.height * (1 - u * u);
+      stretch = -0.07 * u;
+    } else if (!T.intro.hit) {
+      T.intro.hit = true;
+      T.sqV += 6.5;            // squash
+      T.dipV += 130;           // the phone dips and settles
+      T.dipOn = 'hero';
+      T.helmT = now;           // the helmet pops off
+      at(600, () => { T.sqV += 2.2; });                       // helmet lands back on his head
+      at(880, () => { T.shakeT = T.clock; });       // shake it off
+      at(1020, () => blink(T.clock));
+      at(1300, () => blink(T.clock));
+    }
+    if (t > 1900) {
+      T.intro = null;
+      T.nextBlink = now + 2600;
+    }
+  } else {
+    const want = pickKey(sy);
+    if (want !== T.key) startHop(want, now, sy);
+  }
+
+  let P;
+  if (T.hop) {
+    const h = T.hop;
+    const u = clamp01((now - h.t0) / h.dur);
+    const to = anchorPos(h.to, sy);
+    const fy = h.from.fixed ? h.from.y : h.from.y - sy;
+    const ex = h.fall ? easeOut(u) : smooth(u);
+    const ey = h.fall ? u * u : smooth(u);
+    const up = Math.sin(Math.PI * u);
+    P = {
+      x: lerp(h.from.x, to.x, ex),
+      y: lerp(fy, to.y, ey) - up * h.arc,
+      s: lerp(h.from.s, to.s, ex),
+      par: lerp(h.from.par, to.par, ex),
+      bob: lerp(h.from.bob, to.bob, ex),
+      face: to.face,
+      fixed: true,
+    };
+    tilt = h.dir * 11 * up;
+    stretch = -0.06 * up;
+    if (u >= 1) {
+      T.hop = null;
+      P = anchorPos(h.to, sy);
+      land(h, now);
+    }
+  } else {
+    P = anchorPos(T.key, sy);
+  }
+  T.cur = P;
+
+  // Nothing to draw while he waits off screen.
+  const off = !T.hop && !T.intro && (P.y < -60 || P.y - BOX > viewH + 60);
+  if (off && T.parked === T.key) return;
+  T.parked = off ? T.key : null;
+
+  // Sleep
+  T.sleep += (T.sleepTarget - T.sleep) * (1 - Math.exp(-dt * 3.5));
+  const awake = 1 - T.sleep;
+
+  // Shake it off: a quick left-right that dies down
+  let shakeX = 0;
+  let shakeR = 0;
+  if (T.shakeT) {
+    const u = (now - T.shakeT) / 460;
+    if (u >= 1) T.shakeT = 0;
+    else {
+      const w = Math.sin(u * Math.PI * 5) * (1 - u);
+      shakeX = w * 7 * P.s;
+      shakeR = w * 8;
+    }
+  }
+
+  // Helmet
+  let helmY = 0;
+  let helmR = 0;
+  if (T.helmT) {
+    const t = now - T.helmT;
+    if (t > 900) T.helmT = 0;
+    else {
+      helmY = kf(t, HELM_Y);
+      helmR = kf(t, HELM_R);
+    }
+  }
+  helmY += 4 * T.sleep;                          // it slips a little when he sleeps
+  helmR += -3 * T.sleep;
+
+  // Eyes: blinks, and looking at the cursor
+  if (!T.intro && awake > 0.9 && now > T.nextBlink) {
+    blink(now);
+    if (Math.random() < 0.25) blink(now + 260);
+    T.nextBlink = now + 3200 + Math.random() * 3800;
+  }
+  let shut = 0;
+  for (let i = T.blinks.length - 1; i >= 0; i -= 1) {
+    const b = T.blinks[i];
+    const u = (now - b.t0) / b.dur;
+    if (u >= 1) T.blinks.splice(i, 1);
+    else if (u > 0) shut = Math.max(shut, Math.sin(Math.PI * u));
+  }
+  const open = (1 - 0.9 * shut) * (1 - 0.86 * T.sleep);
+  T.pk += ((T.peek && T.sleep > 0.5 ? 1 : 0) - T.pk) * (1 - Math.exp(-dt * 14));
+  const openR = lerp(open, 1, T.pk);             // one eye opens for the footer button
+
+  let lookX = P.face * 4;
+  let lookY = 0;
+  let leanTo = P.face * 3;
+  if (finePointer && M.has) {
+    const dx = M.cx - P.x;
+    const dy = M.cy - (P.y - 60 * P.s);
+    const d = Math.hypot(dx, dy) || 1;
+    const near = Math.min(1, d / 260);
+    lookX = (dx / d) * 8 * near;
+    lookY = (dy / d) * 6 * near;
+    leanTo = clamp(dx / 420, -1, 1) * 3.5;
+  }
+  lookY += helmY * 0.07;                         // he watches his helmet go up
+  const ease = 1 - Math.exp(-dt * 10);
+  T.gx += (lookX * awake - T.gx) * ease;
+  T.gy += (lookY * awake - T.gy) * ease;
+  T.lean += (leanTo * awake - T.lean) * (1 - Math.exp(-dt * 5));
+
+  // Body
+  const bobY = -P.bob * (0.5 + 0.5 * Math.sin(now / 716)) * awake;
+  const breath = T.sleep * (0.5 + 0.5 * Math.sin(now / 605));
+  const a = T.sq + stretch;
+  const sx = P.s * (1 + a) * (1 + 0.02 * breath);
+  const syc = P.s * (1 - a) * (1 + 0.045 * breath);
+  const rot = T.lean + tilt + shakeR - 12 * T.sleep;
+  const dip = (T.key === T.dipOn && !T.hop) ? T.dip : 0;
+  const x = P.x + shakeX + P.par * fgx;
+  let y = P.y + dropY + bobY + dip + P.par * fgy;
+
+  // Perched: he lives in the page and scrolls with it. Hopping or floating: fixed to the screen.
+  const fixed = P.fixed;
+  if (fixed !== T.fixed) {
+    T.fixed = fixed;
+    T.el.style.position = fixed ? 'fixed' : 'absolute';
+  }
+  if (!fixed) y += sy;
+
+  T.el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+  T.pose.style.transform = `rotate(${rot.toFixed(2)}deg) scale(${sx.toFixed(4)}, ${syc.toFixed(4)})`;
+  T.eyes.style.transform = `translate(${T.gx.toFixed(2)}px, ${T.gy.toFixed(2)}px)`;
+  T.eyeL.style.transform = `scaleY(${open.toFixed(3)})`;
+  T.eyeR.style.transform = `scaleY(${openR.toFixed(3)})`;
+  T.helmet.style.transform = `translate(0px, ${helmY.toFixed(2)}px) rotate(${helmR.toFixed(2)}deg)`;
+}
+
+function initTroy() {
+  const src = heroSpot && $('svg', heroSpot);
+  if (!src) return;
+  const svg = src.cloneNode(true);
+  svg.removeAttribute('role');
+  svg.removeAttribute('aria-label');
+  // The clone needs its own gradient ids.
+  $$('[id]', svg).forEach((node) => { node.id += '-t'; });
+  $$('[fill^="url(#"]', svg).forEach((node) => {
+    node.setAttribute('fill', node.getAttribute('fill').replace(')', '-t)'));
+  });
+  const el = document.createElement('div');
+  el.id = 'troy-traveler';
+  el.setAttribute('aria-hidden', 'true');
+  const pose = document.createElement('div');
+  pose.className = 'troy-pose';
+  pose.appendChild(svg);
+  el.appendChild(pose);
+  document.body.appendChild(el);
+
+  const eyes = $$('.troy-eye', svg);
+  Object.assign(T, {
+    el, pose, eyes: $('.troy-eyes', svg), eyeL: eyes[0], eyeR: eyes[1], helmet: $('.troy-helmet', svg),
+  });
+  if (!T.eyes || !T.eyeL || !T.eyeR || !T.helmet) throw new Error('mascot parts missing');
+
+  const sy = window.scrollY;
+  const key = pickKey(sy);
+  T.key = key;
+  if (key === 'hero' && A.hero && A.hero.y - sy > 0) {
+    // The landing: he waits above the screen, then falls onto the phone.
+    T.intro = { t0: T.clock + 450 };
+    el.style.opacity = '0';
+  } else if (key === 'footer') {
+    T.sleep = 1;
+    T.sleepTarget = 1;
+    if (footer) footer.classList.add('is-asleep');
+  }
+  T.nextBlink = T.clock + 3000;
+  document.documentElement.classList.add('troy-travel');
+}
+
+if (!reduced && finePointer) {
+  window.addEventListener('pointermove', (event) => {
+    if (event.pointerType && event.pointerType !== 'mouse') return;
+    M.cx = event.clientX;
+    M.cy = event.clientY;
+    M.has = true;
+    // The scene shifts while the cursor is over the hero, the footer or any open painting.
+    const overPanel = event.target && event.target.closest && event.target.closest('.panel');
+    if (!overPanel) {
+      M.tx = clamp((event.clientX / viewW) * 2 - 1, -1, 1);
+      M.ty = clamp((event.clientY / viewH) * 2 - 1, -1, 1);
+    }
+  }, { passive: true });
+  document.documentElement.addEventListener('pointerleave', () => {
+    M.has = false;
+    M.tx = 0;
+    M.ty = 0;
   });
 }
 
@@ -162,6 +627,19 @@ if ('ResizeObserver' in window && $('main')) {
 }
 measure();
 frame();
+
+if (!reduced) {
+  try {
+    initTroy();
+  } catch (error) {
+    // Fall back to the two still mascots in the page.
+    if (T.el) T.el.remove();
+    T.el = null;
+    document.documentElement.classList.add('troy-static');
+  }
+  T.last = performance.now();
+  requestAnimationFrame(troyFrame);
+}
 
 /* ---------- Connection chips ---------- */
 
@@ -203,25 +681,27 @@ $$('.chip').forEach((chip) => {
   seen.observe(convo);
 });
 
-/* ---------- Troy in the footer ---------- */
+/* ---------- Troy in the footer: z's and the one-eye peek ---------- */
 
-const footer = $('#footer');
-const sleep = $('.footer-sleep');
+const sleepWrap = $('.footer-sleep');
 const footerBtn = footer && $('.btn', footer);
 
-if (!reduced && sleep) {
+if (!reduced && sleepWrap) {
   for (let i = 0; i < 3; i += 1) {
     const z = document.createElement('span');
     z.className = 'sleep-z';
     z.textContent = 'z';
-    sleep.appendChild(z);
+    sleepWrap.appendChild(z);
   }
 }
 
 if (!reduced && footer && footerBtn) {
   // Troy opens one eye while the visitor hovers, focuses or taps the button.
   let tapTimer = 0;
-  const peek = (on) => footer.classList.toggle('is-peek', on);
+  const peek = (on) => {
+    T.peek = on;
+    footer.classList.toggle('is-peek', on);
+  };
   footerBtn.addEventListener('pointerenter', (event) => {
     if (event.pointerType !== 'touch') peek(true);
   });

@@ -100,7 +100,7 @@
   <section id="problem" aria-labelledby="problem-h">
     <div class="panel">
       <h2 id="problem-h">The person you need is probably five minutes away. Neither of you knows it.</h2>
-      <p class="sub">Campus runs on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it.</p>
+      <p class="sub">Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it.</p>
       <ul class="pairs">
         <li class="pair">
           <p class="pair-card">You need a ride to LAX.</p>
@@ -127,8 +127,16 @@
     </div>
   </section>
 
-  <section id="lost-found" aria-labelledby="lost-found-h">
+  <section id="demos" aria-label="Demos">
     <div class="panel">
+      <div class="demo-tabs">
+        <button class="demo-tab" type="button" data-demo="lost-found"><span class="demo-tab-label">Lost and found</span><span class="demo-tab-bar" aria-hidden="true"><i></i></span></button>
+        <button class="demo-tab" type="button" data-demo="concern"><span class="demo-tab-label">Raise a concern</span><span class="demo-tab-bar" aria-hidden="true"><i></i></span></button>
+        <button class="demo-tab" type="button" data-demo="food"><span class="demo-tab-label">Free food</span><span class="demo-tab-bar" aria-hidden="true"><i></i></span></button>
+        <button class="demo-tab" type="button" data-demo="broken"><span class="demo-tab-label">Broken things</span><span class="demo-tab-bar" aria-hidden="true"><i></i></span></button>
+      </div>
+      <div class="demo-panels">
+      <section id="lost-found" class="demo" aria-labelledby="lost-found-h">
       <h2 id="lost-found-h"><span class="s">Lost something?</span> <span class="s">He knows who found it.</span></h2>
       <div class="stage">
         <div class="convo" data-convo="lost-found">
@@ -171,11 +179,8 @@
         <span class="chip">Connected you to: the student who found it</span>
         <button class="replay" type="button" data-replay="lost-found" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
       </div>
-    </div>
-  </section>
-
-  <section id="concern" aria-labelledby="concern-h">
-    <div class="panel">
+      </section>
+      <section id="concern" class="demo" aria-labelledby="concern-h">
       <h2 id="concern-h"><span class="s">Say it once.</span> <span class="s">The right people hear it.</span></h2>
       <p class="sub">Troy groups students with the same issue and brings them to the people who can fix it.</p>
       <div class="stage">
@@ -214,11 +219,8 @@
         <span class="chip">Connected you to: USG and 4 students with the same issue</span>
         <button class="replay" type="button" data-replay="concern" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
       </div>
-    </div>
-  </section>
-
-  <section id="food" aria-labelledby="food-h">
-    <div class="panel">
+      </section>
+      <section id="food" class="demo" aria-labelledby="food-h">
       <h2 id="food-h">Free food finds the people closest to it.</h2>
       <div class="stage has-map">
         <div class="convo" data-convo="food">
@@ -275,11 +277,8 @@
         <span class="chip">Connected you to: 20 trojans within a 15-minute walk</span>
         <button class="replay" type="button" data-replay="food" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
       </div>
-    </div>
-  </section>
-
-  <section id="broken" aria-labelledby="broken-h">
-    <div class="panel">
+      </section>
+      <section id="broken" class="demo" aria-labelledby="broken-h">
       <h2 id="broken-h"><span class="s">Report it once.</span> <span class="s">Hear back when it's fixed.</span></h2>
       <div class="stage has-steps">
         <div class="convo" data-convo="broken">
@@ -320,6 +319,8 @@
       <div class="pair-foot">
         <span class="chip">Connected you to: the closest technician</span>
         <button class="replay" type="button" data-replay="broken" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
+      </div>
+      </section>
       </div>
     </div>
   </section>
@@ -429,36 +430,36 @@
         <div>
           <h3>Nearby, right now</h3>
           <ul class="pills">
-            <li>pickup basketball at Lyon Center</li>
-            <li>study buddies in Leavey tonight</li>
-            <li>extra event tickets at the door</li>
-            <li>free furniture on move-out day</li>
+            <li>🏀 pickup basketball at Lyon Center</li>
+            <li>📚 study buddies in Leavey tonight</li>
+            <li>🎟️ extra event tickets at the door</li>
+            <li>🛋️ free furniture on move-out day</li>
           </ul>
         </div>
         <div>
           <h3>Two people who need each other</h3>
           <ul class="pills">
-            <li>class help from students who aced it</li>
-            <li>roommates</li>
-            <li>ride shares home</li>
-            <li>ticket swaps</li>
-            <li>thrift and textbook trades</li>
+            <li>🧠 class help from students who aced it</li>
+            <li>🏠 roommates</li>
+            <li>🚗 ride shares home</li>
+            <li>🔁 ticket swaps</li>
+            <li>👕 thrift and textbook trades</li>
           </ul>
         </div>
         <div>
           <h3>Closing the loop with offices</h3>
           <ul class="pills">
-            <li>housing requests</li>
-            <li>new classes that fit you</li>
-            <li>financial aid deadlines</li>
-            <li>advising openings</li>
+            <li>🔑 housing requests</li>
+            <li>🗓️ new classes that fit you</li>
+            <li>💸 financial aid deadlines</li>
+            <li>🧭 advising openings</li>
           </ul>
         </div>
         <div>
           <h3>A photo is enough</h3>
           <ul class="pills">
-            <li>sell or give away anything with one picture</li>
-            <li>report anything with one picture</li>
+            <li>📸 sell or give away anything with one picture</li>
+            <li>🚩 report anything with one picture</li>
           </ul>
         </div>
       </div>

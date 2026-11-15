@@ -81,16 +81,17 @@
   },
   "food": {
     "phones": {
-      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A club officer" }
+      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A club officer" },
+      "map": { "kind": "map", "label": "The map" }
     },
     "steps": [
       { "phone": "left", "from": "me", "image": "food-trays", "alt": "Photo of food trays" },
       { "phone": "left", "from": "troy", "text": "looks like 20 bowls, right?" },
       { "phone": "left", "from": "me", "text": "yep, at leavey till 2", "status": "Read" },
-      { "phone": "left", "from": "troy", "text": "sending it to trojans nearby 🌯" },
-      { "phone": "left", "from": "troy", "type": "count", "text": "20 left", "delay": 1500 },
-      { "phone": "left", "from": "troy", "type": "count", "text": "14 left", "delay": 2200 },
-      { "phone": "left", "from": "troy", "type": "count", "text": "6 left", "delay": 2200 }
+      { "phone": "left", "from": "troy", "text": "sending it to trojans nearby 🌯", "focusAfter": "map" },
+      { "phone": "left", "from": "troy", "type": "count", "text": "20 left", "delay": 900 },
+      { "phone": "left", "from": "troy", "type": "count", "text": "14 left", "delay": 1200 },
+      { "phone": "left", "from": "troy", "type": "count", "text": "6 left", "delay": 1400, "focus": "left" }
     ]
   },
   "broken": {

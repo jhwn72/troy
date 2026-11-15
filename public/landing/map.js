@@ -47,7 +47,9 @@ if (map && section && motionOk) {
     timer = setTimeout(() => {
       // If the conversation is playing, its "sending it" line starts the map instead.
       const driven = sawEvents || (convo && convo.dataset.convoState === "playing");
-      if (!driven && !playing && visible) request();
+      // Inside the tabbed demo stage the conversation always drives the map.
+      const tabbed = section.closest(".is-tabbed");
+      if (!driven && !tabbed && !playing && visible) request();
     }, FALLBACK_MS);
   };
 

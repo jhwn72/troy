@@ -62,7 +62,8 @@ if (steps && broken && motionOk) {
     clearTimers();
     timers.push(setTimeout(() => {
       const driven = sawEvents || (convo && convo.dataset.convoState === "playing");
-      if (driven || !visible || allDone()) return;
+      // Inside the tabbed demo stage the conversation always drives the steps.
+      if (driven || !visible || allDone() || broken.closest(".is-tabbed")) return;
       order.forEach((name, i) => timers.push(setTimeout(() => { if (!sawEvents) mark(name); }, i * 1600)));
     }, FALLBACK_MS));
   };
