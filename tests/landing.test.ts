@@ -193,7 +193,7 @@ test("every page links to the others, with links that work on a plain file serve
   assert.deepEqual([...layer.matchAll(/fetch\(([^,)]+)/g)].map((m) => m[1]), ["path", '"/api/settings"', '"demo-data/" + name + ".json"']);
 
   const privacy = readFileSync(join(PUBLIC, "privacy.html"), "utf8");
-  for (const fact of ['"forget my location"', '"delete my data"', '"STOP"', '"hey troy"', "johnwang@usc.edu", "not an official USC service", "outside AI service", "This demo runs on its builder's Mac", "see nothing without your yes"]) assert.ok(privacy.includes(fact), fact);
+  for (const fact of ['"forget my location"', '"delete my data"', "STOP", '"hey troy"', "johnwang@usc.edu", "not an official USC service", "An outside AI service processes messages", "for this demo I run on his Mac", "Nothing about you is shared without your yes", "never shown to another student", 'href="landing/pledge.css"']) assert.ok(privacy.includes(fact), fact);
 });
 
 test("the example data for the public pages holds nothing private", async () => {
