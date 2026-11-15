@@ -17,7 +17,10 @@ import type { AdapterDeps } from "./index.ts";
 import { config, isEnabled, normalizeHandle } from "../config.ts";
 import { getSetting, setSetting } from "../db/index.ts";
 import { allowChat, decide, getGoLiveAt, isAllowedChat, sendAllowed } from "./gate.ts";
-import { FINDMY_BALLOON_ID, createHelper, decodeFindMyShare, decodePollVote } from "./helper.ts";
+import { FINDMY_BALLOON_ID, createHelper, decodeFindMyPayload, decodeFindMyShare, decodePollVote } from "./helper.ts";
+
+// How long to keep asking Find My for a fix after a share whose bubble had none (ms between tries).
+const FINDMY_WAITS_MS = (process.env.TROY_FINDMY_WAITS_MS || "5000,15000,20000,20000").split(",").map(Number).filter((n) => Number.isFinite(n) && n >= 0);
 import type { Helper } from "./helper.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -630,10 +633,32 @@ export function createBluebubblesAdapter(
       } else if (balloon === FINDMY_BALLOON_ID) {
         // A location share (iOS: + > Location, or the answer to a request). The fix is inside the bubble's payload.
         const payload = await payloadFor(chatId, guid);
-        const location = payload ? decodeFindMyShare(payload) : null;
-        if (!location) return; // helper not connected, or not a share
-        event.location = location;
-        event.text = ""; // "Started Sharing Location" / the placeholder character is not something they typed
+        let location = payload ? decodeFindMyShare(payload) : null;
+        // A bubble that is someone asking for John's location is not a share: drop it as before.
+        const kind = payload ? (decodeFindMyPayload(payload) as { kind?: Record<string, unknown> } | null)?.kind : undefined;
+        if (!location && kind && !("share" in kind)) return;
+        if (!location) {
+          // Never go silent on a share. The bubble often carries no fix yet (Find My takes up to about a
+          // minute after a share starts), so say so once and keep asking Find My for the live fix.
+          console.log(`findmy share: ${!helper.isConnected() ? "helper not connected" : payload ? "no fix in the bubble yet" : "no payload"}`);
+          await sendText(chatId, "got ur share. give me a sec to read it");
+          for (const wait of FINDMY_WAITS_MS) {
+            await new Promise((r) => setTimeout(r, wait));
+            const live = await adapter.getLiveLocation(handle as Handle).catch(() => null);
+            if (live) {
+              location = { lat: live.lat, lng: live.lng };
+              break;
+            }
+          }
+        }
+        if (location) {
+          event.location = location;
+          event.text = ""; // "Started Sharing Location" / the placeholder character is not something they typed
+        } else {
+          console.log("findmy share: no fix after waiting");
+          // Hand it to the conversation honestly instead of dropping it: Troy can ask where they are.
+          event.text = "i shared my location with u but i don't think it came through";
+        }
       } else if (balloon.startsWith(APP_BALLOON_PREFIX)) {
         return; // a poll the student made, or any other app bubble: not text
       } else {

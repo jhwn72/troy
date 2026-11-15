@@ -1,3 +1,4 @@
+process.env.TROY_FINDMY_WAITS_MS = "0";
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
@@ -808,10 +809,16 @@ test("app bubbles never become text: the Requested Location echo, a request, a s
   // a poll the student made themselves, and some other iMessage app
   await handleWebhook(msg({ text: "\ufffc", balloonBundleId: POLL_BALLOON_ID }));
   await handleWebhook(msg({ text: "check this out", balloonBundleId: "com.apple.messages.MSMessageExtensionBalloonPlugin:0000000000:com.example.SomeApp" }));
-  // helper away: the share can't be read, so nothing is passed on (and never the placeholder text)
+  assert.equal(events.length, 0);
+  // helper away: the share can't be read. Troy must not go silent: he says he got it, keeps trying, and
+  // hands the conversation an honest line (never the placeholder character).
   state.connected = false;
   await handleWebhook(shareEvent());
-  assert.equal(events.length, 0);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].location, undefined);
+  assert.match(events[0].text, /shared my location/);
+  assert.ok(calls.some((c) => c.path.startsWith("/message/text") && /got ur share/.test(c.body?.message ?? "")));
+  events.length = 0;
   // a link preview is still a normal text
   await handleWebhook(msg({ text: "https://example.com/menu", balloonBundleId: "com.apple.messages.URLBalloonProvider" }));
   assert.deepEqual(events.map((e) => e.text), ["https://example.com/menu"]);
