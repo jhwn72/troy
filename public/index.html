@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="landing/hero.css">
 <link rel="stylesheet" href="landing/thread.css">
 <link rel="stylesheet" href="landing/fontswitch.css">
+<link rel="stylesheet" href="landing/badge.css">
 <noscript><style>.chip{opacity:1!important}.replay{display:none!important}.repair-steps li::before{background-color:var(--laurel)!important;border-color:var(--laurel)!important}.engine-example{opacity:1!important}@media (max-width:767px){.engine-step:not(:first-child) .engine-example{opacity:0!important}.stage .phone{height:auto!important;min-height:460px}}</style></noscript>
 <script type="module" src="landing/config.js"></script>
 <script type="module" src="landing/day.js"></script>
@@ -52,6 +53,7 @@
     <div class="hero-cta">
       <a class="btn" data-sms="hey troy">Text Troy</a>
       <img id="qr" src="qr.svg" alt="QR code that opens a text to Troy" width="76" height="76">
+      <p class="badge-imessage"><span class="badge-line"><span>Available on</span><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#FFFFFF" d="M12 5.6c-4.1 0-7.4 2.6-7.4 5.9 0 1.9 1.1 3.5 2.8 4.6-.2.9-.7 1.7-1.4 2.300 1.500 0 2.800-.5 3.800-1.300.7.2 1.400.3 2.200.3 4.100 0 7.400-2.600 7.400-5.900S16.100 5.600 12 5.600z"/></svg><span class="badge-name">iMessage</span></span><span class="badge-soon"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.500 2h9A2.500 2.500 0 0 1 15 4.500v5a2.500 2.500 0 0 1-2.500 2.500H7.500L4 15v-3h-.5A2.500 2.500 0 0 1 1 9.500v-5A2.500 2.500 0 0 1 3.500 2z"/></svg><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M8 .8a1.300 1.300 0 0 1 .65 2.430V4.500H11A3 3 0 0 1 14 7.500v4a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3h2.350V3.230A1.300 1.300 0 0 1 8 .8zM5.700 8.100a1.200 1.200 0 1 0 0 2.400 1.200 1.200 0 0 0 0-2.400zm4.600 0a1.200 1.200 0 1 0 0 2.400 1.200 1.200 0 0 0 0-2.400z"/></svg>Coming to non-Apple devices soon</span></p>
     </div>
     <div class="hero-phone">
       <div id="troy-hero">
@@ -97,7 +99,6 @@
               <div class="msg-list">
                 <div class="bubble from-me tail"><span class="sr-only">Student: </span>find me people tryna go to lax first day of break</div>
                 <div class="msg-status">Read</div>
-                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>on it 👀</div>
                 <div class="msg-note">Group chat: LAX ride</div>
                 <div class="bubble from-them tail"><span class="sr-only">Troy: </span>done. say hi 👋</div>
               </div>
@@ -127,24 +128,24 @@
       <p class="sub">Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it.</p>
       <ul class="pairs">
         <li class="pair">
-          <p class="pair-card">You need a ride to LAX.</p>
+          <p class="pair-card">You need a ride to LAX</p>
           <span class="pair-line" aria-hidden="true"></span>
-          <p class="pair-card">Three people in your building do too.</p>
+          <p class="pair-card">Three people in your building do too</p>
         </li>
         <li class="pair">
-          <p class="pair-card">You found someone's AirPods.</p>
+          <p class="pair-card">You found someone's AirPods</p>
           <span class="pair-line" aria-hidden="true"></span>
-          <p class="pair-card">The owner is in the next building.</p>
+          <p class="pair-card">The owner is in the next building</p>
         </li>
         <li class="pair">
-          <p class="pair-card">A club has 40 extra burritos.</p>
+          <p class="pair-card">A club has 40 extra burritos</p>
           <span class="pair-line" aria-hidden="true"></span>
-          <p class="pair-card">40 hungry students are a block away.</p>
+          <p class="pair-card">40 hungry students are a block away</p>
         </li>
         <li class="pair">
-          <p class="pair-card">Your door won't lock.</p>
+          <p class="pair-card">Your door won't lock</p>
           <span class="pair-line" aria-hidden="true"></span>
-          <p class="pair-card">A technician is five minutes away.</p>
+          <p class="pair-card">A technician is five minutes away</p>
         </li>
       </ul>
       <p class="lead">Troy finds the person and makes the intro.</p>
@@ -167,8 +168,7 @@
         <button class="day-next" type="button" aria-label="Next stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5l6 6 6-6"/></svg></button>
       </div>
       <div class="day-shell" data-side="left" aria-hidden="true"></div>
-      <div class="day-shell" data-side="right" aria-hidden="true"></div>
-      <section id="lost-found" class="day-stop" data-day-minutes="520" data-day-tod="0" aria-labelledby="lost-found-h">
+      <section id="lost-found" class="day-stop" data-day-minutes="520" data-day-tod="0" data-main="right" aria-labelledby="lost-found-h">
         <header class="day-stop-head">
           <p class="day-time">8:40 am</p>
           <h3 id="lost-found-h" class="day-setup">your airpods aren't in your pocket.</h3>
@@ -210,6 +210,17 @@
           </div>
         </div>
         <div class="day-under">
+          <div class="day-cardbox"><div class="day-cardsq">
+            <div class="day-card" data-card="lost-found">
+              <p class="day-card-who" aria-hidden="true"><span class="day-card-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M5 20c.9-3.700 3.700-5.400 7-5.400s6.100 1.700 7 5.400z"/></svg></span><span>the finder</span></p>
+              <div class="day-card-msgs" aria-hidden="true">
+                <p class="day-card-b is-me is-photo" data-from="0" data-to="4"><img src="img/photos/airpods.webp" alt="" loading="lazy" decoding="async"></p>
+                <p class="day-card-b is-me" data-from="2" data-to="4">leavey 2nd floor</p>
+                <p class="day-card-b" data-from="4">found the owner ✅ want to meet them or drop it at DPS?</p>
+                <p class="day-card-b is-me" data-from="5">meet</p>
+              </div>
+            </div>
+          </div></div>
           <div class="day-extra"><p class="day-note">Troy checks it's really yours before anyone shares anything.</p></div>
           <div class="pair-foot">
             <span class="chip">Connected you to: the student who found it</span>
@@ -217,7 +228,7 @@
           </div>
         </div>
       </section>
-      <section id="concern" class="day-stop" data-day-minutes="735" data-day-tod="0.18" aria-labelledby="concern-h">
+      <section id="concern" class="day-stop" data-day-minutes="735" data-day-tod="0.18" data-main="left" aria-labelledby="concern-h">
         <header class="day-stop-head">
           <p class="day-time">12:15 pm</p>
           <h3 id="concern-h" class="day-setup">the shuttle was late. again.</h3>
@@ -254,6 +265,15 @@
           </div>
         </div>
         <div class="day-under">
+          <div class="day-cardbox"><div class="day-cardsq">
+            <div class="day-card" data-card="concern">
+              <p class="day-card-who" aria-hidden="true"><span class="day-card-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M5 20c.9-3.700 3.700-5.400 7-5.400s6.100 1.700 7 5.400z"/></svg></span><span>a USG member</span></p>
+              <div class="day-card-msgs" aria-hidden="true">
+                <p class="day-card-b" data-from="0">5 trojans raised late village shuttles this week. 2 want to talk. want a group chat with them?</p>
+                <p class="day-card-b is-me" data-from="1">yes</p>
+              </div>
+            </div>
+          </div></div>
           <div class="day-extra"><p class="day-note">Anonymous concerns still count. Troy shares the summary, never the name.</p></div>
           <div class="pair-foot">
             <span class="chip">Connected you to: USG and 4 students with the same issue</span>
@@ -261,7 +281,7 @@
           </div>
         </div>
       </section>
-      <section id="food" class="day-stop" data-day-minutes="1050" data-day-tod="0.5" aria-labelledby="food-h">
+      <section id="food" class="day-stop" data-day-minutes="1050" data-day-tod="0.5" data-main="left" aria-labelledby="food-h">
         <header class="day-stop-head">
           <p class="day-time">5:30 pm</p>
           <h3 id="food-h" class="day-setup">a club meeting ends with 20 extra bowls.</h3>
@@ -365,6 +385,15 @@
           </figure>
         </div>
         <div class="day-under">
+          <div class="day-cardbox"><div class="day-cardsq">
+            <div class="day-card" data-card="food">
+              <p class="day-card-who" aria-hidden="true"><span class="day-card-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M5 20c.9-3.700 3.700-5.400 7-5.400s6.100 1.700 7 5.400z"/></svg></span><span>20 students nearby</span></p>
+              <div class="day-card-msgs" aria-hidden="true">
+                <p class="day-card-b" data-from="0">free bowls at leavey 🌯 5 min from u. 20 left. react 👍 to claim<span class="day-card-tap" data-from="1">👍</span></p>
+                <p class="day-card-b" data-from="2">saved u one. it&#39;s at leavey till 2</p>
+              </div>
+            </div>
+          </div></div>
           <div class="day-extra"><p class="day-note">Only students within a 15-minute walk get the text. Everyone else is left alone.</p></div>
           <div class="pair-foot">
             <span class="chip">Connected you to: 20 trojans within a 15-minute walk</span>
@@ -372,7 +401,7 @@
           </div>
         </div>
       </section>
-      <section id="broken" class="day-stop" data-day-minutes="1270" data-day-tod="0.78" aria-labelledby="broken-h">
+      <section id="broken" class="day-stop" data-day-minutes="1270" data-day-tod="0.78" data-main="left" aria-labelledby="broken-h">
         <header class="day-stop-head">
           <p class="day-time">9:10 pm</p>
           <h3 id="broken-h" class="day-setup">your door won't lock.</h3>
@@ -409,18 +438,30 @@
           </div>
         </div>
         <div class="day-under">
-          <div class="day-extra"><ol class="repair-steps">
-            <li data-step="reported">Reported</li>
-            <li data-step="on-it">On it</li>
-            <li data-step="fixed">Fixed</li>
-          </ol></div>
+          <div class="day-cardbox day-cardbox-repair"><div class="day-cardsq">
+            <div class="day-card" data-card="broken">
+              <p class="day-card-who" aria-hidden="true"><span class="day-card-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M5 20c.9-3.700 3.700-5.400 7-5.400s6.100 1.700 7 5.400z"/></svg></span><span>the closest technician</span></p>
+              <div class="day-card-msgs" aria-hidden="true">
+                <p class="day-card-b" data-from="0" data-to="2">someone reported a door that won&#39;t lock at new north, about a 5 minute walk from u. can u take it?</p>
+                <p class="day-card-b is-me" data-from="1">on it</p>
+                <p class="day-card-b is-me is-photo" data-from="2"><img src="img/photos/door-fixed.webp" alt="" loading="lazy" decoding="async"></p>
+                <p class="day-card-b is-me" data-from="3">done</p>
+              </div>
+              <ol class="repair-steps">
+                <li data-step="reported">Reported</li>
+                <li data-step="on-it">On it</li>
+                <li data-step="fixed">Fixed</li>
+              </ol>
+            </div>
+          </div></div>
+          <div class="day-extra"></div>
           <div class="pair-foot">
             <span class="chip">Connected you to: the closest technician</span>
             <button class="replay" type="button" data-replay="broken" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
           </div>
         </div>
       </section>
-      <section id="rides" class="day-stop" data-day-minutes="1425" data-day-tod="1" aria-labelledby="rides-h">
+      <section id="rides" class="day-stop" data-day-minutes="1425" data-day-tod="1" data-main="left" aria-labelledby="rides-h">
         <header class="day-stop-head">
           <p class="day-time">11:45 pm</p>
           <h3 id="rides-h" class="day-setup">three of you are headed to lax in the morning.</h3>
@@ -458,6 +499,15 @@
           </div>
         </div>
         <div class="day-under">
+          <div class="day-cardbox"><div class="day-cardsq">
+            <div class="day-card" data-card="rides">
+              <p class="day-card-who" aria-hidden="true"><span class="day-card-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M5 20c.9-3.700 3.700-5.400 7-5.400s6.100 1.700 7 5.400z"/></svg></span><span>2 trojans leaving when you are</span></p>
+              <div class="day-card-msgs" aria-hidden="true">
+                <p class="day-card-b" data-from="0">someone in ur building is headed to lax on the 19th around noon. want to split a ride?</p>
+                <p class="day-card-b is-me" data-from="1">yes</p>
+              </div>
+            </div>
+          </div></div>
           <div class="day-extra"></div>
           <div class="pair-foot">
             <span class="chip">Connected you to: 2 trojans leaving when you are</span>
@@ -644,6 +694,7 @@
       <div class="faq-more">
         <p>Any other questions?</p>
         <a class="btn" data-sms="hey troy, i have a question">Just text Troy</a>
+        <p class="badge-imessage"><span class="badge-line"><span>Available on</span><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#FFFFFF" d="M12 5.6c-4.1 0-7.4 2.6-7.4 5.9 0 1.9 1.1 3.5 2.8 4.6-.2.9-.7 1.7-1.4 2.300 1.500 0 2.800-.5 3.800-1.300.7.2 1.400.3 2.200.3 4.100 0 7.400-2.600 7.400-5.900S16.100 5.600 12 5.600z"/></svg><span class="badge-name">iMessage</span></span><span class="badge-soon"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.500 2h9A2.500 2.500 0 0 1 15 4.500v5a2.500 2.500 0 0 1-2.500 2.500H7.500L4 15v-3h-.5A2.500 2.500 0 0 1 1 9.500v-5A2.500 2.500 0 0 1 3.500 2z"/></svg><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M8 .8a1.300 1.300 0 0 1 .65 2.430V4.500H11A3 3 0 0 1 14 7.500v4a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3h2.350V3.230A1.300 1.300 0 0 1 8 .8zM5.700 8.100a1.200 1.200 0 1 0 0 2.400 1.200 1.200 0 0 0 0-2.400zm4.600 0a1.200 1.200 0 1 0 0 2.400 1.200 1.200 0 0 0 0-2.400z"/></svg>Coming to non-Apple devices soon</span></p>
       </div>
     </div>
   </section>
@@ -687,6 +738,7 @@
   </div>
   <p class="footer-line on-painting">Every connection on campus. Just text him.</p>
   <a class="btn" data-sms="hey troy">Text Troy</a>
+  <p class="badge-imessage"><span class="badge-line"><span>Available on</span><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#FFFFFF" d="M12 5.6c-4.1 0-7.4 2.6-7.4 5.9 0 1.9 1.1 3.5 2.8 4.6-.2.9-.7 1.7-1.4 2.300 1.500 0 2.800-.5 3.800-1.300.7.2 1.400.3 2.200.3 4.100 0 7.400-2.600 7.400-5.900S16.100 5.600 12 5.600z"/></svg><span class="badge-name">iMessage</span></span><span class="badge-soon"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.500 2h9A2.500 2.500 0 0 1 15 4.500v5a2.500 2.500 0 0 1-2.500 2.500H7.500L4 15v-3h-.5A2.500 2.500 0 0 1 1 9.500v-5A2.500 2.500 0 0 1 3.500 2z"/></svg><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M8 .8a1.300 1.300 0 0 1 .65 2.430V4.500H11A3 3 0 0 1 14 7.500v4a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3h2.350V3.230A1.300 1.300 0 0 1 8 .8zM5.700 8.100a1.200 1.200 0 1 0 0 2.400 1.200 1.200 0 0 0 0-2.400zm4.600 0a1.200 1.200 0 1 0 0 2.400 1.200 1.200 0 0 0 0-2.400z"/></svg>Coming to non-Apple devices soon</span></p>
 </footer>
 
 </body>

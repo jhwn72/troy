@@ -514,7 +514,7 @@ const HELM_Y = [
 ];
 const HELM_R = [[0, 0], [230, 9, easeOut], [430, 6], [600, 0, easeIn], [690, -4, easeOut], [780, 0, easeIn]];
 const FALL_MS = 460;
-const LEAD_MS = 900;             // the gold line between the hero phones draws first (hero.css), then he falls
+const LEAD_MS = 380;             // the gold line between the hero phones draws first (hero.css), then he falls
 const POP_IN = 420;
 const POP_HOLD = 1650;
 const POP_OUT = 480;
@@ -831,7 +831,7 @@ function leadHero() {
     if (held) signal('pointerleave');
     held = false;
   };
-  setTimeout(() => { if (T.release) T.release(); }, LEAD_MS + 2200);
+  setTimeout(() => { if (T.release) T.release(); }, LEAD_MS + FALL_MS + 200);   // start the conversation at impact, while he shakes it off
 }
 
 function initTroy() {

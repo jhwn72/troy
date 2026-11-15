@@ -14,10 +14,24 @@
 //   "day:idle"    detail { index }   the visitor stopped scrolling on a finished stop (at most twice a visit)
 //   "day:settle"  detail { key }     a stop is showing its finished state without a conversation to play
 // It asks chat.js for a conversation with "convo:play" and "convo:stop" on the stop's .convo mount.
+//
+// The spotlight. One phone is on stage (the stop's data-main side); the other side is a notification card on the
+// map (.day-card). .day-panel carries data-spot, and day.css keeps that one thing at full strength:
+//   "intro"  the time and setup line, large, for a beat when a stop begins
+//   "phone"  while the asker's side of the conversation plays
+//   "map"    while the map animates (steps that carry "map" in conversations.json), and while Troy is reaching
+//            the other person
+//   "card"   when the other person's side lands on their card
+//   "chip"   when the conversation has finished
+// It follows chat.js: "convo:step" events, and data-focus on the stop's .stage (the side about to speak).
 
 /* ---------- Everything John might want to tune ---------- */
 const HOLD = 0.6;            // share of a stop's scrolling where the clock stands still; the rest ticks to the next stop
-const PLAY_AFTER = 260;      // a stop must be current this long before its conversation starts, in milliseconds
+const PLAY_AFTER = 260;      // a stop must be current this long before it begins, in milliseconds
+const INTRO_MS = 1500;       // the large time and setup line hold the stage this long, then the conversation starts
+const MAP_BEAT = 1500;       // the map keeps the spotlight this long when it animates
+const MAP_BEAT_FOOD = 2800;  // free food: the pin, the 15-minute circle and twenty dots take longer
+const FOOD_TRIGGER = 'sending it to trojans nearby';
 const IDLE_AFTER = 6000;     // no scrolling for this long on a finished stop shows the nudge
 const IDLE_SETTLE = 2500;    // and the conversation must have been finished at least this long
 const IDLE_MAX = 2;          // nudges per visit
@@ -42,6 +56,22 @@ function start() {
   const tods = stops.map((stop) => Number(stop.dataset.dayTod) || 0);
   const mounts = stops.map((stop) => stop.querySelector('.convo'));
   const chips = stops.map((stop) => stop.querySelector('.chip'));
+  const panel = wrap.querySelector('.day-panel');
+  const stages = stops.map((stop) => stop.querySelector('.stage'));
+  const cards = stops.map((stop) => stop.querySelector('.day-card'));
+  const mains = stops.map((stop) => (stop.dataset.main === 'right' ? 'right' : 'left'));
+  const heard = stops.map(() => 0);    // how many things the other side has received or said so far
+
+  // The large time and setup line.
+  const intro = document.createElement('p');
+  intro.className = 'day-intro';
+  intro.setAttribute('aria-hidden', 'true');
+  const introTime = document.createElement('span');
+  introTime.className = 'day-intro-time';
+  const introLine = document.createElement('span');
+  introLine.className = 'day-intro-line';
+  intro.append(introTime, introLine);
+  panel.append(intro);
   const marks = [...wrap.querySelectorAll('.day-mark')];
   const next = wrap.querySelector('.day-next');
   const pill = wrap.querySelector('.day-idle');
@@ -52,6 +82,10 @@ function start() {
   const now = { index: -1, progress: -1, tod: -1, minutes: -1, pinned: false, active: false };
   let chatReady = root.dataset.convoReady != null;
   let playTimer = 0;
+  let introTimer = 0;
+  let spotTimer = 0;
+  let holdUntil = 0;       // the map keeps the spotlight until then
+  let wanted = '';         // what gets it afterwards
   let lastScroll = performance.now();
   let nudges = 0;
   let nudging = false;
@@ -107,6 +141,70 @@ function start() {
     root.dataset.dayStop = String(index);
   }
 
+  /* ---------- The spotlight ---------- */
+
+  const setSpot = (spot) => {
+    if (panel.dataset.spot !== spot) panel.dataset.spot = spot;
+  };
+  const clearSpot = () => {
+    clearTimeout(spotTimer);
+    holdUntil = 0;
+    wanted = '';
+  };
+  // Give the spotlight to something, once the map has had its beat.
+  const want = (spot) => {
+    wanted = spot;
+    clearTimeout(spotTimer);
+    const left = holdUntil - performance.now();
+    if (left <= 0) setSpot(spot);
+    else spotTimer = setTimeout(() => setSpot(wanted), left);
+  };
+  const mapBeat = (ms, then) => {
+    clearTimeout(spotTimer);
+    setSpot('map');
+    holdUntil = performance.now() + ms;
+    want(then);
+  };
+
+  // The other person's card: each line carries data-from (it shows once that many things have reached them)
+  // and sometimes data-to (it makes room for what comes later).
+  function showCard(i, count) {
+    const card = cards[i];
+    if (!card) return false;
+    const all = count == null;      // the finished card
+    let any = false;
+    let fresh = false;              // something new just landed on it
+    for (const item of card.querySelectorAll('[data-from]')) {
+      const from = Number(item.dataset.from);
+      const to = item.dataset.to == null ? Infinity : Number(item.dataset.to);
+      const on = all ? to === Infinity : count > from && count <= to;
+      if (on && !item.classList.contains('is-on')) fresh = true;
+      item.classList.toggle('is-on', on);
+      if (on) any = true;
+    }
+    card.classList.toggle('is-out', any);
+    return fresh;
+  }
+  const cardOut = (i) => Boolean(cards[i] && cards[i].classList.contains('is-out'));
+  // Who has it when nothing else is going on: whoever chat.js says is about to speak.
+  const bySide = (i) => {
+    const side = stages[i] && stages[i].dataset.focus;
+    if (!side || side === mains[i]) return 'phone';
+    return cardOut(i) ? 'card' : 'map';
+  };
+
+  function showIntro(i) {
+    const time = (stops[i].querySelector('.day-time') || {}).textContent || '';
+    const [clock, ampm] = time.trim().split(/\s+/);
+    introTime.textContent = clock || '';
+    if (ampm) {
+      const small = document.createElement('small');
+      small.textContent = ampm;
+      introTime.append(small);
+    }
+    introLine.textContent = (stops[i].querySelector('.day-setup') || {}).textContent || '';
+  }
+
   /* ---------- Conversations ---------- */
 
   const state = (i) => (mounts[i] ? mounts[i].dataset.convoState : '');
@@ -116,6 +214,11 @@ function start() {
     if (doneAt[i]) return;
     doneAt[i] = performance.now();
     if (chips[i]) chips[i].classList.add('is-shown');
+    showCard(i, null);
+    if (i === now.index) {
+      clearSpot();
+      setSpot('chip');
+    }
     window.dispatchEvent(new CustomEvent('day:settle', { detail: { key: stops[i].id } }));
   }
 
@@ -126,28 +229,84 @@ function start() {
     mounts[i].dispatchEvent(new CustomEvent('convo:play', { detail: { replay: true } }));
   }
 
-  function queuePlay() {
+  // A stop begins: the time and setup line take the stage for a beat, then the conversation plays from the start.
+  function begin(i) {
+    clearTimeout(introTimer);
+    clearSpot();
+    showIntro(i);
+    showCard(i, 0);
+    setSpot('intro');
+    introTimer = setTimeout(() => {
+      if (i !== now.index) return;
+      if (panel.dataset.spot === 'intro') setSpot('phone');
+      play(i, true);
+    }, INTRO_MS);
+  }
+
+  function queuePlay(fresh) {
     clearTimeout(playTimer);
-    playTimer = setTimeout(() => play(now.index, false), PLAY_AFTER);
+    playTimer = setTimeout(() => {
+      const i = now.index;
+      if (!now.active || !chatReady) return;
+      // Coming back into view on a stop that is playing or has finished leaves it as it is.
+      if (!fresh && (state(i) === 'playing' || doneAt[i])) return;
+      begin(i);
+    }, PLAY_AFTER);
   }
 
   wrap.addEventListener('convo:start', (event) => {
     const i = mounts.indexOf(event.target);
     if (i < 0) return;
     doneAt[i] = 0;
+    heard[i] = 0;
+    showCard(i, 0);
     if (chips[i]) chips[i].classList.remove('is-shown');
+    if (i === now.index) {
+      clearTimeout(introTimer);
+      clearSpot();
+      setSpot(bySide(i));
+    }
+  });
+  wrap.addEventListener('convo:step', (event) => {
+    const i = mounts.indexOf(event.target);
+    const detail = event.detail || {};
+    const step = detail.step || {};
+    if (i < 0) return;
+    const type = step.type || 'message';
+    const said = Boolean(step.text || step.image || step.tapback) && type !== 'count';
+    const other = detail.phone !== mains[i];
+    let landed = false;
+    if (other && said) {
+      heard[i] += 1;
+      landed = showCard(i, heard[i]);
+    }
+    if (i !== now.index) return;
+    const moves = step.map != null || (typeof step.text === 'string' && step.text.includes(FOOD_TRIGGER));
+    if (moves) mapBeat(stops[i].id === 'food' ? MAP_BEAT_FOOD : MAP_BEAT, landed ? 'card' : bySide(i));
+    else if (landed) want('card');
+    else if (!other && said) want('phone');
   });
   wrap.addEventListener('convo:done', (event) => {
     const i = mounts.indexOf(event.target);
     if (i < 0) return;
     doneAt[i] = performance.now();
     if (chips[i]) chips[i].classList.add('is-shown');
+    if (i === now.index) want('chip');
+  });
+
+  // chat.js marks the side that is about to speak on the stop's .stage (data-focus).
+  stages.forEach((stage, i) => {
+    if (!stage) return;
+    new MutationObserver(() => {
+      if (i !== now.index || state(i) !== 'playing' || !stage.dataset.focus) return;
+      want(bySide(i));
+    }).observe(stage, { attributes: true, attributeFilter: ['data-focus'] });
   });
 
   const onReady = () => {
     if (chatReady) return;
     chatReady = true;
-    queuePlay();
+    queuePlay(false);
   };
   window.addEventListener('convo:ready', onReady);
   setTimeout(onReady, CHAT_WAIT);
@@ -169,9 +328,14 @@ function start() {
     if (at.index !== was) {
       showStop(at.index);
       if (was >= 0 && state(was) === 'playing') mounts[was].dispatchEvent(new CustomEvent('convo:stop'));
-      queuePlay();
+      if (was >= 0) doneAt[was] = 0;
+      clearTimeout(introTimer);
+      clearSpot();
+      showIntro(at.index);
+      setSpot('intro');
+      queuePlay(true);
     } else if (woke) {
-      queuePlay();
+      queuePlay(false);
     }
 
     if (changed) {
@@ -227,6 +391,7 @@ function start() {
   for (const button of wrap.querySelectorAll('.replay')) {
     button.addEventListener('click', () => {
       lastScroll = performance.now();
+      clearTimeout(introTimer);
       play(now.index, true);
     });
   }

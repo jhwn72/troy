@@ -47,7 +47,32 @@ const TIMING = {
   // A day at USC
   focusRead: 700,        // one screen at a time: time to read before it switches to the other screen
 };
-const T = TIMING;
+
+/* ---------- Hero timing. The two phones at the top of the page play faster than the rest: these values
+   replace the ones above for the hero loop only. A step's own "delay" in conversations.json still wins. ---------- */
+const HERO = {
+  firstBeat: 120,        // after the chat clears, the next scenario starts (fade + this is about 300 ms)
+  beforeTyping: 180,
+  charMin: 10,
+  charMax: 14,
+  beforeSend: 60,
+  press: 60,
+  delivered: 0,          // "Delivered" shows with the bubble and
+  read: 260,             // turns to "Read" by itself: neither holds the conversation up
+  statusInline: true,    // (that is what this switch does)
+  beforeDots: 150,       // gap between bubbles: 150 to 300 with a step's own delay
+  dotsMin: 220,
+  dotsMax: 350,
+  dotsPerChar: 2,
+  tapback: 300,
+  countUpdate: 300,
+  switchGroup: 150,
+  phoneChange: 0,        // the other phone starts while this one's bubble is still landing
+  holdBeforeClear: 1100, // the connected state stays this long
+  fade: 160,
+  lift: 3,               // px the phone that is "speaking" rises (hero.css reads it as --hero-lift)
+  pulse: 700,            // the gold line's pulse at each connection
+};
 
 // The data file sits next to this script. A version query on this script (added by the static build) carries over.
 const VERSION = new URL(import.meta.url).search;
@@ -123,7 +148,7 @@ function kind(step) {
   return step.type || 'message';
 }
 
-function dotsFor(step) {
+function dotsFor(step, T) {
   const length = step.text ? step.text.length : 20;
   return Math.min(Math.max(T.dotsMin, T.dotsMin + length * T.dotsPerChar), T.dotsMax);
 }
@@ -142,6 +167,9 @@ class Convo {
     this.mount = mount;
     this.data = data;
     this.loop = mount.hasAttribute('data-convo-loop');
+    this.T = this.loop ? { ...TIMING, ...HERO } : TIMING;
+    this.dots = [];
+    this.pulseEl = null;
     this.keys = (mount.dataset.convoLoop || mount.dataset.convo || '').trim().split(/\s+/).filter((k) => data[k]);
     this.run = 0;
     this.pauses = new Set();
@@ -194,7 +222,7 @@ class Convo {
   // Move to the screen that speaks next. With one screen showing, the current one is given time to be read first.
   async focusOn(name, run) {
     if (!this.stage || !name || this.focus === name) return;
-    if (this.focus && oneScreen.matches) await this.sleep(T.focusRead, run);
+    if (this.focus && oneScreen.matches) await this.sleep(this.T.focusRead, run);
     this.showFocus(name);
   }
 
@@ -239,6 +267,7 @@ class Convo {
       p.inputText.textContent = '';
       p.input.classList.remove('is-typing');
       p.send.classList.remove('is-pressed');
+      p.el.classList.remove('is-speaking');
       this.setGroup(p, null);
     }
     this.mount.classList.remove('is-linked');
@@ -278,7 +307,7 @@ class Convo {
         if (!this.pauses.size) left -= now - last;
         last = now;
         if (left <= 0) resolve();
-        else setTimeout(tick, Math.min(Math.max(left, 16), 80));
+        else setTimeout(tick, Math.min(Math.max(left, 4), 80));
       };
       tick();
     });
@@ -290,14 +319,17 @@ class Convo {
   }
 
   async fade(parts, from, to, run) {
-    const anims = parts.map((part) => part.animate({ opacity: [from, to] }, { duration: T.fade, easing: 'ease-in-out' }));
+    const anims = parts.map((part) => part.animate({ opacity: [from, to] }, { duration: this.T.fade, easing: 'ease-in-out' }));
     for (const part of parts) part.style.opacity = to === 1 ? '' : String(to);
     await Promise.all(anims.map((a) => a.finished.catch(() => {})));
     this.check(run);
   }
 
   emit(name, detail) {
-    if (name === 'convo:step' && detail.step.link != null) this.mount.classList.toggle('is-linked', Boolean(detail.step.link));
+    if (name === 'convo:step' && detail.step.link != null) {
+      this.mount.classList.toggle('is-linked', Boolean(detail.step.link));
+      if (detail.step.link) this.pulse();
+    }
     this.mount.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
   }
 
@@ -334,10 +366,57 @@ class Convo {
     return bubble;
   }
 
+  // Hero only: the gold line between the phones pulses once when the two people are connected.
+  pulse() {
+    if (!this.pulseEl) return;
+    for (const anim of this.pulseEl.getAnimations()) anim.cancel();
+    this.pulseEl.animate(
+      { opacity: [0, 0.55, 0], transform: ['scale(0.98)', 'scale(1)', 'scale(1.03)'] },
+      { duration: this.T.pulse, delay: 380, easing: 'ease-out' },
+    );
+  }
+
+  // Hero only: four small dots under the phones show which scenario is playing. A click jumps to it.
+  addDots() {
+    if (!this.loop || this.keys.length < 2) return;
+    const gold = this.mount.querySelector('.hero-link-gold');
+    if (gold) {
+      this.pulseEl = gold.cloneNode();
+      this.pulseEl.setAttribute('class', 'hero-link-pulse');
+      gold.after(this.pulseEl);
+    }
+    this.mount.style.setProperty('--hero-lift', `${this.T.lift}px`);
+    const row = el('div', 'hero-dots');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', 'Examples');
+    this.keys.forEach((key, i) => {
+      const dot = el('button', 'hero-dot');
+      dot.type = 'button';
+      dot.setAttribute('aria-label', `Play example ${i + 1} of ${this.keys.length}`);
+      dot.addEventListener('click', () => {
+        this.setPaused('tap', false);
+        this.play(false, i);
+      });
+      this.dots.push(dot);
+      row.append(dot);
+    });
+    this.mount.append(row);
+  }
+
+  markDot(key) {
+    this.dots.forEach((dot, i) => {
+      const on = this.keys[i] === key;
+      dot.classList.toggle('is-on', on);
+      if (on) dot.setAttribute('aria-current', 'true');
+      else dot.removeAttribute('aria-current');
+    });
+  }
+
   async playStep(key, index, run, prevPhone) {
     const step = this.data[key].steps[index];
     const p = this.phones[step.phone];
     if (!p) return;
+    const T = this.T;
     const type = kind(step);
     const mine = step.from === 'me';
     const detail = { key, index, step, phone: step.phone };
@@ -394,6 +473,7 @@ class Convo {
 
     if (mine) {
       await gap(T.beforeTyping);
+      if (this.loop) p.el.classList.add('is-speaking');
       if (step.text) {
         p.input.classList.add('is-typing');
         for (const ch of letters(step.text)) {
@@ -418,15 +498,24 @@ class Convo {
         { duration: Math.min(220 + rise * 0.25, 340), easing: EASE },
       );
       this.toBottom(p, true);
+      p.el.classList.remove('is-speaking');
       this.emit('convo:step', detail);
 
+      // "Read" shows before the other side starts typing.
+      const next = this.data[key].steps.slice(index + 1).find((s) => s.phone === step.phone);
+      const read = step.status === 'Read' || (next && next.from !== 'me' && kind(next) === 'message' && !step.status);
+      if (T.statusInline) {
+        // Hero: the status is there with the bubble and changes by itself, so the other phone can already answer.
+        const status = el('div', 'msg-status', 'Delivered');
+        bubble.after(status);
+        this.toBottom(p, true);
+        if (read) setTimeout(() => { if (run === this.run && status.isConnected) status.textContent = 'Read'; }, T.read);
+        return;
+      }
       await this.sleep(T.delivered, run);
       const status = el('div', 'msg-status', 'Delivered');
       bubble.after(status);
       this.toBottom(p, true);
-      // "Read" shows before the other side starts typing.
-      const next = this.data[key].steps.slice(index + 1).find((s) => s.phone === step.phone);
-      const read = step.status === 'Read' || (next && next.from !== 'me' && kind(next) === 'message' && !step.status);
       if (read) {
         await this.sleep(T.read, run);
         status.textContent = 'Read';
@@ -439,9 +528,11 @@ class Convo {
     const dots = el('div', 'typing');
     dots.append(el('i'), el('i'), el('i'));
     p.list.append(dots);
+    if (this.loop) p.el.classList.add('is-speaking');
     this.toBottom(p, true);
-    await this.sleep(dotsFor(step), run);
+    await this.sleep(dotsFor(step, T), run);
     dots.remove();
+    p.el.classList.remove('is-speaking');
     const bubble = this.addBubble(p, step, key, index);
     bubble.classList.add('is-new');
     this.toBottom(p, true);
@@ -453,6 +544,7 @@ class Convo {
     this.reset();
     this.mount.dataset.convoCurrent = key;
     this.mount.dataset.convoState = 'playing';
+    this.markDot(key);
     this.emit('convo:start', { key, replay });
     this.showFocus(steps[0] ? steps[0].focus || steps[0].phone : null);
     let prevPhone = null;
@@ -480,11 +572,13 @@ class Convo {
     this.emit('convo:done', { key });
   }
 
-  async play(replay = false) {
+  async play(replay = false, startAt = 0) {
     const run = ++this.run;
     try {
+      let i = startAt;
       do {
-        for (const key of this.keys) await this.playOne(key, run, replay);
+        for (; i < this.keys.length; i += 1) await this.playOne(this.keys[i], run, replay);
+        i = 0;
       } while (this.loop);
       return true;
     } catch (err) {
@@ -536,6 +630,7 @@ async function init() {
       convo.takeOver();
       live.set(mount, convo);
       if (convo.loop) {
+        convo.addDots();
         watchHero(convo);
         continue;
       }

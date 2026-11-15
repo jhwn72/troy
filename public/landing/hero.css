@@ -108,6 +108,66 @@
   to { stroke-dashoffset: 0; }
 }
 
+/* ---------- Signs of life (chat.js adds these once it has taken over; never with reduced motion) ---------- */
+/* The phone that is typing or about to answer lifts a little. */
+#hero .hero-phone .convo.is-live .phone { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#hero .hero-phone .convo.is-live .phone[data-phone="left"].is-speaking {
+  transform: translateY(calc(var(--hero-lift, 3px) * -1)) rotate(var(--hero-tilt));
+}
+#hero .hero-phone .convo.is-live .phone[data-phone="right"].is-speaking {
+  transform: translateY(calc(var(--hero-lift, 3px) * -1)) rotate(calc(var(--hero-tilt) * -1));
+}
+
+/* The gold line pulses once at each connection: a wider copy of it that chat.js fades in and out. */
+.hero-link-pulse {
+  stroke: var(--gold);
+  stroke-width: 9;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Which of the four scenarios is playing. Four small dots under the phones; a click jumps to that one. */
+.hero-dots {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  display: flex;
+  margin: 10px 0 0 -48px;
+  width: 96px;
+  justify-content: center;
+}
+.hero-dot {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hero-dot::before,
+.hero-dot::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.hero-dot::before { background: var(--paper); opacity: 0.6; box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.18); }
+.hero-dot::after {
+  background: var(--ink);
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.2s ease-out, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.hero-dot.is-on::after { opacity: 1; transform: scale(1.35); }
+.hero-dot:hover::before { opacity: 1; }
+
 /* ---------- Narrow screens: the phones stay side by side, smaller, with Troy above the space between them ---------- */
 @media (max-width: 767px) {
   #hero {
@@ -160,4 +220,6 @@
   .hero-link-rest { stroke-width: 3; stroke-dasharray: 0.1 9; }
   .hero-link-shade { stroke-width: 9; }
   .hero-link-gold { stroke-width: 6; }
+  .hero-link-pulse { stroke-width: 14; }
+  .hero-dots { margin-top: 4px; }
 }

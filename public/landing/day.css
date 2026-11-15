@@ -1,16 +1,18 @@
 /* Troy landing: "A day at USC" (#demos).
    Two looks, one markup:
    1. Static (no JavaScript, reduced motion): five stops stacked as cards, each with its time, setup line,
-      finished conversation and chip. Everything below up to "The pinned scene" is that look.
-   2. Pinned (day.js adds .day-on to <html>): the wrapper is tall, the stage sticks to the screen, the map
-      stays in the middle, and the five stops share one place and cross-fade.
+      finished conversation (both sides) and chip. Everything below up to "The pinned scene" is that look.
+   2. Pinned (day.js adds .day-on to <html>): the wrapper is tall and the stage sticks to the screen. On stage:
+      one phone (the person asking) on the left, the map beside it, and the other side as a small notification
+      card that pops out of their dot on the map. day.js sets data-spot on .day-panel
+      (intro, phone, map, card, chip): that one thing is at full strength and the rest is dimmed.
    Only opacity and transform move. */
 
 .day-panel { box-shadow: var(--shadow-soft); }
 .day-title { max-width: 26ch; margin: 0 auto; }
 
 /* Only the pinned scene uses these. */
-.day-clock, .day-nav, .day-shell, .day-idle { display: none; }
+.day-clock, .day-nav, .day-shell, .day-idle, .day-intro, .day-cardbox { display: none; }
 
 .day-stop { margin-top: 88px; }
 .day-shell + .day-stop { margin-top: 56px; }
@@ -39,7 +41,9 @@
 .convo[data-convo="rides"] .phone[data-phone="left"]::after { content: "A student"; }
 .convo[data-convo="rides"] .phone[data-phone="right"]::after { content: "Another student"; }
 
-/* Reported, On it, Fixed: one row under the map. */
+/* Reported, On it, Fixed. Static look: one row under the phones (the card around it is not shown). */
+.day-cardbox-repair { display: block; margin-top: 28px; }
+html:not(.day-on) .day-cardbox-repair .day-card > :not(.repair-steps) { display: none; }
 .day .repair-steps {
   position: static;
   width: auto;
@@ -72,23 +76,23 @@ html.day-on .day-stage {
   padding: clamp(10px, 2.2vh, 22px) 0;
 }
 html.day-on .day-panel {
-  --pw: clamp(212px, 21vw, 280px);
-  --ph: min(calc(var(--pw) * 2.07), calc(100vh - 176px));
-  --tilt: 2deg;
+  --dim: 0.35;                    /* everything that is not in the spotlight */
+  --pw: clamp(240px, 23vw, 320px);
+  --ph: min(calc(var(--pw) * 2.07), calc(100vh - 190px));
   position: relative;
   display: grid;
-  grid-template-columns: var(--pw) minmax(0, 1fr) var(--pw);
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
-  column-gap: clamp(16px, 3vw, 48px);
-  row-gap: clamp(6px, 1.2vh, 12px);
+  grid-template-columns: var(--pw) minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  column-gap: clamp(20px, 4vw, 64px);
+  row-gap: clamp(4px, 1vh, 10px);
   width: 100%;
   max-width: 1280px;
   height: 100%;
-  padding: clamp(14px, 2.4vh, 26px) clamp(16px, 3vw, 40px);
+  padding: clamp(14px, 2.4vh, 26px) clamp(16px, 3vw, 44px);
   overflow: hidden;
 }
 @supports (height: 100svh) {
-  html.day-on .day-panel { --ph: min(calc(var(--pw) * 2.07), calc(100svh - 176px)); }
+  html.day-on .day-panel { --ph: min(calc(var(--pw) * 2.07), calc(100svh - 190px)); }
 }
 
 /* The heading and each stop's own time stay for screen readers; the clock shows the time. */
@@ -103,82 +107,82 @@ html.day-on .day-time {
   white-space: nowrap;
 }
 
-/* The clock, top center */
+/* The clock: a small label in the top corner */
 html.day-on .day-clock {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
+  justify-self: start;
   display: flex;
-  justify-content: center;
   align-items: baseline;
-  gap: 8px;
+  gap: 5px;
+  margin: 0;
   font-family: var(--font-serif);
   font-weight: var(--display-weight, 400);
-  font-size: clamp(40px, 6.4vh, 64px);
+  font-size: clamp(22px, 3.2vh, 28px);
   line-height: 1;
   letter-spacing: var(--display-tracking, -0.01em);
   font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  transition: opacity 0.45s ease;
 }
-.day-clock-time { min-width: 2.6ch; text-align: right; }
-.day-clock-ampm { min-width: 1.6ch; font-size: 0.5em; text-align: left; color: var(--stone); letter-spacing: 0; }
+.day-clock-time { min-width: 2.6ch; text-align: left; }
+.day-clock-ampm { font-size: 0.55em; color: var(--stone); letter-spacing: 0; }
 
-/* Five stop marks and the next button */
+/* Five tiny numerals and the next arrow, tucked under the clock */
 html.day-on .day-nav {
-  grid-column: 2;
-  grid-row: 3;
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
   position: relative;
   z-index: 3;
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 10px;
+  gap: 2px;
+  margin-left: -7px;
 }
-.day-marks { display: flex; align-items: center; gap: 2px; }
+.day-marks { display: flex; align-items: center; }
 .day-mark,
 .day-next {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   background: none;
   border: 0;
   border-radius: 50%;
-  font-family: var(--font-serif);
-  font-size: 17px;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 600;
   line-height: 1;
+  letter-spacing: 0.02em;
   color: var(--stone);
+  opacity: 0.55;
   cursor: pointer;
 }
-/* The round mark is drawn inside a larger tap area. */
-.day-mark { position: relative; z-index: 0; }
-.day-mark::before {
+.day-mark::after,
+.day-next::after { content: ""; position: absolute; inset: -6px -2px; }   /* tap area */
+.day-mark.is-past { opacity: 0.8; }
+.day-mark.is-current { color: var(--ink); opacity: 1; }
+.day-mark.is-current::before {
   content: "";
   position: absolute;
-  inset: 5px;
-  z-index: -1;
-  border: 1px solid var(--line);
+  left: 50%;
+  bottom: 0;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
   border-radius: 50%;
-  background: var(--paper);
+  background: var(--gold);
 }
-.day-mark.is-past { color: var(--ink); }
-.day-mark.is-past::before { border-color: var(--stone); }
-.day-mark.is-current { color: var(--paper); }
-.day-mark.is-current::before { background: var(--ink); border-color: var(--ink); }
-.day-next { color: var(--ink); }
-.day-next {
-  position: relative;
-  width: 34px;
-  height: 34px;
-  margin-left: 4px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-}
-.day-next::after { content: ""; position: absolute; inset: -5px; }   /* tap area */
+.day-next { margin-left: 2px; }
+.day-next:hover, .day-mark:hover { opacity: 1; }
 .day-next svg,
 .day-idle svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.75;
@@ -186,12 +190,50 @@ html.day-on .day-nav {
   stroke-linejoin: round;
 }
 
-/* The two phone frames stay put. Each stop's phones sit on top of them with clear glass, so only what is
-   on the screens cross-fades. */
+/* The big time and setup line: centered over the stage for a beat, then it shrinks toward the corner label.
+   day.js makes this element and fills it from the current stop. */
+html.day-on .day-intro {
+  grid-area: 1 / 1 / -1 / -1;
+  place-self: center;
+  z-index: 6;
+  display: block;
+  max-width: min(92%, 22em);
+  text-align: center;
+  font-family: var(--font-serif);
+  font-weight: var(--display-weight, 400);
+  letter-spacing: var(--display-tracking, -0.01em);
+  font-size: clamp(1.5rem, 4.2vh, 2.375rem);
+  line-height: 1.12;
+  text-wrap: balance;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-30vw, -34vh) scale(0.36);
+  transition: opacity 0.45s ease, transform 0.6s cubic-bezier(0.5, 0, 0.3, 1);
+}
+.day-intro-time {
+  display: block;
+  margin-bottom: 0.12em;
+  font-size: 2.5em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.day-intro-time small { margin-left: 0.14em; font-size: 0.42em; color: var(--stone); letter-spacing: 0; }
+.day-intro-line { display: block; }
+html.day-on .day-panel[data-spot="intro"] .day-intro {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.3s ease, transform 0s;
+}
+html.day-on .day-panel[data-spot="intro"] .day-clock { opacity: 0; }
+html.day-on .day-panel[data-spot="intro"] { --dim: 0.16; }   /* the stage steps well back behind the large line */
+
+/* The one phone frame stays put. Each stop's phone sits on top of it with clear glass, so only what is on the
+   screen cross-fades. */
 html.day-on .day-shell {
   display: block;
   position: relative;
-  grid-row: 1 / -1;
+  grid-column: 1;
+  grid-row: 3 / -1;
   align-self: center;
   justify-self: center;
   width: var(--pw);
@@ -208,8 +250,6 @@ html.day-on .day-shell::before {
   background: var(--white);
   border-radius: 38px;
 }
-html.day-on .day-shell[data-side="left"] { grid-column: 1; transform: rotate(var(--tilt)); }
-html.day-on .day-shell[data-side="right"] { grid-column: 3; transform: rotate(calc(var(--tilt) * -1)); }
 
 /* The five stops share the panel's grid and lie on top of one another. */
 html.day-on .day-stop {
@@ -228,18 +268,24 @@ html.day-on .day-stop .convo,
 html.day-on .day-under { display: contents; }
 html.day-on .day-stop .convo::before { display: none; }
 
+/* The setup line, small, beside the clock */
 html.day-on .day-setup {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+  justify-self: start;
   margin: 0;
-  font-size: clamp(1rem, 1.9vh, 1.1875rem);
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
   font-weight: 500;
   line-height: 1.3;
-  text-wrap: balance;
+  letter-spacing: 0;
+  color: var(--stone);
 }
 
 html.day-on .day-stop .phone {
-  grid-row: 1 / -1;
+  grid-column: 1;
+  grid-row: 3 / -1;
   align-self: center;
   justify-self: center;
   width: var(--pw);
@@ -249,13 +295,15 @@ html.day-on .day-stop .phone {
   box-shadow: none;
 }
 html.day-on .day-stop .phone-screen { background: transparent; }
-html.day-on .day-stop .phone[data-phone="left"] { grid-column: 1; transform: rotate(var(--tilt)); }
-html.day-on .day-stop .phone[data-phone="right"] { grid-column: 3; transform: rotate(calc(var(--tilt) * -1)); }
+/* The other side has no phone here: it is the notification card on the map. chat.js still plays into it. */
+html.day-on .day-stop:not([data-main="right"]) .phone[data-phone="right"],
+html.day-on .day-stop[data-main="right"] .phone[data-phone="left"] { visibility: hidden; }
 
-/* The map: the stage in the middle the whole time. It is a square as large as its cell allows. */
-html.day-on .map-figure {
+/* The map: the stage. It is a square as large as its cell allows. */
+html.day-on .map-figure,
+html.day-on .day-cardbox {
   grid-column: 2;
-  grid-row: 4;
+  grid-row: 3;
   container-type: size;
   display: grid;
   place-items: center;
@@ -263,31 +311,138 @@ html.day-on .map-figure {
   max-width: none;
   min-width: 0;
   min-height: 0;
+  margin: 0;
 }
-html.day-on #food-map {
+html.day-on #food-map,
+html.day-on .day-cardsq {
   width: min(100cqw, 100cqh);
   height: min(100cqw, 100cqh);
   aspect-ratio: auto;
 }
 
-html.day-on .day-extra {
+/* The notification card. .day-cardsq lies exactly over the map, so the card is placed in map coordinates
+   with one corner on the other person's dot, and grows out of that corner. */
+html.day-on .day-cardbox { z-index: 4; pointer-events: none; }
+html.day-on .day-cardsq { position: relative; }
+html.day-on .day-card {
+  position: absolute;
+  width: clamp(196px, 46%, 290px);
+  padding: 10px 12px 12px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow-phone);
+  text-align: left;
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.3s ease, transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+html.day-on .day-card[data-card="lost-found"] { right: 38%; top: 57%; transform-origin: 100% 0; }
+html.day-on .day-card[data-card="concern"] { left: 17%; top: 16%; transform-origin: 0 0; }
+html.day-on .day-card[data-card="food"] { right: 27%; top: 59%; transform-origin: 100% 0; }
+html.day-on .day-card[data-card="broken"] { right: 26%; bottom: 52%; transform-origin: 100% 100%; }
+html.day-on .day-card[data-card="rides"] { left: 40%; bottom: 31%; transform-origin: 0 100%; }
+html.day-on .day-stop.is-current .day-card.is-out { opacity: var(--dim); transform: none; }
+html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out { opacity: 1; }
+
+.day-card-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.day-card-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.day-card-avatar svg { width: 18px; height: 18px; fill: var(--stone); }
+.day-card-msgs { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.day-card-b {
+  position: relative;
+  display: none;
+  max-width: 94%;
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--bubble-gray);
+  border-radius: 15px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.day-card-b.is-me { align-self: flex-end; background: var(--imessage-blue); color: var(--white); }
+.day-card-b.is-photo { width: 96px; height: 72px; padding: 0; overflow: hidden; background: var(--line); }
+.day-card-b.is-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.day-card-b.is-on { display: block; animation: day-card-in 0.3s ease-out both; }
+.day-card-tap {
+  position: absolute;
+  top: -11px;
+  right: -8px;
+  display: none;
+  padding: 2px 5px;
+  background: var(--bubble-gray);
+  border: 2px solid var(--white);
+  border-radius: 12px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.day-card-tap.is-on { display: block; animation: day-card-in 0.3s ease-out both; }
+@keyframes day-card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Reported, On it, Fixed: three small marks on the technician's card */
+html.day-on .day-cardbox-repair { margin-top: 0; }
+html.day-on .day .repair-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px 12px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+html.day-on .day .repair-steps li { gap: 5px; min-height: 0; font-size: 11.5px; }
+html.day-on .day .repair-steps li::before { width: 10px; height: 10px; }
+html.day-on .day .repair-steps li + li::after { display: none; }
+
+/* Under the map: the chip, and for free food the one line about who gets the text. They share the place. */
+html.day-on .day-extra { display: none; }
+html.day-on #food .day-extra {
   grid-column: 2;
-  grid-row: 5;
+  grid-row: 4;
   display: grid;
   align-items: center;
-  min-height: 40px;
+  min-height: 46px;
 }
 html.day-on .day-stop .pair-foot {
   grid-column: 2;
-  grid-row: 6;
+  grid-row: 4;
   flex-direction: row;
   flex-wrap: nowrap;
   min-height: 46px;
   margin: 0;
 }
-html.day-on .day-stop .replay { flex: none; }
+html.day-on .day-stop .replay {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border-color: transparent;
+  color: var(--stone);
+}
+html.day-on .day-stop .replay svg { width: 17px; height: 17px; }
 
-/* Cross-fade: a stop's setup line, its two screens, its line under the map and its chip. */
+/* Cross-fade between stops: the setup line, the screen, the label above the phone, the chip. */
 html.day-on .day-setup,
 html.day-on .day-stop .phone-screen,
 html.day-on .day-stop .phone::after,
@@ -297,34 +452,43 @@ html.day-on .day-stop .pair-foot {
   opacity: 0;
   transition: opacity 0.45s ease;
 }
-html.day-on .day-stop.is-current .day-setup,
+html.day-on .day-stop.is-current .day-setup { opacity: 0.85; }
+html.day-on .day-panel[data-spot="intro"] .day-stop.is-current .day-setup { opacity: 0; }
 html.day-on .day-stop.is-current .phone-screen,
 html.day-on .day-stop.is-current .phone::after,
-html.day-on .day-stop.is-current .stage-who,
-html.day-on .day-stop.is-current .day-extra,
-html.day-on .day-stop.is-current .pair-foot { opacity: 1; }
-html.day-on .day-stop.is-current .pair-foot { pointer-events: auto; }
+html.day-on .day-stop.is-current .stage-who { opacity: 1; }
+html.day-on .day-stop.is-current .pair-foot { opacity: var(--dim); pointer-events: auto; }
+html.day-on .day-panel[data-spot="chip"] .day-stop.is-current .pair-foot { opacity: 1; }
+/* The free food line shows only while the map has the spotlight. */
+html.day-on .day-panel[data-spot="map"] #food.is-current .day-extra { opacity: 1; }
+html.day-on .day-panel[data-spot="map"] #food.is-current .pair-foot { opacity: 0; }
 
-/* The nudge: a small paper pill at the foot of the map. */
+/* The spotlight: one thing at full strength, the rest dimmed. */
+html.day-on .day-shell,
+html.day-on .day-stop .phone,
+html.day-on .map-figure { transition: opacity 0.45s ease; }
+html.day-on .day-panel[data-spot]:not([data-spot="phone"]) :is(.day-shell, .day-stop .phone) { opacity: var(--dim); }
+html.day-on .day-panel[data-spot]:not([data-spot="map"]) .map-figure { opacity: var(--dim); }
+
+/* The nudge: a small quiet pill at the foot of the map. */
 html.day-on .day-idle {
   grid-column: 2;
-  grid-row: 4;
+  grid-row: 3;
   align-self: end;
   justify-self: center;
-  z-index: 4;
+  z-index: 5;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 12px;
-  padding: 8px 16px 8px 12px;
+  gap: 5px;
+  margin: 0 0 10px;
+  padding: 5px 12px 5px 9px;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
-  box-shadow: var(--shadow-soft);
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 500;
   line-height: 1.3;
-  color: var(--ink);
+  color: var(--stone);
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
@@ -333,7 +497,7 @@ html.day-on .day-idle {
 }
 html.day-on .day-idle.is-on { opacity: 1; transform: none; }
 
-/* ---------- Narrow screens: map on top, one phone under it ---------- */
+/* ---------- Narrow screens: map on top with the card over it, the one phone below ---------- */
 
 @media (max-width: 899px) {
   html.day-on main > section#demos { padding-left: 0; padding-right: 0; }
@@ -341,36 +505,42 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
   html.day-on .day-panel {
     --pw: min(100%, 300px);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto min(40vh, calc(100vw - 28px)) auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto auto min(38vh, calc(100vw - 28px)) minmax(0, 1fr) auto;
     row-gap: 6px;
     padding: 10px 14px 8px;
     border-radius: 0;
   }
   @supports (height: 100svh) {
-    html.day-on .day-panel { grid-template-rows: auto auto min(40svh, calc(100vw - 28px)) auto minmax(0, 1fr) auto auto; }
+    html.day-on .day-panel { grid-template-rows: auto auto min(38svh, calc(100vw - 28px)) minmax(0, 1fr) auto; }
   }
-  html.day-on .day-clock { grid-column: 1; grid-row: 1; font-size: 34px; }
-  html.day-on .day-setup { grid-column: 1; grid-row: 2; font-size: 0.9375rem; }
-  html.day-on .map-figure { grid-column: 1; grid-row: 3; }
-  html.day-on .day-extra { grid-column: 1; grid-row: 4; min-height: 34px; }
+  html.day-on .day-clock { grid-column: 1; grid-row: 1; font-size: 22px; align-self: center; }
+  html.day-on .day-nav { grid-column: 1; grid-row: 1; justify-self: end; align-self: center; margin: 0 -6px 0 0; }
+  html.day-on .day-setup { grid-column: 1; grid-row: 2; font-size: 0.875rem; }
+  html.day-on .map-figure,
+  html.day-on .day-cardbox { grid-column: 1; grid-row: 3; }
+  html.day-on .day-intro { transform: translate(-22vw, -40vh) scale(0.4); }
+  html.day-on #food .day-extra { grid-column: 1; grid-row: 5; min-height: 38px; }
   html.day-on .day-note { font-size: 12.5px; line-height: 1.35; }
-  html.day-on .day-nav { grid-column: 1; grid-row: 6; }
-  html.day-on .day-stop .pair-foot { grid-column: 1; grid-row: 7; gap: 8px; }
-  html.day-on .day-idle { grid-column: 1; grid-row: 5; margin-bottom: 10px; }
-  .day-mark, .day-next { font-size: 15px; }
-  .day-mark { width: 36px; height: 36px; }
+  html.day-on .day-stop .pair-foot { grid-column: 1; grid-row: 5; gap: 4px; min-height: 38px; }
+  html.day-on .day-idle { grid-column: 1; grid-row: 3; margin-bottom: 6px; }
+  html.day-on .day-stop .chip { min-height: 36px; padding: 5px 14px 5px 12px; font-size: 13px; }
 
-  html.day-on .day .repair-steps { gap: 28px; }
-  html.day-on .day .repair-steps li { font-size: 13px; }
-  html.day-on .day-stop .chip { min-height: 38px; padding: 6px 14px 6px 12px; font-size: 13px; }
-  html.day-on .day-stop .replay { width: 38px; height: 38px; }
+  html.day-on .day-card { width: clamp(180px, 60%, 240px); padding: 8px 10px 10px; border-radius: 18px; }
+  html.day-on .day-card[data-card="lost-found"] { right: 36%; top: 50%; }
+  html.day-on .day-card[data-card="food"] { right: 27%; top: 50%; }
+  html.day-on .day-card[data-card="rides"] { left: 38%; }
+  html.day-on .day-card[data-card="broken"] { right: 22%; top: 3%; bottom: auto; transform-origin: 100% 60%; }
+  .day-card-who { margin-bottom: 6px; font-size: 12px; }
+  .day-card-avatar { width: 22px; height: 22px; }
+  .day-card-avatar svg { width: 15px; height: 15px; }
+  .day-card-b { font-size: 12px; }
+  .day-card-b.is-photo { width: 76px; height: 57px; }
 
-  /* One phone, upright, as tall as the room left for it. */
-  html.day-on .day-shell[data-side="right"] { display: none; }
-  html.day-on .day-shell[data-side="left"],
+  /* The phone, upright, as tall as the room left for it. */
+  html.day-on .day-shell,
   html.day-on .day-stop .phone[data-phone] {
     grid-column: 1;
-    grid-row: 5;
+    grid-row: 4;
     align-self: stretch;
     width: var(--pw);
     height: auto;
@@ -378,7 +548,6 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
     margin-top: 0;
     padding: 7px;
     border-radius: 34px;
-    transform: none;
   }
   html.day-on .day-shell::before { inset: 7px; border-radius: 27px; }
   html.day-on .day-stop .phone::after { display: none; }
@@ -398,14 +567,10 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
   html.day-on .day-stop .bubble.is-image { width: 116px; height: 87px; }
   html.day-on .day-stop .bubble.is-image.has-photo[data-image$="-door"] { width: 84px; height: 112px; }
 
-  /* Whichever side is speaking shows; the other waits behind it. chat.js sets data-focus on .stage. */
-  html.day-on .day-stop.is-current .stage:not([data-focus="right"]) .phone[data-phone="right"] .phone-screen,
-  html.day-on .day-stop.is-current .stage[data-focus="right"] .phone[data-phone="left"] .phone-screen { opacity: 0; }
-
   /* A small label on the top edge of the phone says whose it is. */
   html.day-on .day-stop .stage-who {
     grid-column: 1;
-    grid-row: 5;
+    grid-row: 4;
     align-self: start;
     justify-self: center;
     z-index: 3;
@@ -424,12 +589,11 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
     color: var(--ink);
     white-space: nowrap;
   }
-  html.day-on .stage-who span.is-on,
-  html.day-on .stage:not([data-focus]) .stage-who span:first-child { display: block; }
+  html.day-on .day-stop:not([data-main="right"]) .stage-who span:first-child,
+  html.day-on .day-stop[data-main="right"] .stage-who span:last-child { display: block; }
 }
 
 /* Short narrow screens: the input bar gives its room to the messages. */
 @media (max-width: 899px) and (max-height: 700px) {
   html.day-on .day-stop .msg-input { display: none; }
-  html.day-on .day-extra { min-height: 0; }
 }

@@ -1,0 +1,81 @@
+/* Troy landing: the "Available on iMessage" note that sits with every Text Troy button.
+   Markup (index.html): .badge-imessage > .badge-line ("Available on", the Messages icon, the word "iMessage")
+   and .badge-soon (the quieter second line with two or three tiny one-color icons).
+   A quiet availability note, not a button: no background, no pill, no border. */
+
+.badge-imessage {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 14px;
+  max-width: 100%;
+  color: var(--ink);
+  font-family: var(--font-body);
+  line-height: 1.3;
+  text-align: center;
+  text-decoration: none;
+}
+/* Next to a button in a row (the hero's button and QR code), it takes its own line under them. */
+.hero-cta { flex-wrap: wrap; }
+.hero-cta > .badge-imessage { flex: 0 0 100%; margin-top: 0; }
+
+.badge-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.badge-line :is(svg, img) {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  border-radius: 5px;
+}
+/* The word "iMessage" is set the way Apple sets it: the system font, medium weight. */
+.badge-line :is(b, strong, .badge-name, .badge-word, span:last-child) {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.badge-line :is(svg, img) + * { margin-left: -1px; }
+
+.badge-soon {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 3px 6px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--stone);
+  opacity: 0.8;
+}
+.badge-soon :is(svg, img) {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+/* On the painting. The hero's text is ink on a paper haze (page.css), so the note is ink there with the same haze.
+   The night footer's text is white on a dark patch, so the note is white there. */
+#hero .badge-imessage { text-shadow: 0 0 10px rgba(var(--paper-rgb), 0.9), 0 0 2px rgba(var(--paper-rgb), 0.7); }
+#hero .badge-soon { color: var(--ink); opacity: 0.66; }
+#footer .badge-imessage {
+  color: var(--white);
+  text-shadow: 0 1px 2px rgba(var(--ink-rgb), 0.55), 0 0 14px rgba(var(--ink-rgb), 0.6);
+}
+#footer .badge-soon { color: var(--paper); opacity: 0.72; }
+
+@media (max-width: 767px) {
+  .badge-imessage { margin-top: 12px; }
+  .badge-line { font-size: 13px; }
+  .badge-line :is(svg, img) { width: 20px; height: 20px; }
+  .badge-soon { font-size: 12px; max-width: 30ch; }
+}

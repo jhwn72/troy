@@ -103,6 +103,28 @@ test("landing page follows the design reference's rules", () => {
   assert.ok(day.includes("keep scrolling, the day keeps going"));
   assert.equal(day.split('class="day-next"').length - 1, 1);
   assert.deepEqual([...day.matchAll(/<li data-step="([^"]+)">/g)].map((m) => m[1]), ["reported", "on-it", "fixed"]);
+  // One phone on stage per stop: data-main says whose. The other side is a notification card on the map.
+  assert.deepEqual([...day.matchAll(/class="day-stop"[^>]* data-main="(left|right)"/g)].map((m) => m[1]), ["right", "left", "left", "left", "left"]);
+  assert.deepEqual([...day.matchAll(/<div class="day-card" data-card="([^"]+)">/g)].map((m) => m[1]), ["lost-found", "concern", "food", "broken", "rides"]);
+  assert.deepEqual([...day.matchAll(/<p class="day-card-who"[^>]*>.*?<span>([^<]+)<\/span><\/p>/g)].map((m) => m[1]), [
+    "the finder",
+    "a USG member",
+    "20 students nearby",
+    "the closest technician",
+    "2 trojans leaving when you are",
+  ]);
+  const technician = day.slice(day.indexOf('data-card="broken"'), day.indexOf('<section id="rides"'));
+  assert.ok(technician.indexOf('class="repair-steps"') > 0 && technician.indexOf('class="repair-steps"') < technician.indexOf('class="pair-foot"'), "Reported, On it, Fixed sit on the technician's card");
+  assert.equal(day.split('class="day-shell"').length - 1, 1, "one phone frame");
+  // The problem section's example lines carry no trailing period.
+  const pairs = [...html.matchAll(/<p class="pair-card">([^<]+)<\/p>/g)].map((m) => m[1]);
+  assert.equal(pairs.length, 8);
+  assert.deepEqual(pairs.slice(0, 2), ["You need a ride to LAX", "Three people in your building do too"]);
+  for (const line of pairs) assert.ok(!line.endsWith("."), line);
+  // Every link that opens a text draft has the "Available on iMessage" badge right after it.
+  assert.equal([...html.matchAll(/<a class="btn" data-sms="[^"]+">[^<]+<\/a>(?:\s*<img id="qr"[^>]*>)?\s*<p class="badge-imessage">/g)].length, 3, "a badge with every Text Troy link");
+  assert.equal(html.split('<span class="badge-name">iMessage</span>').length - 1, 3);
+  assert.equal(html.split("Coming to non-Apple devices soon").length - 1, 3);
   assert.ok(html.includes("Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it."));
   assert.ok(html.includes("<li>🏀 pickup basketball at Lyon Center</li>"));
   // Voice and the "never" list.
@@ -119,7 +141,7 @@ test("landing page follows the design reference's rules", () => {
   for (const name of ["config", "day", "chat", "scene", "map", "widgets", "thread", "fontswitch"]) {
     assert.equal(html.split(`src="landing/${name}.js"`).length - 1, 1, `${name}.js once`);
   }
-  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "day", "hero", "thread", "fontswitch"]) {
+  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "day", "hero", "thread", "fontswitch", "badge"]) {
     assert.equal(html.split(`href="landing/${name}.css"`).length - 1, 1, `${name}.css once`);
   }
 });
@@ -154,9 +176,10 @@ test("the hero tells each scenario from both sides, on two phones", () => {
   assert.deepEqual(said("hero-1", "right", "me"), ["yes"]);
   assert.ok(said("hero-1", "left", "troy").includes("done. say hi 👋"));
   // 2. Lost AirPods: the owner on the left, the finder (with a photo) on the right.
-  assert.deepEqual(said("hero-2", "left", "me"), ["lost my airpods near leavey 😭", "a trojan sticker"]);
+  // The hero plays the short version (the day scene has the full check of what is on the case).
+  assert.deepEqual(said("hero-2", "left", "me"), ["lost my airpods near leavey 😭"]);
   assert.ok(data["hero-2"].steps.some((s: Step) => s.phone === "right" && s.from === "me" && s.image === "airpods"));
-  assert.deepEqual(said("hero-2", "right", "me"), ["found these at leavey", "meet"]);
+  assert.deepEqual(said("hero-2", "right", "me"), ["meet"]);
   // 3. Free tacos: a club officer on the left, a nearby student on the right who taps 👍.
   assert.deepEqual(said("hero-3", "left", "me"), ["we have 12 extra tacos at the village"]);
   assert.equal(said("hero-3", "right", "troy")[0], "free tacos at the village 🌮 5 min from u. 12 left. react 👍 to claim");
@@ -182,7 +205,7 @@ test("landing page carries the amended copy", () => {
   assert.ok(lost.includes("left/troy: found the owner ✅ want to meet them or drop it at DPS?"));
   assert.ok(lost.includes("left/me: meet"));
   assert.ok(!lost.some((l: string) => l.startsWith("right/me: meet")), "the owner does not choose");
-  assert.ok(lines("hero-2").includes("left/troy: that's them 🙌 checking how the finder wants to hand it off"));
+  assert.ok(lines("hero-2").includes("right/troy: found the owner ✅ want to meet them or drop it at DPS?"));
   assert.ok(lines("hero-2").includes("right/me: meet"), "in the hero the finder is on the right, and chooses");
   assert.ok(!lines("hero-2").some((l: string) => l.startsWith("left/me: meet")), "the owner does not choose");
   assert.ok(html.includes("found the owner ✅ want to meet them or drop it at DPS?"));
