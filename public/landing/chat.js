@@ -60,7 +60,7 @@ const HERO = {
   delivered: 0,          // "Delivered" shows with the bubble and
   read: 260,             // turns to "Read" by itself: neither holds the conversation up
   statusInline: true,    // (that is what this switch does)
-  beforeDots: 150,       // gap between bubbles: 150 to 300 with a step's own delay
+  beforeDots: 240,       // gap between bubbles: 240 to 400 with a step's own delay
   dotsMin: 220,
   dotsMax: 350,
   dotsPerChar: 2,
@@ -68,8 +68,8 @@ const HERO = {
   countUpdate: 300,
   switchGroup: 150,
   phoneChange: 0,        // the other phone starts while this one's bubble is still landing
-  holdBeforeClear: 1100, // the connected state stays this long
-  fade: 160,
+  holdBeforeClear: 3200, // the payoff: the whole conversation stays readable this long
+  fade: 260,
   lift: 3,               // px the phone that is "speaking" rises (hero.css reads it as --hero-lift)
   pulse: 700,            // the gold line's pulse at each connection
 };
