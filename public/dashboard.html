@@ -220,7 +220,7 @@
   // ---------- the data layer ----------
   // Live from the Troy server when it answers, otherwise the example data (landing/demo.js). Same answers either way.
   // The sign-up gate and the cap are this page's own controls, so in the demo their in-memory copy lives here.
-  const demoSignups = { open: true, max: 40, count: 23 };
+  const demoSignups = { open: true, max: 40, count: 23, judges: { max: 20, count: 4 } };
   const demoOk = (json, note) => ({ status: 200, json: Object.assign({ ok: true, signups: Object.assign({}, demoSignups) }, json, { demoNote: note }) });
   async function api(path, method, body) {
     await TroyData.ready;
@@ -630,7 +630,8 @@
     $("gate-sub").textContent = g.open ? (count >= g.max ? "Open, but the demo is full." : "A new \"hey troy\" gets in.") : "New chats are turned away.";
     $("cap-count").textContent = count;
     $("cap-max").textContent = g.max;
-    $("cap-lbl").textContent = count >= g.max ? "the demo is full" : "in the demo";
+    const j = g.judges && typeof g.judges.max === "number" ? g.judges : null;
+    $("cap-lbl").textContent = (count >= g.max ? "students, full" : "students") + (j ? " · judges " + j.count + " of " + j.max : "");
     $("cap-down").disabled = g.max <= 0;
     $("cap-up").disabled = g.max >= 500;
   }

@@ -308,11 +308,11 @@ test("sign-up switch and cap: defaults, round trip, clamping, bad bodies, live c
   delete process.env.TROY_SIGNUPS;
   delete process.env.TROY_MAX_USERS;
   try {
-    assert.deepEqual((await t.call("GET", "/api/settings")).json.signups, { open: true, max: 40, count: 0 });
+    assert.deepEqual((await t.call("GET", "/api/settings")).json.signups, { open: true, max: 40, count: 0, judges: { max: 20, count: 0 } });
 
     const closed = await t.call("POST", "/api/settings/signups", { open: false });
     assert.equal(closed.status, 200);
-    assert.deepEqual(closed.json.signups, { open: false, max: 40, count: 0 });
+    assert.deepEqual(closed.json.signups, { open: false, max: 40, count: 0, judges: { max: 20, count: 0 } });
     assert.equal((await t.call("GET", "/api/settings")).json.signups.open, false);
     assert.equal((await t.call("POST", "/api/settings/signups", { open: true })).json.signups.open, true);
     for (const bad of [{}, { open: "false" }, { open: 0 }, { open: null }]) assert.equal((await t.call("POST", "/api/settings/signups", bad)).status, 400);
@@ -334,7 +334,7 @@ test("sign-up switch and cap: defaults, round trip, clamping, bad bodies, live c
     add.run("+12135550112", "any;-;+12135550112", "opt_in_phrase", Date.now());
     add.run("+12135550113", null, "manual", Date.now());
     add.run(null, "any;+;chat5", "troy_group", Date.now());
-    assert.deepEqual((await t.call("GET", "/api/settings")).json.signups, { open: true, max: 13, count: 2 });
+    assert.deepEqual((await t.call("GET", "/api/settings")).json.signups, { open: true, max: 13, count: 2, judges: { max: 20, count: 0 } });
     // Put on the manual list from the dashboard after opting in by phrase: no longer takes a seat.
     assert.equal((await t.call("POST", "/api/settings/allow-list", { handle: "+12135550111" })).status, 200);
     assert.equal((await t.call("GET", "/api/settings")).json.signups.count, 1);

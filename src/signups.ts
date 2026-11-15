@@ -62,7 +62,8 @@ export const SIGNUP_LEFT_PREFIX = "signup_left:";
 /**
  * How many people are in through the opt-in phrase: one per handle with an 'opt_in_phrase' row.
  * Never counted: the manual list (ALLOWED_HANDLES, a dashboard manual entry, even when they first came in by the
- * phrase) and Troy's groups. Someone who texted STOP or "delete my data" gives the seat back until they return.
+ * phrase), Troy's groups, and hackathon judges (John: judges don't take a spot; a judge holds one only from "hey troy"
+ * until they pick "hackathon judge"). Someone who texted STOP or "delete my data" gives the seat back until they return.
  */
 export function signupCount(db: DatabaseSync): number {
   const rows = db
@@ -70,7 +71,7 @@ export function signupCount(db: DatabaseSync): number {
       `SELECT DISTINCT a.handle AS handle FROM allow_list a
        WHERE a.reason = 'opt_in_phrase' AND a.handle IS NOT NULL
          AND NOT EXISTS (SELECT 1 FROM allow_list m WHERE m.handle = a.handle AND m.reason = 'manual')
-         AND NOT EXISTS (SELECT 1 FROM users u WHERE u.handle = a.handle AND u.stopped = 1)
+         AND NOT EXISTS (SELECT 1 FROM users u WHERE u.handle = a.handle AND (u.stopped = 1 OR u.verifiedVia = 'judge_skip'))
          AND NOT EXISTS (SELECT 1 FROM settings s WHERE s.key = '${SIGNUP_LEFT_PREFIX}' || a.handle)`,
     )
     .all() as { handle: string }[];
@@ -87,15 +88,73 @@ export function reclaimSeat(db: DatabaseSync, handle: string): void {
   db.prepare("DELETE FROM settings WHERE key = ?").run(SIGNUP_LEFT_PREFIX + handle);
 }
 
-export function signupsView(db: DatabaseSync): { open: boolean; max: number; count: number } {
-  return { open: signupsOpen(db), max: signupCap(db), count: signupCount(db) };
+// ---------- judges: their own cap (John: "judges have a separate 20 cap") ----------
+
+export const JUDGE_MAX_KEY = "signups_judge_max";
+export const DEFAULT_MAX_JUDGES = 20;
+/** Set on a newcomer let in on a judge spot while the student spots were full. Cleared when they pick judge. */
+export const JUDGE_SEAT_PREFIX = "judge_seat:";
+
+/** The judge cap: signups_judge_max once set, else TROY_MAX_JUDGES, else 20. */
+export function judgeCap(db: DatabaseSync): number {
+  const stored = getSetting(db, JUDGE_MAX_KEY);
+  return clampCap(stored ?? process.env.TROY_MAX_JUDGES, DEFAULT_MAX_JUDGES);
+}
+
+/** Judges who came in by the opt-in phrase and haven't left. Same exclusions as signupCount. */
+export function judgeCount(db: DatabaseSync): number {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT a.handle AS handle FROM allow_list a
+       JOIN users u ON u.handle = a.handle AND u.verifiedVia = 'judge_skip' AND u.stopped = 0
+       WHERE a.reason = 'opt_in_phrase' AND a.handle IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM allow_list m WHERE m.handle = a.handle AND m.reason = 'manual')
+         AND NOT EXISTS (SELECT 1 FROM settings s WHERE s.key = '${SIGNUP_LEFT_PREFIX}' || a.handle)`,
+    )
+    .all() as { handle: string }[];
+  return rows.filter((r) => !config.allowedHandles.includes(r.handle)).length;
+}
+
+export function signupsView(db: DatabaseSync): { open: boolean; max: number; count: number; judges: { max: number; count: number } } {
+  return { open: signupsOpen(db), max: signupCap(db), count: signupCount(db), judges: { max: judgeCap(db), count: judgeCount(db) } };
+}
+
+/**
+ * Which spot a new opt-in would take: "student" while the student spots have room, else "judge" while the judge
+ * spots do (we only learn who is a judge after they answer the poll), else null.
+ */
+export function openSeat(db: DatabaseSync): "student" | "judge" | null {
+  if (signupCount(db) < signupCap(db)) return "student";
+  if (judgeCount(db) < judgeCap(db)) return "judge";
+  return null;
 }
 
 /** Why a new opt-in can't be let in right now, or null when there is room and sign-ups are open. */
 export function signupBlock(db: DatabaseSync): SignupNoticeKind | null {
   if (!signupsOpen(db)) return "closed";
-  if (signupCount(db) >= signupCap(db)) return "full";
-  return null;
+  return openSeat(db) ? null : "full";
+}
+
+export function markJudgeSeat(db: DatabaseSync, handle: string): void {
+  if (handle) setSetting(db, JUDGE_SEAT_PREFIX + handle, String(Date.now()));
+}
+
+export function clearJudgeSeat(db: DatabaseSync, handle: string): void {
+  db.prepare("DELETE FROM settings WHERE key = ?").run(JUDGE_SEAT_PREFIX + handle);
+}
+
+/**
+ * True when this person came in on a judge spot and is now trying the student path while the student spots are
+ * still full. Once a student spot has opened up, the seat becomes theirs and this returns false from then on.
+ */
+export function studentSeatFull(db: DatabaseSync, handle: string): boolean {
+  if (getSetting(db, JUDGE_SEAT_PREFIX + handle) === null) return false;
+  // They are in signupCount themselves (not a judge yet), so room means the others leave a spot.
+  if (signupCount(db) - 1 < signupCap(db)) {
+    clearJudgeSeat(db, handle);
+    return false;
+  }
+  return true;
 }
 
 // ---------- the one-time notice ----------

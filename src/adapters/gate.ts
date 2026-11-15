@@ -6,7 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Handle } from "../types.ts";
 import { config, isEnabled } from "../config.ts";
 import { getSetting, setSetting } from "../db/index.ts";
-import { issueSignupNotice, reclaimSeat, signupBlock } from "../signups.ts";
+import { issueSignupNotice, markJudgeSeat, openSeat, reclaimSeat, signupBlock } from "../signups.ts";
 import type { SignupNoticeKind } from "../signups.ts";
 
 export type AllowReason = "opt_in_phrase" | "manual" | "troy_group";
@@ -144,6 +144,8 @@ export async function decide(db: DatabaseSync, input: GateInput): Promise<GateDe
     const firstMessageId = input.firstMessageId?.() ?? null;
     return issueSignupNotice(db, { handle: input.handle, chatId: input.chatId, kind: block, firstMessageId }) ? { allow: false, notice: block } : DENY;
   }
+  const seat = openSeat(db);
   allowChat(db, { handle: input.handle, chatId: input.chatId, reason: "opt_in_phrase" });
+  if (seat === "judge" && input.handle) markJudgeSeat(db, input.handle);
   return { allow: true, newlyOptedIn: true };
 }

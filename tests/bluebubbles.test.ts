@@ -1,3 +1,4 @@
+process.env.TROY_MAX_JUDGES = "0"; // these tests are about the student cap; the judge pool has its own tests
 process.env.TROY_FINDMY_WAITS_MS = "0";
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";

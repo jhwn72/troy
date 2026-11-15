@@ -31,6 +31,8 @@ function traces(db: Db) {
 const NOTHING = { allow: 0, notices: 0, users: 0, messages: 0, salt: null };
 
 beforeEach(() => {
+  // The judge pool is off for the older tests (they are about the student cap); the judge tests turn it on.
+  process.env.TROY_MAX_JUDGES = "0";
   delete process.env.TROY_SIGNUPS;
   delete process.env.TROY_MAX_USERS;
   process.env.TROY_ENABLED = "true";
@@ -38,10 +40,10 @@ beforeEach(() => {
 
 test("defaults: open, cap 40, count 0; env sets the defaults and the dashboard value wins once set", () => {
   const db = openDb(":memory:");
-  assert.deepEqual(signupsView(db), { open: true, max: 40, count: 0 });
+  assert.deepEqual(signupsView(db), { open: true, max: 40, count: 0, judges: { max: 0, count: 0 } });
   process.env.TROY_SIGNUPS = "closed";
   process.env.TROY_MAX_USERS = "25";
-  assert.deepEqual(signupsView(db), { open: false, max: 25, count: 0 });
+  assert.deepEqual(signupsView(db), { open: false, max: 25, count: 0, judges: { max: 0, count: 0 } });
   process.env.TROY_MAX_USERS = "9000";
   assert.equal(signupCap(db), 500);
   process.env.TROY_MAX_USERS = "-3";
@@ -50,7 +52,7 @@ test("defaults: open, cap 40, count 0; env sets the defaults and the dashboard v
   assert.equal(signupCap(db), 40);
   setSignupsOpen(db, true);
   assert.equal(setSignupCap(db, 12.4), 12);
-  assert.deepEqual(signupsView(db), { open: true, max: 12, count: 0 });
+  assert.deepEqual(signupsView(db), { open: true, max: 12, count: 0, judges: { max: 0, count: 0 } });
   assert.equal(getSetting(db, "signups_open"), "open");
   assert.equal(getSetting(db, "signups_max"), "12");
   assert.equal(clampCap(501), 500);
@@ -66,6 +68,55 @@ test("under the cap a new hey troy is let in and counted", async () => {
   assert.equal(signupCount(db), 2);
   assert.equal(count(db, "signup_notices"), 0);
   assert.equal(getSetting(db, "signup_notice_salt"), null);
+});
+
+test("judges don't count toward the cap once they pick hackathon judge", async () => {
+  const db = openDb(":memory:");
+  setSignupCap(db, 1);
+  const judge = phone(7);
+  await decide(db, input(judge));
+  assert.equal(signupCount(db), 1);
+  const u = getOrCreateUser(db, judge, chat(judge));
+  updateUser(db, u.id, { verifiedVia: "judge_skip" });
+  assert.equal(signupCount(db), 0);
+  assert.deepEqual(await decide(db, input(phone(8))), { allow: true, newlyOptedIn: true });
+  assert.equal(signupCount(db), 1);
+  assert.deepEqual(await decide(db, input(judge, { text: "hello" })), { allow: true, newlyOptedIn: false });
+});
+
+test("judges have their own 20 spots: a newcomer gets in on a judge spot when students are full", async () => {
+  const db = openDb(":memory:");
+  delete process.env.TROY_MAX_JUDGES;
+  setSignupCap(db, 1);
+  await decide(db, input(phone(1)));
+  assert.deepEqual(signupsView(db).judges, { max: 20, count: 0 });
+  const judge = phone(2);
+  assert.deepEqual(await decide(db, input(judge)), { allow: true, newlyOptedIn: true });
+  assert.equal(signups.studentSeatFull(db, judge), true);
+  const u = getOrCreateUser(db, judge, chat(judge));
+  updateUser(db, u.id, { verifiedVia: "judge_skip" });
+  signups.clearJudgeSeat(db, judge);
+  assert.deepEqual(signupsView(db).judges, { max: 20, count: 1 });
+  assert.equal(signupCount(db), 1);
+  // A student who got a judge spot keeps it once a student spot opens.
+  const late = phone(3);
+  await decide(db, input(late));
+  assert.equal(signups.studentSeatFull(db, late), true);
+  getOrCreateUser(db, phone(1), chat(phone(1)));
+  updateUser(db, getOrCreateUser(db, phone(1), chat(phone(1))).id, { stopped: 1 });
+  assert.equal(signups.studentSeatFull(db, late), false);
+  assert.equal(signups.studentSeatFull(db, late), false);
+});
+
+test("both pools full: refused", async () => {
+  const db = openDb(":memory:");
+  setSignupCap(db, 1);
+  process.env.TROY_MAX_JUDGES = "1";
+  await decide(db, input(phone(1)));
+  const j = phone(2);
+  await decide(db, input(j));
+  updateUser(db, getOrCreateUser(db, j, chat(j)).id, { verifiedVia: "judge_skip" });
+  assert.deepEqual(await decide(db, input(phone(3))), { allow: false, notice: "full" });
 });
 
 test("at the cap: refused with 'full' once, then silently; only a salted hash is kept", async () => {

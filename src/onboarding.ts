@@ -637,7 +637,23 @@ function sendFailedBrief(reason: EmailSendResult): Brief {
   };
 }
 
+/**
+ * Someone let in on a judge spot (the student spots were full) who then takes the student path. While the student
+ * spots are still full they get one fixed line and are let out; "hey troy" works again once there's room.
+ */
+async function studentSpotsFull(ctx: FlowContext): Promise<boolean> {
+  const { studentSeatFull, clearJudgeSeat } = await import("./signups.ts");
+  if (!studentSeatFull(ctx.db, ctx.user.handle)) return false;
+  await ctx.say("sorry, the student spots are full rn. text \"hey troy\" again in a bit and i'll let u in when one opens up");
+  clearJudgeSeat(ctx.db, ctx.user.handle);
+  ctx.setState(null);
+  const { removeFromAllowList } = await import("./adapters/gate.ts");
+  removeFromAllowList(ctx.db, ctx.user.handle);
+  return true;
+}
+
 async function sendCode(ctx: FlowContext, email: string, data: Data): Promise<void> {
+  if (await studentSpotsFull(ctx)) return;
   const { db, user } = ctx;
   const d = await deps();
   // The student / judge poll stays answerable after an email is typed.
@@ -779,6 +795,7 @@ function isGuestStudent(handle: string): boolean {
 
 async function guestStudent(ctx: FlowContext): Promise<boolean> {
   if (!isGuestStudent(ctx.user.handle)) return false;
+  if (await studentSpotsFull(ctx)) return true;
   await verified(ctx, { verifiedVia: "usc_email" }, ["ur on john's tester list, so no email check for u"]);
   return true;
 }
@@ -789,6 +806,7 @@ async function guestStudent(ctx: FlowContext): Promise<boolean> {
  * and the rest, as for anyone. The intro lives in src/judge.ts and is worded through this file's own composer.
  */
 async function judgeSkip(ctx: FlowContext): Promise<void> {
+  (await import("./signups.ts")).clearJudgeSeat(ctx.db, ctx.user.handle);
   updateUser(ctx.db, ctx.user.id, { verifiedAt: Date.now(), verifiedVia: "judge_skip" });
   ctx.db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(ctx.user.id);
   ctx.setState({ flow: FLOW, step: "alerts", data: {} });
