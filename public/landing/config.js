@@ -91,3 +91,14 @@ function start() {
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
 else start();
+
+// Apple devices can text Troy today, so they don't need the "coming to non-Apple devices" line.
+// Everyone else keeps it. Detection is by platform; iPads report as Mac, which is fine here.
+(() => {
+  try {
+    const ua = navigator.userAgent || '';
+    const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    const apple = /iPhone|iPad|iPod|Macintosh|Mac OS X/i.test(ua) || /^(Mac|iPhone|iPad|iPod)/i.test(platform);
+    document.documentElement.classList.add(apple ? 'is-apple' : 'not-apple');
+  } catch (error) { /* leave both lines showing */ }
+})();

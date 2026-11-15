@@ -79,3 +79,6 @@
   .badge-line :is(svg, img) { width: 20px; height: 20px; }
   .badge-soon { font-size: 12px; max-width: 30ch; }
 }
+
+/* On Apple devices the second line is noise: they can text Troy right now. */
+.is-apple .badge-soon { display: none; }
