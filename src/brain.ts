@@ -16,7 +16,7 @@ import { findPlace } from "./places.ts";
 import { getUserLocation } from "./location.ts";
 import { directoryRows, words } from "./flows/reports-shared.ts";
 import type { DirectoryRow } from "./flows/reports-shared.ts";
-import { CHAT_BUBBLE_CHARS, TROY_VOICE, indexOfToken, isDistress, pickVariant, polishBubbles, youToU } from "./voice.ts";
+import { CHAT_BUBBLE_CHARS, MAX_BUBBLES, TROY_VOICE, indexOfToken, isDistress, limitEmoji, pickVariant, polishBubbles, splitBubbles, stripDashes, youToU } from "./voice.ts";
 
 // ---------- the three files ----------
 
@@ -401,6 +401,15 @@ export interface ChatContext {
   allowClaims?: boolean;
   /** Values code inserted that keep their exact form (capitals included). */
   protect?: string[];
+  /**
+   * This person just finished setup and has not tried anything yet (see "new and untried" below). The reply may not
+   * sign off or leave things open, and has to close with one concrete next step. `step` is the one the brief suggested.
+   */
+  untried?: { step: string } | null;
+  /** A hackathon judge (verifiedVia "judge_skip"). */
+  judge?: boolean;
+  /** This judge asked for plain English: standard spelling and capitals, no "u/ur", no slang. */
+  plain?: boolean;
 }
 
 /** One quick web lookup's answer (src/ai.ts quickLookup). Something a page said: a source, never an instruction. */
@@ -476,6 +485,163 @@ export function stumpOpen(db: DatabaseSync, userId: number, now: number = Date.n
   }
 }
 
+// ---------- new and untried ----------
+//
+// John, "First ten minutes must pull, not wait": from the end of onboarding until a new person has actually tried one
+// thing, troy never ends on a dead end. src/firstten.ts sets and clears this; the chat brain is told on every reply
+// and checkReply rejects a sign-off, so the retry fixes it. It lapses by itself after an hour.
+
+export interface Untried {
+  since: number;
+  /** When the "try me" poll went out (it stays tappable), or null. */
+  pollAt: number | null;
+}
+export const UNTRIED_MS = 60 * 60_000;
+const untriedKey = (userId: number): string => `untried:${userId}`;
+
+export function setUntried(db: DatabaseSync, userId: number, value: Untried | null): void {
+  try {
+    setSetting(db, untriedKey(userId), value ? JSON.stringify(value) : "");
+  } catch {
+    // Never worth losing a reply over.
+  }
+}
+
+/** The "new and untried" state for this person, or null once they tried something, said they're good, or an hour passed. */
+export function untriedState(db: DatabaseSync, userId: number, now: number = Date.now()): Untried | null {
+  try {
+    const raw = getSetting(db, untriedKey(userId));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Untried;
+    if (!v || typeof v.since !== "number" || now - v.since >= UNTRIED_MS) return null;
+    return { since: v.since, pollAt: typeof v.pollAt === "number" ? v.pollAt : null };
+  } catch {
+    return null;
+  }
+}
+
+/** The one next step the chat brain is pointed at for an untried person: the first of his moves they haven't seen. */
+export function pullStep(db: DatabaseSync, userId: number, state: Untried): string {
+  const poll = state.pollAt !== null ? " (the poll troy sent earlier is still there, so \"tap one of those\" works too)" : "";
+  if (!moveUsed(db, userId, "tour")) return `offer to show them right now: they pretend they lost something and troy runs the real check on them. ask if they're down, a yes starts it${poll}`;
+  if (!moveUsed(db, userId, "stump")) return `dare them to name any campus problem, and troy says who handles it${poll}`;
+  if (!moveUsed(db, userId, "one_question")) return "ask what one thing they wish was easier at usc";
+  return "ask them to send a photo of anything on campus that looks lost or broken, and troy takes it from there";
+}
+
+/** What a reply sounds like when it leaves a new person with nothing to do. Tested on the lowercase "u" form. */
+const SIGN_OFF =
+  /\bno (?:rush|pressure|worries if not)\b|\bwhenever\b|\banytime\s*[.!]*$|\btake ur time\b|\b(?:they|those|that|it|these)(?:'re| are|'s| is)(?: all| still| right)? (?:there|here)(?: for u)? (?:if|when) u\b|\b(?:are|is) there (?:if|when) u (?:want|need)\b|\blmk\b|\blet me know\b|\bjust say the word\b|\bi'?m (?:here|around)\b|\bhmu\b|\bhit me up\b|\btext me (?:if|when) u\b|\bif u (?:ever )?(?:want|need) (?:them|it|me|anything|something)\s*[.!]*$|\bup to u\b|\bur call\b/m;
+/** The last bubble offers something to do: a question, exact words to text, or a tap. */
+const NEXT_STEP = /\?["')\s]*$|"[^"]{2,40}"|\b(?:tap|pick one|send me|show me|try (?:it|me|this|one)|text me (?:a|the|ur|what|one)|tell me (?:what|one|where|a|ur))\b/;
+
+// ---------- judges and plain tone ----------
+//
+// src/judge.ts owns both answers (isJudge, plainTone). It is loaded lazily and may not exist: without it a judge is
+// read from verifiedVia and plain tone is off.
+
+type JudgeHooks = { isJudge?: (user: User) => boolean; plainTone?: (db: DatabaseSync, userId: number) => boolean };
+let judgeMod: JudgeHooks | null = null;
+let judgeOverride: JudgeHooks | null = null;
+const JUDGE_FILE = "./judge.ts";
+void import(JUDGE_FILE).then(
+  (m: JudgeHooks) => {
+    judgeMod = m;
+  },
+  () => {
+    judgeMod = null;
+  },
+);
+
+/** Tests only: stand in for src/judge.ts. Null restores the real module (or its absence). */
+export function setJudgeHooks(hooks: JudgeHooks | null): void {
+  judgeOverride = hooks;
+}
+
+/** Whether this person is a hackathon judge, and whether they asked troy to drop the slang. Never throws. */
+export function judgeInfo(db: DatabaseSync, user: User): { judge: boolean; plain: boolean } {
+  const h = judgeOverride ?? judgeMod;
+  let judge = user.verifiedVia === "judge_skip";
+  let plain = false;
+  try {
+    if (typeof h?.isJudge === "function") judge = !!h.isJudge(user);
+    if (typeof h?.plainTone === "function") plain = !!h.plainTone(db, user.id);
+  } catch {
+    // The defaults stand.
+  }
+  return { judge, plain };
+}
+
+/** The one contact in about-troy.md. Judges may be given it (John, "Judge mode"); the checks keep it from everyone else. */
+export const JOHN_EMAIL = "johnwang@usc.edu";
+const JUDGE_LINE =
+  `this person is a hackathon judge trying the demo (they skipped verification). if they ask a pitch question (how is this different from chatgpt, what does it cost, what's next, who is it for, does usc know), answer it crisply from the about section in one to three short bubbles, facts first. for anything deeper, john is around: ${JOHN_EMAIL}.`;
+const PLAIN_LINE =
+  'this judge asked troy to drop the slang. for this person write full, standard english: "you" and "your", normal capital letters and punctuation, no "u" or "ur", no texting shortcuts (rn, lmk, idk, tbh, gonna, wanna) and no slang. this overrides the lowercase and u/ur rules above. everything else holds: short bubbles, warm, at most one emoji.';
+
+/** Texting shortcuts and slang a plain-tone reply may not carry. Exact phrases to type (in double quotes) are left out before this runs. */
+const PLAIN_SLANG = /\b(?:u|ur|urs|urself|rn|lmk|idk|tbh|ngl|gonna|wanna|gotta|prolly|pls|plz|thx|omw|nvm|btw|nah|yep|yup|lol|lmao|tho|cuz|ppl|smth|sth|hmu|wyd|dunno|lemme|gimme|kinda|sorta)\b|^bet\b/im;
+
+const outsideQuotes = (text: string, fn: (part: string) => string): string =>
+  text
+    .split(/("[^"]*")/)
+    .map((part, i) => (i % 2 ? part : fn(part)))
+    .join("");
+
+/** Capital letters where standard English has them: the start of a sentence and the word "I". Quoted phrases to type are untouched. */
+export function sentenceCase(text: string): string {
+  const cased = outsideQuotes(text, (part) => part.replace(/(?<![a-z0-9'])i(?=(?:'(?:m|ll|d|ve))?(?![a-z0-9']))/g, "I").replace(/([.!?]\s+)([a-z])/g, (_, gap: string, ch: string) => gap + ch.toUpperCase()));
+  return cased.replace(/^(\s*\(?)([a-z])/, (_, lead: string, ch: string) => lead + ch.toUpperCase());
+}
+
+const UR_IS_YOU_ARE = /^(?:a|an|the|not|both|all|so|in|on|at|good|welcome|right|set|done|verified|here|there|still|already|now|free|new|ok|okay|sure|up|down|just|never|always|also|really|too|way|gonna|going|[a-z]+ing)$/;
+const PLAIN_WORDS: [RegExp, string][] = [
+  [/\burself\b/g, "yourself"],
+  [/\burs\b/g, "yours"],
+  [/\bu\b/g, "you"],
+  [/\brn\b/g, "right now"],
+  [/\blmk\b/g, "let me know"],
+  [/\bidk\b/g, "I don't know"],
+  [/\btbh\b/g, "to be honest"],
+  [/\bngl\b/g, "honestly"],
+  [/\bpl[sz]\b/g, "please"],
+  [/\bthx\b/g, "thanks"],
+  [/\bgonna\b/g, "going to"],
+  [/\bwanna\b/g, "want to"],
+  [/\bgotta\b/g, "have to"],
+  [/\blemme\b/g, "let me"],
+  [/\bgimme\b/g, "give me"],
+  [/\bkinda\b/g, "kind of"],
+  [/\bprolly\b/g, "probably"],
+  [/\bbtw\b/g, "by the way"],
+  [/\btho\b/g, "though"],
+  [/\bnah\b/g, "no"],
+  [/\by(?:ep|up)\b/g, "yes"],
+  [/\bomw\b/g, "on my way"],
+  [/\bnvm\b/g, "never mind"],
+  [/\bcuz\b/g, "because"],
+  [/\bppl\b/g, "people"],
+  [/\bs(?:mth|th)\b/g, "something"],
+  [/\bhmu\b/g, "text me"],
+  [/\bdunno\b/g, "don't know"],
+  [/^bet\b[,.]?\s*/g, "okay, "],
+  [/\b(?:lol|lmao)\b[,.]?\s*/g, ""],
+];
+
+/**
+ * A hand-written line (which is in troy's texting voice) put into plain English for a judge who asked for it:
+ * "u" becomes "you", "ur" becomes "your" or "you're" by the word after it, the common shortcuts are spelled out,
+ * and sentences get their capitals. Exact phrases to type, in double quotes, stay as they are. Best effort.
+ */
+export function toPlainEnglish(text: string): string {
+  const out = outsideQuotes(text, (part) => {
+    let p = part.replace(/\bur\b(\s+)([a-z']+)?/g, (_, gap: string, next: string | undefined) => `${next && UR_IS_YOU_ARE.test(next) ? "you're" : "your"}${gap}${next ?? ""}`);
+    for (const [re, to] of PLAIN_WORDS) p = p.replace(re, to);
+    return p;
+  });
+  return sentenceCase(out.replace(/[ \t]{2,}/g, " ").trim());
+}
+
 /** Troy's own lines from the "troy: ..." examples in the persona, lowercase. Short ones ("bet", a plain greeting) are left out: anyone might say them. */
 export function exampleLinesOf(persona: string): Set<string> {
   const out = new Set<string>();
@@ -542,6 +708,8 @@ export function buildChatContext(input: {
   extra?: string[];
   /** Extra text a contact, date or number may be copied from (facts code handed over for this reply). */
   extraAllow?: string;
+  /** A free reply to their message (not a step, not a line troy starts himself): the "new and untried" pull applies. */
+  pull?: boolean;
 }): ChatContext {
   const { db, user } = input;
   const now = input.now ?? Date.now();
@@ -553,6 +721,10 @@ export function buildChatContext(input: {
   const heavy = input.heavy ?? isHeavy(db, user.id, now);
   const lookup = input.lookup ? cleanLookup(input.lookup) : null;
   const usedMoves = MOVES.filter((m) => moveUsed(db, user.id, m));
+  const { judge, plain } = judgeInfo(db, user);
+  // Never in a heavy moment, at an open lost and found step, or while a looked up answer is being relayed.
+  const fresh = input.pull && !heavy && !input.lockedStep && !lookup ? untriedState(db, user.id, now) : null;
+  const untried = fresh ? { step: pullStep(db, user.id, fresh) } : null;
 
   const settings = settingsLine(db, user, now);
   const who = [user.name ? `name: ${user.name}` : "name: not given", settings].join("; ");
@@ -576,6 +748,11 @@ export function buildChatContext(input: {
   const prompt = [
     preamble,
     heavy ? "this conversation is heavy: something serious came up. be gentle, plain and short. no jokes, no emoji, no usc touch, no offers, nothing about what troy does. stay with what they just said." : "",
+    judge ? JUDGE_LINE : "",
+    plain ? PLAIN_LINE : "",
+    untried
+      ? `this person is NEW AND UNTRIED: they just finished setup and haven't tried a single thing yet. a new person who hits a dead end closes the chat. so for this reply: answer what they said in a few words, then close with exactly one easy, concrete next step. the step to use: ${untried.step}. never sign off and never leave it open: no "no rush", no "whenever", no "those are there if u want", no "lmk", no "i'm around". a bare "ok", "cool", "k", "lol", "sounds good" or a thumbs up means keep going, so u make that next step urself. one step only, never a menu. (this overrides "a one word text gets no offer".)`
+      : "",
     usedMoves.length ? `moves this person has already seen (never make one again): ${usedMoves.map((m) => MOVE_WORDS[m]).join(", ")}` : "",
     !heavy && stumpOpen(db, user.id, now) ? "troy just dared them to stump him (name any campus problem and he says who handles it). if this message names one, answer it from the looked up rows. if no row fits, say honestly that one got him and give a plain-words guess at who would." : "",
     facts.rows.length
@@ -604,7 +781,8 @@ export function buildChatContext(input: {
     notes,
     facts,
     allowText: [
-      brain.about,
+      // John's email is in the about section for judges only. For a student it is not a contact he may hand out.
+      judge ? brain.about : brain.about.replaceAll(JOHN_EMAIL, ""),
       ...brain.extras.map((e) => e.text),
       ...facts.rows.map(rowText),
       facts.place?.name ?? "",
@@ -627,6 +805,9 @@ export function buildChatContext(input: {
     heavy,
     mode: brain.mode,
     guard: guardOf(brain),
+    untried,
+    judge,
+    plain,
     ...(lookup ? { onlyLink: lookup.sourceUrl || null, needsDoubleCheck: true } : {}),
   };
 }
@@ -1000,7 +1181,7 @@ export type ReplyCheck = { ok: true; bubbles: string[] } | { ok: false; reason: 
 export function checkReply(
   raw: unknown,
   c: Pick<ChatContext, "allowText" | "echoText" | "askedCapabilities" | "askedIdentity" | "noEmoji"> &
-    Partial<Pick<ChatContext, "exampleLines" | "ownText" | "saidBefore" | "secretCodes" | "lockedStep" | "heavy" | "mode" | "guard" | "onlyLink" | "needsDoubleCheck" | "allowClaims" | "protect" | "userText">>,
+    Partial<Pick<ChatContext, "exampleLines" | "ownText" | "saidBefore" | "secretCodes" | "lockedStep" | "heavy" | "mode" | "guard" | "onlyLink" | "needsDoubleCheck" | "allowClaims" | "protect" | "userText" | "untried" | "plain">>,
 ): ReplyCheck {
   const list = typeof raw === "string" ? [raw] : Array.isArray(raw) && raw.every((b) => typeof b === "string") ? (raw as string[]) : null;
   if (!list || !list.some((b) => b.trim())) return { ok: false, reason: "no bubbles. reply with one to three short texts" };
@@ -1011,11 +1192,14 @@ export function checkReply(
   if (codeShaped(rawText, known) || CODE_AFTER_WORD.test(rawText)) return { ok: false, reason: noCode };
 
   const allowed = contactTokens(c.allowText);
-  const bubbles = polishBubbles(list, { protect: [...allowed, ...(c.protect ?? [])], noEmoji: c.noEmoji || !!c.heavy, maxChars: CHAT_BUBBLE_CHARS, strictCount: true });
+  const bubbles = c.plain
+    ? polishPlain(list, { noEmoji: c.noEmoji || !!c.heavy, maxChars: CHAT_BUBBLE_CHARS })
+    : polishBubbles(list, { protect: [...allowed, ...(c.protect ?? [])], noEmoji: c.noEmoji || !!c.heavy, maxChars: CHAT_BUBBLE_CHARS, strictCount: true });
   if (!bubbles) return { ok: false, reason: "too long. at most three bubbles, each under 150 characters, one idea each. cut it down to the part that matters" };
 
   const text = bubbles.join("\n");
-  const low = text.toLowerCase();
+  // Every check below is written for his texting voice, so a plain-tone reply is read in that form (and sent as written).
+  const low = c.plain ? youToU(text.toLowerCase()) : text.toLowerCase();
   const allowLow = c.allowText.toLowerCase();
   const notStored = (token: string) => `"${token}" is not in the looked up rows. only use a link, email or phone number that is there, copied exactly, or leave it out`;
   if (c.onlyLink !== undefined) {
@@ -1062,7 +1246,29 @@ export function checkReply(
   if (bubbles.some((b) => (b.match(/"/g) ?? []).length % 2 === 1)) return { ok: false, reason: 'a double quote was opened and never closed. every exact phrase to type gets both of its quotes' };
   if (PERSON_CLAIMS.some((re) => re.test(low))) return { ok: false, reason: "troy is an ai. never say or hint he is a person or a student" };
   if (!c.allowClaims && claimsAction(low)) return { ok: false, reason: "troy can't email, call, book or send anything from this chat. don't say he did or will. if they want something done, hand off" };
+  if (c.untried) {
+    const step = c.untried.step;
+    if (SIGN_OFF.test(low)) return { ok: false, reason: `this person is new and hasn't tried anything yet, and that reads as a sign-off. never "no rush", "whenever", "those are there if u want" or "lmk". close with exactly one easy, concrete next step instead: ${step}` };
+    if (!NEXT_STEP.test(low.split("\n").pop() ?? "")) return { ok: false, reason: `this person is new and hasn't tried anything yet, and that reply leaves them with nothing to do. end it with exactly one easy, concrete next step: ${step}` };
+  }
+  if (c.plain) {
+    const slang = PLAIN_SLANG.exec(text.replace(/"[^"]*"/g, " "));
+    if (slang) return { ok: false, reason: `this judge asked for plain english, and "${slang[0].trim()}" is a texting shortcut. write "you" and "your" and spell everything out, with normal capitals. keep it just as short` };
+    return { ok: true, bubbles: bubbles.map(sentenceCase) };
+  }
   return { ok: true, bubbles };
+}
+
+/** The plain-tone version of polishBubbles: nothing is lowercased and "you" stays "you". Null when it can't be sent as is. */
+function polishPlain(raw: string[], opts: { noEmoji: boolean; maxChars: number }): string[] | null {
+  const out: string[] = [];
+  for (const part of splitBubbles(raw)) {
+    const b = limitEmoji(stripDashes(part), opts.noEmoji ? 0 : 1);
+    if (!b) continue;
+    if (b.length > opts.maxChars) return null;
+    out.push(b);
+  }
+  return out.length && out.length <= MAX_BUBBLES ? out : null;
 }
 
 // ---------- how often the checks cost him his own words ----------
@@ -1140,7 +1346,8 @@ const LEAKED_STRUCTURE = /[{}]|"\s*:\s*"/;
  * Never throws. With no model, or two rejected tries, it returns one varied hand-written line and action null.
  */
 export async function replyAtStep(ctx: FlowContext, step: OpenStep): Promise<{ bubbles: string[]; action: string | null }> {
-  const fallback = () => ({ bubbles: [stepFallback(ctx, step)], action: null });
+  const plainFor = judgeInfo(ctx.db, ctx.user).plain;
+  const fallback = () => ({ bubbles: [stepFallback(ctx, step)].map((b) => (plainFor ? toPlainEnglish(b) : b)), action: null });
   try {
     if (!modelReady()) return fallback();
     const brain = loadBrain();
@@ -1263,7 +1470,9 @@ export async function sayInHisWords(ctx: FlowContext, brief: Brief): Promise<str
     const pool = brief.fallback.filter((v) => Array.isArray(v) && v.length);
     if (!pool.length) return [];
     const pick = pickVariant(ctx.db, ctx.user.id, `say:${hashOf(brief.goal)}`, pool.map((_, i) => String(i)));
-    return pool[Number(pick)] ?? pool[0]!;
+    const lines = pool[Number(pick)] ?? pool[0]!;
+    // A judge who asked for plain english gets the hand-written line spelled out too.
+    return judgeInfo(ctx.db, ctx.user).plain ? lines.map(toPlainEnglish) : lines;
   };
   try {
     if (!modelReady()) return fallback();

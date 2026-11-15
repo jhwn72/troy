@@ -27,6 +27,7 @@ import { fallbackIntent, modelReady } from "./ai.ts";
 import { askedWhatHeDoes, askedWhoHeIs, replyAtStep, sayInHisWords } from "./brain.ts";
 import { fallbackReply } from "./flows/smalltalk.ts";
 import { afterOnboarding } from "./firstten.ts";
+import { judgeIntro } from "./judge.ts";
 import { locationOptedOut, noteLocationRequestedByUser } from "./location.ts";
 import { pickVariant } from "./voice.ts";
 import { readYesNo } from "./yes.ts";
@@ -612,7 +613,23 @@ async function verified(ctx: FlowContext, fields: Record<string, string | number
   await askAlerts(ctx, lead);
 }
 
-const judgeSkip = async (ctx: FlowContext): Promise<void> => verified(ctx, { verifiedVia: "judge_skip" }, (await deps()).pickLine(ctx, "judge"));
+/**
+ * The judge skip. After the thanks line he tells them once what is different for a judge (faster typing, the casual
+ * student voice, that they can ask for anything straight) and offers the one-tap tone switch; then the alerts poll
+ * and the rest, as for anyone. The intro lives in src/judge.ts and is worded through this file's own composer.
+ */
+async function judgeSkip(ctx: FlowContext): Promise<void> {
+  updateUser(ctx.db, ctx.user.id, { verifiedAt: Date.now(), verifiedVia: "judge_skip" });
+  ctx.db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(ctx.user.id);
+  ctx.setState({ flow: FLOW, step: "alerts", data: {} });
+  await ctx.say(...(await deps()).pickLine(ctx, "judge"));
+  try {
+    await judgeIntro(ctx, inHisWords);
+  } catch {
+    // The intro is context, never a gate: the alerts poll still goes out.
+  }
+  await askAlerts(ctx, []);
+}
 
 const SAYS_JUDGE = /^(?:im |i am |i m )?(?:a |the |an? )?(?:hackathon )?judge(?: here)?$/;
 const SAYS_STUDENT = /^(?:im |i am |i m )?(?:a |an? )?(?:usc )?student(?: here)?$/;

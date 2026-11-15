@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COMMAND_POOLS, matchCommand, isCrisis, isEmergency, isHeyTroy, endsPlayful, safetySignal, TEMPLATES, DPS } from "../src/commands.ts";
+import { COMMAND_POOLS, matchCommand, meantCommand, isCrisis, isEmergency, isHeyTroy, endsPlayful, safetySignal, TEMPLATES, DPS } from "../src/commands.ts";
 
 const kind = (t: string) => matchCommand(t)?.kind ?? null;
 const EMOJI = /\p{Extended_Pictographic}/u;
@@ -246,7 +246,7 @@ test("command pools: lowercase, no em dashes, at most one emoji, and exact words
   }
   // Each of these tells the student one exact word to text, so the word is quoted.
   for (const line of COMMAND_POOLS.pause) assert.match(line, /"resume"/, line);
-  for (const name of ["askStop", "askPause", "askResume", "askForgetLocation", "askUnsubscribe", "askStart"] as const) for (const line of COMMAND_POOLS[name]) assert.match(line, /"yes"/, line);
+  for (const name of ["askStop", "askPause", "askResume", "askForgetLocation", "askUnsubscribe", "askStart", "askDelete"] as const) for (const line of COMMAND_POOLS[name]) assert.match(line, /"yes"/, line);
   // The location confirmation always says both halves.
   for (const line of COMMAND_POOLS.forgetLocation) assert.match(line, /(?:won't|only).*(?:again|share)/, line);
 });
@@ -261,4 +261,61 @@ test("fixed lines quote the exact words to type", () => {
   assert.equal(COMMAND_POOLS.pause[0], TEMPLATES.pause[0]);
   assert.equal(COMMAND_POOLS.resume[0], TEMPLATES.resume[0]);
   assert.equal(COMMAND_POOLS.forgetLocation[0], TEMPLATES.forgetLocation[0]);
+});
+
+// ---------- commands by meaning that code reads by itself ----------
+
+test("a plain request to be deleted is read in code, however it is worded", () => {
+  for (const t of [
+    "Delete me pls",
+    "delete me",
+    "delete my account",
+    "erase me",
+    "Erase me please.",
+    "can u delete my account",
+    "hey troy delete everything u have on me",
+    "erase everything you have on me",
+    "wipe all my data",
+    "remove me from ur system",
+    "i want u to delete my info",
+    "forget me",
+    "delete everything about me rn",
+  ]) {
+    assert.deepEqual(meantCommand(t), { name: "delete_data", certainty: "clear" }, t);
+  }
+  // The exact words stay an instant command and never reach this.
+  assert.equal(matchCommand("delete my data")?.kind, "delete_data");
+  assert.equal(TEMPLATES.confirmDelete[0], COMMAND_POOLS.askDelete[0]);
+});
+
+test("playful, partial or mid-sentence uses of the same words are not commands", () => {
+  for (const t of [
+    "delete this class from my life lol",
+    "delete me lol",
+    "delete me 😂",
+    "erase that from my memory",
+    "can u delete my last report",
+    "delete my location",
+    "i wish i could delete my account on canvas",
+    "my roommate told me to delete my account",
+    "forget me not is a flower",
+    "delete everything",
+    "remove me from the group chat",
+    "i can't stop laughing",
+    "stop lol",
+    "wipe the whiteboard in leavey",
+    "",
+  ]) {
+    assert.equal(meantCommand(t), null, t);
+  }
+});
+
+test("asking how to delete, stop or mute is read as an unsure wish, so troy offers to do it instead of listing words to type", () => {
+  assert.deepEqual(meantCommand("how do i delete my data?"), { name: "delete_data", certainty: "unsure" });
+  assert.deepEqual(meantCommand("how can i delete my account"), { name: "delete_data", certainty: "unsure" });
+  assert.deepEqual(meantCommand("how do i unsubscribe"), { name: "stop", certainty: "unsure" });
+  assert.deepEqual(meantCommand("how do i turn this off?"), { name: "stop", certainty: "unsure" });
+  assert.deepEqual(meantCommand("how do i mute the alerts"), { name: "pause", certainty: "unsure" });
+  // A hypothetical, or a question about something else, stays a question for the chat brain.
+  for (const t of ["how do i make u stop if i need to", "how do i stop procrastinating", "how do i delete a post on canvas", "what are the commands", "how do i pause a video in class"]) assert.equal(meantCommand(t), null, t);
 });

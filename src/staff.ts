@@ -18,11 +18,11 @@ import { config, normalizeHandle } from "./config.ts";
 import { getFlowState, getUserByHandle, getUserById, setFlowState } from "./db/index.ts";
 import { getUserLocation } from "./location.ts";
 import { findPlace, walkingMinutes } from "./places.ts";
-import { pickVariant } from "./voice.ts";
+import { keepVerbatim, pickVariant } from "./voice.ts";
 import { canAlert } from "./quiet.ts";
 import { dropPending, isBusy, onSweep, onUserGone, parkAsk, pendingFor, registerPendingHooks } from "./pending.ts";
 import { RELAY_COPY, startRelay } from "./relay.ts";
-import { reportReference } from "./flows/reports-shared.ts";
+import { reportReference, unvoiced } from "./flows/reports-shared.ts";
 
 type Row = Record<string, unknown>;
 
@@ -43,6 +43,8 @@ export const TALK_WAIT_MS = 10 * 60 * 1000;
  * this exact bubble.
  */
 export const CONTACT_WARNING = "heads up, that shares ur contact info. ok?";
+// On the safety list: word for word in every tone, plain english included.
+keepVerbatim(CONTACT_WARNING);
 
 // ---------- tables ----------
 
@@ -600,6 +602,18 @@ async function yesNo(event: IncomingEvent): Promise<"yes" | "no" | null> {
 }
 
 /** The text of one of Troy's own bubbles in this person's chat. */
+/** The row id of the newest thing Troy sent this person. */
+function newestOutRow(db: DatabaseSync, userId: number): number {
+  const row = db.prepare("SELECT id FROM messages WHERE userId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(userId) as { id: number } | undefined;
+  return row ? Number(row.id) : 0;
+}
+
+/** The id of the last bubble sent to this person after row `before` (the warning closes that turn), or null when nothing went out yet (it is waiting in the outbox). */
+function warningSentAfter(db: DatabaseSync, userId: number, before: number): string | null {
+  const row = db.prepare("SELECT providerMessageId FROM messages WHERE userId = ? AND direction = 'out' AND id > ? ORDER BY id DESC LIMIT 1").get(userId, before) as { providerMessageId: string | null } | undefined;
+  return row?.providerMessageId ?? null;
+}
+
 function bubbleText(db: DatabaseSync, userId: number, messageId: string): string | null {
   const row = db.prepare("SELECT text FROM messages WHERE providerMessageId = ? AND userId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(messageId, userId) as { text: string | null } | undefined;
   return row?.text ?? null;
@@ -740,6 +754,7 @@ async function askStudents(io: StaffIo, me: User, job: Row, report: Report): Pro
       parkAsk(db, userId, step, bubbles);
     } else {
       let ok: boolean | void = false;
+      const before = newestOutRow(db, userId);
       try {
         ok = await io.tell(userId, bubbles);
       } catch {
@@ -750,7 +765,10 @@ async function askStudents(io: StaffIo, me: User, job: Row, report: Report): Pro
         db.prepare("UPDATE report_people SET talk = 'no' WHERE reportId = ? AND userId = ?").run(report.id, userId);
         continue;
       }
-      setFlowState(db, userId, step);
+      // The warning bubble is remembered by its id (when it went out right away), so a thumbs up is matched to the
+      // bubble itself and never to what its text happens to look like in this person's tone.
+      const qid = warningSentAfter(db, userId, before);
+      setFlowState(db, userId, qid ? { ...step, data: { ...step.data, qid } } : step);
     }
     db.prepare("UPDATE report_people SET talk = 'asked' WHERE reportId = ? AND userId = ?").run(report.id, userId);
     asked++;
@@ -861,6 +879,150 @@ async function stepReply(): Promise<StepReply | null> {
   return brainStep;
 }
 
+// ---------- judges, and the other side when nobody real is there ----------
+//
+// Two things every flow calls and neither owns: the short aside a hackathon judge gets after a step (src/judge.ts),
+// and the simulated other side offered when Troy found nobody real to connect someone with (src/simulate.ts).
+// Both are loaded at call time, never at the top: they talk through the chat brain and play the flows' own steps,
+// so a top-level import would loop back here. A missing or failing module is the same as nothing to say:
+// an aside or an offer is never allowed to cost anyone the reply they were owed.
+
+/**
+ * What a flow hands judgeAside after a step. `did` says what just happened, with {name} placeholders that are
+ * filled from `numbers`: the real ones from this run, never anything from the verification answer key.
+ */
+export type AsideNote = { step: string; behind?: { did: string; numbers?: Record<string, number | string> }; decision?: string };
+export type SimKind = "lost_found_owner" | "lost_found_finder" | "food" | "repair" | "usg" | "rides" | "topics";
+
+export interface DemoHooks {
+  judgeAside(ctx: FlowContext, note: AsideNote): Promise<void>;
+  offerSimulation(ctx: FlowContext, kind: SimKind, context: Record<string, string>): Promise<boolean>;
+  runSimulation(ctx: FlowContext): Promise<boolean>;
+}
+
+/**
+ * Entries of docs/design-decisions.md, by the short keys src/judge.ts looks them up with (a key survives the list
+ * being renumbered). Named here so a call site reads as the choice it is about.
+ */
+export const DECISION = {
+  /** Troy connects, then steps back. The offices stay in charge. */
+  officesStayInCharge: "steps_back",
+  /** A photo replaces the form. */
+  photoReplacesForm: "photo",
+  /** Location decides who hears about it. */
+  locationDecides: "location",
+  /** The finder chooses the handoff. */
+  finderChooses: "finder_chooses",
+  /** Troy texts first. */
+  troyTextsFirst: "texts_first",
+  /** Prove it before you see it. */
+  proveItFirst: "prove_first",
+  /** Contact info is shared only after both people say yes. */
+  contactAfterBothYes: "contact",
+  /** Code owns the facts, the AI owns the wording. */
+  codeOwnsFacts: "facts",
+  /** It keeps working when the AI is down. */
+  worksWhenAiDown: "ai_down",
+  /** One engine, five steps. */
+  oneEngine: "one_engine",
+} as const;
+
+let hookOverride: Partial<DemoHooks> | null = null;
+const loadedHooks: Partial<DemoHooks> = {};
+const triedHooks = new Set<string>();
+
+/** Tests pass their own (any subset). Null goes back to src/judge.ts and src/simulate.ts. */
+export function setDemoHooks(over: Partial<DemoHooks> | null): void {
+  hookOverride = over;
+}
+
+async function hook<K extends keyof DemoHooks>(name: K): Promise<DemoHooks[K] | null> {
+  if (hookOverride) return hookOverride[name] ?? null;
+  if (!triedHooks.has(name)) {
+    triedHooks.add(name);
+    try {
+      // A variable on purpose: both files are other builders' and are only ever loaded when a step needs them.
+      const path = name === "judgeAside" ? "./judge.ts" : "./simulate.ts";
+      const fn = ((await import(path)) as Record<string, unknown>)[name];
+      if (typeof fn === "function") loadedHooks[name] = fn as DemoHooks[K];
+    } catch {
+      // Not there, or broken: the flows carry on without it.
+    }
+  }
+  return loadedHooks[name] ?? null;
+}
+
+/**
+ * One aside for the person in `ctx` after a step, when they are a hackathon judge. Call it unconditionally at the
+ * end of a step: it does nothing for a student. Never call it in a stressful or safety moment (a dangerous item,
+ * a failed verification, a crisis). Never throws.
+ */
+export async function aside(ctx: FlowContext, note: AsideNote): Promise<void> {
+  try {
+    await (await hook("judgeAside"))?.(unvoiced(ctx), note);
+  } catch {
+    // An aside is extra. The step it follows already happened.
+  }
+}
+
+/**
+ * The same context, seen from another person: for an aside owed to the other side of an exchange (the finder who
+ * was just asked how to hand an item off while the owner was the one texting). Null when they can't be texted.
+ */
+export function ctxAs(ctx: FlowContext, userId: number): FlowContext | null {
+  if (userId === ctx.user.id) return ctx;
+  const user = getUserById(ctx.db, userId);
+  if (!user || user.stopped) return null;
+  return {
+    ...ctx,
+    user,
+    state: getFlowState(ctx.db, userId),
+    event: { ...ctx.event, userHandle: user.handle, chatId: user.chatId, messageId: `${ctx.event.messageId}:for:${userId}`, text: "", images: [], location: undefined, reaction: undefined, pollVote: undefined },
+    say: (...bubbles) => ctx.sayToOwed(userId, ...bubbles),
+    setState: (state) => ctx.setStateFor(userId, state),
+  };
+}
+
+/** Other real students on Troy: verified with a usc email, not example data, not gone. Judges and the person asking don't count. */
+export function otherRealUsers(db: DatabaseSync, userId: number): number {
+  const row = db.prepare("SELECT COUNT(*) AS n FROM users WHERE id != ? AND verifiedAt IS NOT NULL AND verifiedVia = 'usc_email' AND isExample = 0 AND stopped = 0").get(userId) as { n: number };
+  return Number(row.n);
+}
+
+/**
+ * Troy found nobody real to connect this person with. A judge is always offered the simulated other side. A student
+ * is offered it only when there is no other real student on Troy at all: in a live pilot a student waits for real
+ * people and is never shown a simulation instead. True when the offer was made and the simulation now holds their
+ * open step; the flow then says nothing more.
+ */
+export async function simulateIfAlone(ctx: FlowContext, kind: SimKind, context: Record<string, string>): Promise<boolean> {
+  try {
+    if (ctx.user.verifiedVia !== "judge_skip" && otherRealUsers(ctx.db, ctx.user.id) > 0) return false;
+    const offer = await hook("offerSimulation");
+    return offer ? (await offer(unvoiced(ctx), kind, context)) === true : false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * First chance at a message for an open simulation. Called at the top of every flow, before anything else reads
+ * the message (a tap on "show me" is a poll vote, which the flows themselves ignore). `ownSteps` are the steps the
+ * calling flow opens itself: a state on one of those is never a simulation, so it is not even asked.
+ */
+export async function simulationTurn(ctx: FlowContext, ownSteps: ReadonlySet<string>): Promise<boolean> {
+  const state = ctx.state;
+  if (!state) return false;
+  const marked = /^sim/i.test(state.step) || "simulation" in state.data || "sim" in state.data;
+  if (!marked && ownSteps.has(state.step)) return false;
+  try {
+    const run = await hook("runSimulation");
+    return run ? (await run(unvoiced(ctx))) === true : false;
+  } catch {
+    return false;
+  }
+}
+
 // ---------- one turn ----------
 
 const TALK_FRESH_MS = 24 * 60 * 60 * 1000;
@@ -879,10 +1041,17 @@ async function talkAnswer(ctx: FlowContext, data: Record<string, unknown>): Prom
   let answer: "yes" | "no" | null = null;
   if (event.pollVote) return true;
   if (event.reaction) {
-    // Only on the warning bubble itself, and only the newest one.
-    const target = bubbleText(db, user.id, event.reaction.targetMessageId);
-    const newest = db.prepare("SELECT providerMessageId FROM messages WHERE userId = ? AND direction = 'out' AND text = ? ORDER BY id DESC LIMIT 1").get(user.id, CONTACT_WARNING) as { providerMessageId: string | null } | undefined;
-    if (event.reaction.removed || target !== CONTACT_WARNING || newest?.providerMessageId !== event.reaction.targetMessageId) return true;
+    // Only on the warning bubble itself, and only the newest one. Its id when the step kept it (sent right away, or
+    // delivered later by src/pending.ts); otherwise the newest bubble with the warning's exact words.
+    const qid = typeof data.qid === "string" && data.qid ? data.qid : null;
+    if (event.reaction.removed) return true;
+    if (qid) {
+      if (event.reaction.targetMessageId !== qid) return true;
+    } else {
+      const target = bubbleText(db, user.id, event.reaction.targetMessageId);
+      const newest = db.prepare("SELECT providerMessageId FROM messages WHERE userId = ? AND direction = 'out' AND text = ? ORDER BY id DESC LIMIT 1").get(user.id, CONTACT_WARNING) as { providerMessageId: string | null } | undefined;
+      if (target !== CONTACT_WARNING || newest?.providerMessageId !== event.reaction.targetMessageId) return true;
+    }
     answer = event.reaction.type === "love" || event.reaction.type === "like" ? "yes" : event.reaction.type === "dislike" ? "no" : null;
     if (!answer) return true;
   } else {
@@ -896,7 +1065,7 @@ async function talkAnswer(ctx: FlowContext, data: Record<string, unknown>): Prom
       if (reply && report) {
         const out = await reply(ctx, {
           flow: "usg",
-          waitingFor: "a yes or no: do they want to join a group chat with the usg member about their concern. joining shares their contact info with that person",
+          waitingFor: 'a "yes" or "no" on joining a group chat with the usg member about ur concern (joining shares ur contact info with them)',
           canDo: [{ name: "join", when: "they clearly say yes" }, { name: "decline", when: "they clearly say no" }],
           facts: { committee: (report.routedTo ?? "usg").toLowerCase(), note: "the usg member is a stand-in for the hackathon, not a real member yet" },
         });
@@ -921,11 +1090,32 @@ async function talkAnswer(ctx: FlowContext, data: Record<string, unknown>): Prom
   }
   db.prepare("UPDATE report_people SET talk = ? WHERE reportId = ? AND userId = ?").run(answer, reportId, user.id);
   setFlowState(db, user.id, null);
-  if (answer === "yes") await ctx.say(pickVariant(db, user.id, "staff.talkYes", ["bet, i'll add u as soon as it's set up", "ok, ur in. i'll add u when it starts", "got u, adding u once it's ready"]));
+  if (answer === "yes") {
+    await ctx.say(pickVariant(db, user.id, "staff.talkYes", ["bet, i'll add u as soon as it's set up", "ok, ur in. i'll add u when it starts", "got u, adding u once it's ready"]));
+    await aside(ctx, { step: "usg_talk_yes", decision: DECISION.contactAfterBothYes });
+  }
   else await ctx.say(pickVariant(db, user.id, "staff.talkNo", ["all good, i'll keep u out of it. ur concern still counts", "no worries, u stay out of it. the concern's still in", "ok, no group chat for u. ur concern still stands"]));
   await finishTalk({ db, adapter: ctx.adapter, tell: tellerFor(ctx) }, reportId, false);
   restoreStaffPointer(db, user.id);
   return true;
+}
+
+/** For a judge playing the technician or the usg member: what their answer just set in motion, with this report's own numbers. */
+async function staffAside(ctx: FlowContext, job: Row, word: Word, report: Report): Promise<void> {
+  const after = getReport(ctx.db, report.id) ?? report;
+  const following = new Set([after.userId, ...after.followers]).size;
+  const status = after.status.replace(/_/g, " ");
+  if (job.kind === "repair") {
+    if (word === "cant" || word === "no") return;
+    await aside(ctx, { step: `staff_repair_${after.status}`, behind: { did: "set the report to {status} from ur text and texted everyone following it, {following} in all", numbers: { status, following } }, decision: DECISION.troyTextsFirst });
+    return;
+  }
+  if (word === "agenda" || word === "done" || word === "closed") {
+    await aside(ctx, { step: `staff_usg_${after.status}`, behind: { did: "saved the new status, {status}, and texted every student behind the concern, {students} in all", numbers: { status, students: following } }, decision: DECISION.troyTextsFirst });
+  } else if (word === "yes") {
+    const asked = Number((ctx.db.prepare("SELECT COUNT(*) AS n FROM report_people WHERE reportId = ? AND talk = 'asked'").get(report.id) as { n: number }).n);
+    await aside(ctx, { step: "staff_usg_talk", behind: { did: "asked each student who shared their name, {asked} in all, before adding anyone to a group chat", numbers: { asked } }, decision: DECISION.contactAfterBothYes });
+  }
 }
 
 /**
@@ -1041,6 +1231,7 @@ export async function handleStaffTurn(ctx: FlowContext): Promise<boolean> {
   } else return onPointer;
 
   if (bubbles.length) await ctx.say(...bubbles);
+  await staffAside(ctx, job, word, report);
   // The step stays pointed here while they still hold a job.
   const after = getFlowState(db, user.id);
   if (after?.step === STAFF_STEP && !openJobs(db, user.id).length) setFlowState(db, user.id, null);

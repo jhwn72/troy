@@ -1,7 +1,8 @@
 // Code commands and fixed copy. These run before any AI and the model never writes them.
 
-import type { User } from "./types.ts";
+import type { IntentCommand, User } from "./types.ts";
 import { BUILT_IN_TOPICS } from "./topics.ts";
+import { keepVerbatim } from "./voice.ts";
 
 // USC Department of Public Safety numbers.
 // Source: https://dps.usc.edu/contact/ (checked Nov 14, 2026).
@@ -201,6 +202,44 @@ export function matchCommand(text: string): { kind: CommandKind } | null {
   return kind ? { kind } : null;
 }
 
+// ---------- commands by meaning, the part code can read by itself ----------
+//
+// The model reads most commands worded another way (John, "Commands by meaning"). Two kinds are plain enough that
+// code catches them first, so they never depend on a model call and are never answered with "text this instead":
+//   - a whole message that asks to be deleted ("delete me pls", "delete my account", "erase me"): the one-step
+//     confirmation, then a typed yes deletes.
+//   - a whole message asking HOW to delete, stop or mute ("how do i delete my data"): Troy offers to do it with one
+//     short question instead of listing the words to type.
+// Both must be the whole message. "delete this class from my life lol" and "i can't stop laughing" match nothing.
+
+const ASK_LEAD = /^(?:(?:hey|yo|ok|okay|troy|pls|please|plz|actually|just|now|can u|can you|could u|could you|will u|will you|would u|would you|i want u to|i want you to|i need u to|i need you to|id like u to|id like you to|i wanna|i want to|go ahead and)\s+)*/;
+const ASK_TAIL = "(?:\\s+(?:pls|please|plz|now|rn|right now|fr|for real|forever|entirely|completely|for good|troy|thanks|thank u|thank you|ty|asap|too|as well|already|i mean it|im serious))*";
+const MINE = "my (?:whole )?(?:account|data|info|information|profile|stuff|records?|history|everything)";
+const HELD = "(?:that )?(?:u|you)(?: guys)?(?:ve| have)? ?(?:have|know|got|saved|stored|kept)?(?: (?:on|about|of|from) me)?";
+const DELETE_ME = new RegExp(
+  `^(?:delete|erase|wipe|remove|forget|purge|get rid of|destroy|clear) (?:me|myself|${MINE}|all (?:of )?${MINE}|all (?:of )?my (?:data|info|information|stuff)|(?:everything|all (?:of )?(?:it|the (?:data|info|stuff)))(?: ${HELD}| (?:on|about) me)|me from (?:ur|your|the|this) (?:system|database|records|list|thing|app))${ASK_TAIL}$`,
+);
+const HOW = "^(?:how (?:do|can|would|could|should) i|how to|is there a way to|whats the way to|what do i (?:text|type|say) to|can i)";
+const HOW_DELETE = new RegExp(`${HOW} (?:delete|erase|wipe|remove|get rid of|clear) (?:me|${MINE}|everything(?: ${HELD})?|all (?:of )?my (?:data|info|information|stuff))${ASK_TAIL}$`);
+const HOW_STOP = new RegExp(`${HOW} (?:stop (?:this|these|u|you|the texts|these texts|getting (?:these )?texts|getting texts from (?:u|you))|unsubscribe|opt out|turn (?:this|u|you) off|make (?:u|you|this|it) stop|get (?:u|you) to stop(?: texting me)?|get off (?:this|ur|your) list)${ASK_TAIL}$`);
+const HOW_PAUSE = new RegExp(`${HOW} (?:pause|mute|snooze|silence)(?: (?:this|these|u|you|the alerts|alerts|the texts|notifications))?${ASK_TAIL}$`);
+
+/**
+ * A command code can read from the words alone, without the exact command. "clear" for a plain request to be deleted
+ * (code still asks once before deleting), "unsure" for a how-do-i question (Troy asks one short question and does it on
+ * a yes). Null for everything else, including anything playful: the model reads those.
+ */
+export function meantCommand(text: string): IntentCommand | null {
+  if (typeof text !== "string" || text.length > 120 || endsPlayful(text)) return null;
+  const t = clean(text).replace(ASK_LEAD, "");
+  if (!t) return null;
+  if (DELETE_ME.test(t)) return { name: "delete_data", certainty: "clear" };
+  if (HOW_DELETE.test(t)) return { name: "delete_data", certainty: "unsure" };
+  if (HOW_STOP.test(t)) return { name: "stop", certainty: "unsure" };
+  if (HOW_PAUSE.test(t)) return { name: "pause", certainty: "unsure" };
+  return null;
+}
+
 export const SUBSCRIPTION_LABELS: Record<string, string> = {
   free_food: "free food",
   free_stuff: "free stuff",
@@ -272,6 +311,9 @@ export const TEMPLATES = {
   confirmDelete: ['want me to delete everything i have on u? reply "yes"'],
 };
 
+// The safety list stays word for word in every tone (src/voice.ts toPlain leaves these alone).
+keepVerbatim(...TEMPLATES.emergency, ...TEMPLATES.crisis, ...TEMPLATES.stop);
+
 /**
  * Wording for commands a student meant without typing the exact word (John, "Commands by meaning"). Code performs the
  * action; these only vary how the confirmation reads. Each entry is one reply and "|" splits it into bubbles. Picked
@@ -303,6 +345,13 @@ export const COMMAND_POOLS = {
   askResume: ['want alerts back on? reply "yes"', 'should i turn ur alerts back on? reply "yes"', 'u want me to unmute alerts? "yes" and they\'re on'],
   askForgetLocation: ['want me to erase ur saved location? reply "yes"', 'should i wipe the location i have for u? reply "yes"', 'u want ur saved location gone? "yes" and it\'s erased'],
   askUnsubscribe: ['want me to stop texting u {what}? reply "yes"', 'should i stop the texts {what}? reply "yes"', 'u want me to quit texting u {what}? "yes" and it\'s off'],
+  // Before anything that destroys data, however the wish was worded. Every variant asks for a typed "yes".
+  askDelete: [
+    TEMPLATES.confirmDelete[0]!,
+    'u want everything i have on u gone? reply "yes" and i\'ll delete it',
+    'i can delete everything i have on u. reply "yes" to do it',
+    'should i wipe everything i have on u? reply "yes" and it\'s gone',
+  ],
   askStart: ['want me texting u again? reply "yes"', 'should i turn everything back on? reply "yes"'],
   /** They said no (or anything but yes) to one of the questions above. */
   kept: ["ok, leaving everything as is", "all good, nothing changed", "ok, i didn't change anything", "no worries, it stays how it was"],

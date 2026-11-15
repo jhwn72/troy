@@ -4,6 +4,8 @@
 
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { setDemoHooks } from "../src/staff.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { AdapterCapabilities, IncomingEvent, IncomingImage, MessagingAdapter, TapbackType } from "../src/types.ts";
 import { openDb, getOrCreateUser, updateUser, getFlowState, getUserById } from "../src/db/index.ts";
@@ -21,6 +23,44 @@ import { activeRelayFor } from "../src/relay.ts";
 
 registerFlow(lostFound);
 registerFlow(repair);
+
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+setDemoHooks({
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "lost_found", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+});
+
 // Failed fake model calls log a one-line reason. Not useful here.
 console.warn = () => {};
 
@@ -459,7 +499,7 @@ test("no proof, finder picks 3: keep holding, and the failed claimant can never 
   // Same person, new report, now with the right words: no second round on that item.
   const tries = checks(w.db).length;
   const again = await w.owner.say("lost my airpods near leavey yesterday, dinosaur sticker on the lid");
-  assert.deepEqual(again, [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(again, [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   assert.equal(w.owner.state(), null);
   assert.equal(checks(w.db).length, tries);
   assert.equal(foundListing(w.db).status, "open");
@@ -479,7 +519,7 @@ test("a claimant waiting on the finder can't open a second round with a new repo
   await w.owner.say("no");
   assert.equal(match(w.db).status, "finder_deciding");
   const again = await w.owner.say("lost my airpods near leavey yesterday");
-  assert.deepEqual(again, [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(again, [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   assert.equal(w.owner.state(), null);
 });
 
@@ -529,7 +569,7 @@ test("dangerous item: fixed reply, dps address, saved for dps, never matched to 
   assert.equal(w.finder.state(), null);
 
   const asked = await w.owner.say("lost my keys near leavey yesterday, there was a pocket knife on them");
-  assert.equal(asked.at(-1), COPY.willText);
+  assert.equal(asked.at(-1), COPY.meanwhile);
   assert.equal(one<{ n: number }>(w.db, "SELECT COUNT(*) AS n FROM matches").n, 0);
   assert.equal(one<{ n: number }>(w.db, "SELECT COUNT(*) AS n FROM handoffs").n, 0);
 });
@@ -609,7 +649,7 @@ test("no ai: the finder's no after a rule-score pass is a miss, and that claiman
   assert.equal(match(w.db).status, "rejected");
   assert.ok(claimantBlocked(w.db, foundListing(w.db).id, w.owner.id));
   const again = await w.owner.say("lost my airpods at leavey yesterday");
-  assert.deepEqual(again.slice(-2), [COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(again.slice(-3), [COPY.nothingYet, COPY.willText, COPY.meanwhile]);
 });
 
 test("example listings never match a real student's report", async () => {
@@ -619,7 +659,7 @@ test("example listings never match a real student's report", async () => {
   await w.finder.say("white case with a dinosaur sticker on the lid");
   w.db.prepare("UPDATE listings SET isExample = 1").run();
   const asked = await w.owner.say("lost my airpods near leavey yesterday");
-  assert.deepEqual(asked.slice(-2), [COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(asked.slice(-3), [COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   assert.equal(one<{ n: number }>(w.db, "SELECT COUNT(*) AS n FROM matches").n, 0);
 });
 
@@ -628,7 +668,7 @@ test("owner intake asks one thing at a time and accepts idk", async () => {
   assert.deepEqual(await w.owner.say("i lost something"), [COPY.askLostWhat]);
   assert.deepEqual(await w.owner.say("my wallet"), [COPY.askLostPlace]);
   assert.deepEqual(await w.owner.say("idk"), [COPY.askLostTime]);
-  assert.deepEqual(await w.owner.say("idk"), [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(await w.owner.say("idk"), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   const l = one<{ category: string; locationText: string | null; happenedAt: number | null; status: string }>(w.db, "SELECT * FROM listings WHERE type = 'lost'");
   assert.deepEqual([l.category, l.locationText, l.happenedAt, l.status], ["wallet", null, null, "open"]);
   assert.equal(w.owner.state(), null);
@@ -760,7 +800,7 @@ test("no_contact: the finder isn't offered a meet, both get the dps code", async
 
 test("two-sided matching: lost report first, found photo later, and troy texts the owner first", async () => {
   const w = world();
-  assert.deepEqual(await w.owner.say("lost my airpods near leavey yesterday"), [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(await w.owner.say("lost my airpods near leavey yesterday"), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   assert.equal(w.owner.state(), null);
   const ownerBefore = w.owner.texts().length;
   const toFinder = await w.finder.say("found these at leavey", [PHOTO]);
@@ -808,7 +848,7 @@ test("no api key at all: the whole exchange still answers from fixed copy and ru
   const asked = await w.owner.say("lost my airpods near leavey yesterday, they have a dinosaur sticker");
   assert.equal(asked[0], COPY.checking);
   const last = asked.at(-1)!;
-  assert.ok([COPY.describe, COPY.willText].includes(last), last);
+  assert.ok([COPY.describe, COPY.meanwhile].includes(last), last);
   if (last === COPY.describe) {
     const out = await w.owner.say("white case, dinosaur sticker on the lid");
     assert.ok(out[0] === COPY.passed || out[0] === COPY.retry[0], out[0]);
@@ -867,7 +907,7 @@ test("every scored description counts as a try, across nvm and new reports, and 
   // The right words now, in a new report: no third try.
   await scammer.say("no");
   await w.finder.say("3");
-  assert.deepEqual(await scammer.say(`${REPORT}, dinosaur sticker on the lid`), [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(await scammer.say(`${REPORT}, dinosaur sticker on the lid`), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   assert.equal(checks(w.db).filter((c) => c.method === "blind_description").length, 2);
   assert.equal(THRESHOLDS.maxAttempts, 2);
 });
@@ -878,7 +918,7 @@ test("a claimant who goes silent only holds the item until someone else is waiti
   const scammer = w.person("+12135550104", "Sam Scammer", "sam.scammer@usc.edu");
   await scammer.say(REPORT);
   assert.equal(foundListing(w.db).status, "verifying");
-  assert.deepEqual(await w.owner.say("lost my airpods at leavey yesterday, white case"), [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(await w.owner.say("lost my airpods at leavey yesterday, white case"), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
 
   // Not yet: an hour hasn't passed.
   await w.pipeline.sweep(Date.now() + CLAIM_TTL_MS - 60_000);
@@ -1084,7 +1124,7 @@ test("no ai: a rule-score pass sent to the finder is a used try, and the finder'
   }
   assert.deepEqual(checks(w.db).map((c) => [c.method, c.result]), [["blind_description", "fail"], ["blind_description", "fail"]]);
   assert.ok(claimantBlocked(w.db, foundListing(w.db).id, scammer.id));
-  assert.deepEqual((await scammer.say(REPORT)).slice(-2), [COPY.nothingYet, COPY.willText]);
+  assert.deepEqual((await scammer.say(REPORT)).slice(-3), [COPY.nothingYet, COPY.willText, COPY.meanwhile]);
 });
 
 // ---------- no-ai verification leans on the finder (CLAUDE.md Decisions) ----------
@@ -1452,4 +1492,170 @@ test("with the real picker a claimant's lines still come only from the pools, ac
     assert.equal(seen.length, 4);
     assert.ok(seen.every((raw) => LF_VOICE.variantsOf(line).includes(raw)));
   }
+});
+
+// ---------- judge asides, the simulated other side, and no dead ends ----------
+
+const asJudge = (w: World, p: { id: number }) => updateUser(w.db, p.id, { verifiedVia: "judge_skip" });
+const asidesFor = (p: { id: number }) => demo.asides.filter((a) => a.userId === p.id).map((a) => a.note);
+const stepsFor = (p: { id: number }) => asidesFor(p).map((n) => n.step);
+
+test("asides: each step of the exchange hands the judge hook the real numbers, and nothing from the answer key", async () => {
+  demo.reset();
+  const w = world();
+  // An open lost report from someone else, so "open reports checked" is a real count and not zero.
+  const other = w.person("+12135550177", "Olive Other", "olive.other@usc.edu");
+  await other.say("lost my wallet at leavey yesterday");
+  demo.reset();
+
+  await w.finder.say("found these at leavey", [PHOTO]);
+  const photo = asidesFor(w.finder)[0]!;
+  assert.equal(photo.step, "found_photo");
+  assert.equal(photo.decision, "photo");
+  assert.deepEqual(photo.behind?.numbers, { details: AIRPODS.distinguishing.length, openReports: 1 }, "the count of details read and of open lost reports checked");
+  assert.match(photo.behind!.did, /\{details\}.*\{openReports\}/);
+
+  await w.owner.say("lost my airpods near leavey yesterday");
+  // Before the blind check: the decision only. No numbers at all for a claimant who hasn't been verified.
+  assert.deepEqual(asidesFor(w.owner), [{ step: "blind_check", decision: "prove_first" }]);
+
+  await w.owner.say("white case with a dinosaur sticker on the lid");
+  assert.deepEqual(stepsFor(w.owner), ["blind_check", "verified"]);
+  assert.deepEqual(asidesFor(w.finder).at(-1), { step: "handoff_choice", decision: "finder_chooses" }, "the finder is asked, and told why it's theirs to choose");
+
+  await w.finder.say("1");
+  assert.equal(asidesFor(w.finder).at(-1)!.step, "gc_consent");
+  assert.deepEqual(asidesFor(w.owner).at(-1), { step: "gc_consent", decision: "contact" }, "before any group chat: contact info only after both say yes");
+  await w.finder.say("yes");
+  await w.owner.say("yes");
+  assert.equal(w.groups.length, 1);
+  assert.equal(asidesFor(w.owner).at(-1)!.step, "group_chat");
+  await w.owner.say("got it");
+  await w.owner.say("thank u");
+  assert.equal(asidesFor(w.owner).at(-1)!.step, "returned");
+
+  // Nothing that was handed over says how the check decides or what is on the item.
+  const all = JSON.stringify(demo.asides).toLowerCase();
+  for (const word of [...HIDDEN_WORDS, "92", "score", "attempt", "tries", "threshold", String(THRESHOLDS.descriptionPass)]) assert.ok(!all.includes(word.toLowerCase()), `an aside mentions "${word}"`);
+});
+
+test("asides: the pickup code step says code made it, and a found item typed with no photo reports what was checked", async () => {
+  demo.reset();
+  const w = world();
+  setModelCall(null);
+  await w.finder.say("found a blue hydro flask at leavey, it has a nasa sticker and a dent on the bottom");
+  const logged = asidesFor(w.finder).at(-1)!;
+  assert.equal(logged.step, "found_logged");
+  assert.deepEqual(logged.behind?.numbers, { openReports: 0 });
+
+  const w2 = world();
+  model.profile = AIRPODS;
+  setModelCall(null);
+  await w2.finder.say("found these airpods at leavey", [PHOTO]);
+  await w2.finder.say("white case with a dinosaur sticker on the lid, initials MK engraved");
+  await w2.owner.say("lost my airpods near leavey yesterday");
+  await w2.owner.say("white case, dinosaur sticker on the lid and my initials mk engraved");
+  await w2.finder.say("yes");
+  demo.reset();
+  const dropped = await w2.finder.say("2");
+  const code = dropped.join(" ").match(CODE)![0];
+  const aside = asidesFor(w2.finder).at(-1)!;
+  assert.equal(aside.step, "pickup_code");
+  assert.equal(aside.decision, "facts");
+  assert.ok(!JSON.stringify(demo.asides).includes(code), "the code itself is never handed to the aside");
+});
+
+test("asides: never on a dangerous item, a failed description, or a finder's no", async () => {
+  demo.reset();
+  const w = world();
+  model.profile = null;
+  await w.finder.say("found a knife on the ground at leavey", [PHOTO]);
+  assert.equal(demo.asides.length, 0, "a dangerous item gets the dps line and nothing else");
+
+  const w2 = world();
+  model.profile = AIRPODS;
+  await toDescribe(w2);
+  demo.reset();
+  await w2.owner.say("plain black case, nothing on it");
+  await w2.owner.say("there's a blue stripe on the side");
+  assert.equal(demo.asides.length, 0, "two misses and the proof ask: no commentary");
+
+  // The AI is down: a rule-score pass goes to the finder, and both sides hear that choice. A no gets nothing.
+  const w3 = world();
+  setModelCall(null);
+  await w3.finder.say("found these airpods at leavey", [PHOTO]);
+  await w3.finder.say("white case with a dinosaur sticker on the lid, initials MK engraved");
+  // The photo was there but couldn't be read: the finder's aside is the "keeps working when the ai is down" one.
+  assert.equal(asidesFor(w3.finder).at(-1)!.step, "found_photo");
+  assert.equal(asidesFor(w3.finder).at(-1)!.decision, "ai_down");
+  await w3.owner.say("lost my airpods near leavey yesterday");
+  await w3.owner.say("white case, dinosaur sticker on the lid and my initials mk engraved");
+  assert.equal(w3.finder.state()?.step, "finder_check");
+  assert.deepEqual(asidesFor(w3.owner).at(-1), { step: "finder_decides", decision: "ai_down" });
+  assert.deepEqual(asidesFor(w3.finder).at(-1), { step: "finder_check", decision: "ai_down" });
+  demo.reset();
+  await w3.finder.say("no");
+  assert.equal(demo.asides.length, 0, "a rejection gets no commentary on either side");
+});
+
+test("simulation: a judge with nothing to match is offered the other side, as owner and as finder", async () => {
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  asJudge(w, w.owner);
+  // The finder is a real student, so a student in the same spot would just wait. A judge is still offered it.
+  const asked = await w.owner.say("lost my airpods near leavey yesterday");
+  assert.deepEqual(asked, [COPY.checking, COPY.nothingYet, COPY.willText], "the offer replaces the meanwhile line");
+  assert.deepEqual(demo.offers.map((o) => [o.userId, o.kind]), [[w.owner.id, "lost_found_owner"]]);
+  assert.equal(demo.offers[0]!.context.item, "earbuds");
+  assert.equal(w.owner.state()?.step, "sim_offer", "the simulation holds the open step");
+  assert.deepEqual(asidesFor(w.owner), [], "no aside stacked on the offer");
+
+  // The tap on "show me" is a poll vote: the simulation gets it before the flow (which ignores poll votes).
+  demo.consume = true;
+  await w.pipeline.handleEvent({ provider: "webchat", userHandle: w.owner.handle, chatId: w.owner.chatId, isGroup: false, messageId: "vote-1", text: "", images: [], pollVote: { pollMessageId: "poll-1", optionIndex: 0 }, receivedAt: Date.now() });
+  assert.equal(demo.runs, 1);
+  assert.deepEqual(await w.owner.say("yes"), [SIM_LINE], "a typed yes is the simulation's too, and nothing else answers it");
+  assert.equal(demo.runs, 2);
+
+  demo.reset();
+  demo.accept = true;
+  const w2 = world();
+  asJudge(w2, w2.finder);
+  const logged = await w2.finder.say("found these at leavey", [PHOTO]);
+  assert.deepEqual(logged, ["logged it: white airpods case", COPY.holdOnto]);
+  assert.deepEqual(demo.offers.map((o) => [o.userId, o.kind]), [[w2.finder.id, "lost_found_finder"]]);
+  assert.equal(demo.offers[0]!.context.item, "white airpods case");
+});
+
+test("simulation: a student is offered it only when nobody else real is on troy; otherwise they wait, with one thing to do", async () => {
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  // Another real student exists (the finder): a live pilot. Real waiting, never a simulation.
+  const waiting = await w.owner.say("lost my airpods near leavey yesterday");
+  assert.equal(demo.offers.length, 0);
+  assert.deepEqual(waiting, [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
+  assert.match(COPY.meanwhile, /"still looking"/, "the exact words to text are in double quotes");
+  assert.equal(w.owner.state(), null);
+  assert.equal(demo.runs, 0, "with no open step there is nothing for a simulation to take");
+  // And the one thing it tells them to do really works.
+  assert.deepEqual(await w.owner.say("still looking"), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
+
+  // The only other people are a judge and an example user: this student is alone, so the offer is made.
+  demo.reset();
+  demo.accept = true;
+  const w2 = world();
+  asJudge(w2, w2.finder);
+  const ex = w2.person("+12135550188", "Example Erin", "erin.example@usc.edu");
+  w2.db.prepare("UPDATE users SET isExample = 1 WHERE id = ?").run(ex.id);
+  assert.deepEqual(await w2.owner.say("lost my airpods near leavey yesterday"), [COPY.checking, COPY.nothingYet, COPY.willText]);
+  assert.deepEqual(demo.offers.map((o) => o.kind), ["lost_found_owner"]);
+
+  // The simulation module declines (or isn't there): today's behavior, nothing lost.
+  demo.reset();
+  const w3 = world();
+  asJudge(w3, w3.finder);
+  assert.deepEqual(await w3.owner.say("lost my airpods near leavey yesterday"), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
+  assert.equal(demo.offers.length, 1);
 });

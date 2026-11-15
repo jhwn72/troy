@@ -15,12 +15,15 @@ import { findPlace } from "../places.ts";
 import type { Place } from "../places.ts";
 import { CANCEL, CANCELLED, CANCELLED_POOL, contentWords, directoryRows, follow, insertReport, isFresh, makeVoice, noEmoji, openReports, othersPhrase, passToOtherFlow, rowForTopic, similarText, userNotes } from "./reports-shared.ts";
 import type { Pools, ReportRow, Voice } from "./reports-shared.ts";
-import { handleStaffTurn, notifyStaffOfReport, restoreStaffPointer, tellerFor } from "../staff.ts";
+import { DECISION, STAFF_STEP, TALK_STEP, aside, handleStaffTurn, notifyStaffOfReport, restoreStaffPointer, simulateIfAlone, simulationTurn, tellerFor } from "../staff.ts";
 
 type RouteKey = "fms" | "housing";
 
 /** Used only if the directory has no matching office row (an unseeded database). */
 const ROUTE_FALLBACK: Record<RouteKey, string> = { fms: "FMS", housing: "Housing" };
+
+/** Every step this flow (or a staff contact's job) opens. Any other open step under this flow is a simulation's. */
+const OWN_STEPS: ReadonlySet<string> = new Set(["ask_place", STAFF_STEP, TALK_STEP]);
 
 const ASK_WHERE = "which building and floor?";
 const ASK_WHAT_AND_WHERE = "what's broken, and which building and floor?";
@@ -190,6 +193,8 @@ interface Draft {
   description: string;
   photoUrl: string | null;
   dangerous: boolean;
+  /** "read": the model said what the photo shows. "unread": there was a photo and it couldn't (the report then runs on their words). */
+  photo: "read" | "unread" | "none";
 }
 
 function findDuplicate(ctx: FlowContext, draft: Draft, key: RouteKey, place: Place | null, locationText: string | null): ReportRow | null {
@@ -256,6 +261,14 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
       return;
     }
     await ctx.say(...lead, RT.joined(othersPhrase(others), route.key), SAY.whenItMoves, mockNote(route.key));
+    // Never in a dangerous moment: the dps line is the only thing that matters then.
+    if (!draft.dangerous) {
+      await aside(ctx, {
+        step: "repair_joined",
+        behind: { did: "matched it to a report already open at the same spot, with {alreadyOnIt} already on it, instead of filing a second one with {office}", numbers: { alreadyOnIt: others, office: route.name } },
+        decision: DECISION.officesStayInCharge,
+      });
+    }
     return;
   }
 
@@ -278,6 +291,25 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
     texted = false;
   }
   await ctx.say(...lead, confirm, mockNote(route.key), ...(texted ? [SAY.exampleTech] : []));
+  // Never in a dangerous moment: no aside and no demo offer on top of the dps line.
+  if (draft.dangerous) return;
+  // Nobody is assigned to this office, so nothing would happen next. A judge (or a student with nobody else on here)
+  // is offered the technician's side played out; a student in a live pilot just waits for the real status text.
+  if (!texted && (await simulateIfAlone(ctx, "repair", { what: draft.category, description: draft.description, where: locationText ?? "", office: route.name, reportId: String(reportId) }))) return;
+  const because = route.key === "housing" ? "it's in usc housing" : "it's a campus building";
+  if (draft.photo === "unread") {
+    await aside(ctx, {
+      step: "repair_filed",
+      behind: { did: "couldn't get the photo read by the ai, so i filed it from ur words and routed it to {office} because {because}", numbers: { office: route.name, because } },
+      decision: DECISION.worksWhenAiDown,
+    });
+    return;
+  }
+  await aside(ctx, {
+    step: "repair_filed",
+    behind: { did: `${draft.photo === "read" ? "read ur photo, worked out what's broken" : "worked out what's broken from ur words"} and routed it to {office} because {because}`, numbers: { office: route.name, because } },
+    decision: draft.photo === "read" ? DECISION.photoReplacesForm : DECISION.officesStayInCharge,
+  });
 }
 
 // ---------- the photo ----------
@@ -318,6 +350,7 @@ async function start(ctx: FlowContext): Promise<void> {
     description,
     photoUrl: ctx.event.images[0]?.path ?? null,
     dangerous: DANGER.test(`${text} ${photo.description ?? ""}`),
+    photo: !ctx.event.images.length ? "none" : photo.category || photo.description ? "read" : "unread",
   };
   const place = findPlace(ctx.db, text) ?? (photo.location ? findPlace(ctx.db, photo.location) : null);
   // `unconfirmed`: only the chat model read this as a repair (no keyword agreed, no photo). Nothing goes to staff
@@ -364,6 +397,7 @@ async function answer(ctx: FlowContext, data: Record<string, unknown>): Promise<
     description,
     photoUrl: (typeof data.photoUrl === "string" ? data.photoUrl : null) ?? ctx.event.images[0]?.path ?? null,
     dangerous: data.dangerous === true || DANGER.test(text),
+    photo: data.photo === "read" || data.photo === "unread" ? data.photo : "none",
   };
   await file(ctx, draft, findPlace(ctx.db, text), text);
 }
@@ -373,6 +407,8 @@ export const repair: FlowHandler = {
   async handle(plain) {
     // Everything this flow says goes out through REPAIR_VOICE: facts as written, wording from the pools.
     const ctx = REPAIR_VOICE.wrap(plain);
+    // An open simulation (the technician's side, played out) gets the message first, taps included.
+    if (await simulationTurn(plain, OWN_STEPS)) return;
     // A technician's "on it", "done" or "can't" (or a thumbs up on the job bubble) is theirs to answer first.
     if (await handleStaffTurn(plain)) return;
     // Any other tapback or poll vote means nothing here.

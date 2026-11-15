@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DECISION, aside, ctxAs, otherRealUsers, setDemoHooks, simulateIfAlone, simulationTurn } from "../src/staff.ts";
+import type { FlowContext, FlowState, User } from "../src/types.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import type { IncomingEvent, Intent, MessagingAdapter, TapbackType } from "../src/types.ts";
 import { openDb, getOrCreateUser, getFlowState, getUserById, updateUser } from "../src/db/index.ts";
 import { seed } from "../src/db/seed.ts";
@@ -31,6 +34,44 @@ type Row = Record<string, any>;
 const FMS = "Facilities Management Services (FMS)";
 const DINING = "USG Committee on Sustainability and Campus Infrastructure";
 const CONCERN = "why does village dining close so early";
+
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+const DEMO_HOOKS: Parameters<typeof setDemoHooks>[0] = {
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "repair", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+};
+setDemoHooks(DEMO_HOOKS);
 
 // No model, and no chat brain: every path here has to work on code alone.
 setModelCall(async () => {
@@ -571,4 +612,153 @@ test("notifyStaffOfReport on its own: sent to the assigned person's user id, wit
   const failed = await notifyStaffOfReport({ db: t.db, notify: async () => false }, id2);
   assert.equal(failed.sentTo, null);
   assert.equal(staffLogFor(t.db, id2)[0]!.example, true);
+});
+
+// ---------- judges, and the other side when nobody real is there ----------
+
+const staffAsides = (p: { id: number }) => demo.asides.filter((a) => a.userId === p.id).map((a) => a.note);
+
+test("asides: a technician's on it and done, and a member's yes, each say what that answer set in motion", async () => {
+  demo.reset();
+  const t = setup({ groupChats: true });
+  const tech = t.person("+13105550401", "Tina Tech");
+  assignStaff(t.db, { role: "fms", handle: tech.handle });
+  const student = t.person("+13105550402");
+  await student.text("the light is broken in taper hall 2nd floor");
+  assert.equal(demo.offers.length, 0, "someone is assigned, so nothing is simulated");
+
+  demo.reset();
+  await tech.text("on it");
+  assert.deepEqual(staffAsides(tech), [
+    { step: "staff_repair_in_progress", behind: { did: "set the report to {status} from ur text and texted everyone following it, {following} in all", numbers: { status: "in progress", following: 1 } }, decision: "texts_first" },
+  ]);
+  await tech.text("done");
+  assert.deepEqual(staffAsides(tech).at(-1)!.behind?.numbers, { status: "fixed", following: 1 });
+
+  // Handing a job back is not a moment for commentary.
+  const tech2 = t.person("+13105550403", "Hal Housing");
+  assignStaff(t.db, { role: "housing", handle: tech2.handle });
+  await student.text("the washer is broken in pardee tower");
+  demo.reset();
+  await tech2.text("can't");
+  assert.deepEqual(staffAsides(tech2), []);
+
+  const member = t.person("+13105550404", "Morgan Member");
+  assignStaff(t.db, { role: `usg:${DINING}`, handle: member.handle });
+  const a = t.person("+13105550405", "Ana");
+  await a.text(CONCERN);
+  await a.text("with my name");
+  demo.reset();
+  await member.text("yes");
+  assert.deepEqual(staffAsides(member), [{ step: "staff_usg_talk", behind: { did: "asked each student who shared their name, {asked} in all, before adding anyone to a group chat", numbers: { asked: 1 } }, decision: "contact" }]);
+  // The student's own yes to the warning: the decision only.
+  await a.text("yes");
+  assert.deepEqual(staffAsides(a).at(-1), { step: "usg_talk_yes", decision: "contact" });
+});
+
+/** A bare context for the seam's own functions. */
+function bareCtx(t: ReturnType<typeof setup>, userId: number, state: FlowState | null = null): FlowContext & { said: string[]; owed: { to: number; text: string }[] } {
+  const user = getUserById(t.db, userId) as User;
+  const said: string[] = [];
+  const owed: { to: number; text: string }[] = [];
+  const plain = (b: string | { text: string }) => (typeof b === "string" ? b : b.text);
+  return {
+    db: t.db,
+    user,
+    event: { provider: "webchat", userHandle: user.handle, chatId: user.chatId, isGroup: false, messageId: "in-x", text: "hi", images: [], receivedAt: Date.now() },
+    intent: { flow: "repair", action: "", details: {}, source: "fallback" },
+    state,
+    adapter: t.adapter,
+    said,
+    owed,
+    async say(...b) {
+      said.push(...b.map(plain));
+      return b.map(() => null);
+    },
+    sayTo: async (_id, ...b) => b.map(() => null),
+    async sayToOwed(id, ...b) {
+      owed.push(...b.map((x) => ({ to: id, text: plain(x) })));
+      return b.map(() => null);
+    },
+    setState() {},
+    setStateFor() {},
+  };
+}
+
+test("who counts as another real student: a usc email, not example data, not gone, not a judge", () => {
+  const t = setup();
+  const me = t.person("+13105550411");
+  assert.equal(otherRealUsers(t.db, me.id), 0, "the seeded example people and other judges never count");
+  const s = t.person("+13105550412");
+  updateUser(t.db, s.id, { verifiedVia: "usc_email" });
+  assert.equal(otherRealUsers(t.db, me.id), 1);
+  assert.equal(otherRealUsers(t.db, s.id), 0, "nobody counts themselves");
+  updateUser(t.db, s.id, { stopped: 1 });
+  assert.equal(otherRealUsers(t.db, me.id), 0);
+});
+
+test("the offer goes to a judge always and to a student only when alone, and a broken module never costs a reply", async () => {
+  demo.reset();
+  demo.accept = true;
+  const t = setup();
+  const judge = t.person("+13105550421");
+  const s1 = t.person("+13105550422");
+  const s2 = t.person("+13105550423");
+  for (const s of [s1, s2]) updateUser(t.db, s.id, { verifiedVia: "usc_email" });
+  assert.equal(await simulateIfAlone(bareCtx(t, judge.id), "repair", { where: "taper" }), true);
+  assert.equal(await simulateIfAlone(bareCtx(t, s1.id), "repair", { where: "taper" }), false);
+  assert.deepEqual(demo.offers.map((o) => o.userId), [judge.id], "the student's offer was never even asked for");
+
+  setDemoHooks({
+    judgeAside: async () => {
+      throw new Error("judge module broke");
+    },
+    offerSimulation: async () => {
+      throw new Error("simulate module broke");
+    },
+    runSimulation: async () => {
+      throw new Error("simulate module broke");
+    },
+  });
+  try {
+    await aside(bareCtx(t, judge.id), { step: "x", decision: DECISION.oneEngine });
+    assert.equal(await simulateIfAlone(bareCtx(t, judge.id), "usg", {}), false);
+    assert.equal(await simulationTurn(bareCtx(t, judge.id, { flow: "repair", step: "sim_offer", data: {}, updatedAt: Date.now() }), new Set(["ask_place"])), false);
+  } finally {
+    setDemoHooks(DEMO_HOOKS);
+  }
+});
+
+test("a simulation gets first chance only at a step the flow didn't open itself", async () => {
+  demo.reset();
+  demo.consume = true;
+  const t = setup();
+  const p = t.person("+13105550431");
+  const own = new Set(["ask_place", STAFF_STEP]);
+  const at = (step: string, data: Record<string, unknown> = {}): FlowState => ({ flow: "repair", step, data, updatedAt: Date.now() });
+  assert.equal(await simulationTurn(bareCtx(t, p.id, null), own), false, "no open step");
+  assert.equal(await simulationTurn(bareCtx(t, p.id, at("ask_place")), own), false, "the flow's own question");
+  assert.equal(await simulationTurn(bareCtx(t, p.id, at(STAFF_STEP)), own), false, "a technician's job pointer");
+  assert.equal(demo.runs, 0);
+  assert.equal(await simulationTurn(bareCtx(t, p.id, at("sim_offer")), own), true);
+  assert.equal(await simulationTurn(bareCtx(t, p.id, at("ask_place", { simulation: "repair" })), own), true, "a simulation replaying one of the flow's own steps says so in its data");
+  assert.equal(demo.runs, 2);
+});
+
+test("an aside for the other person goes to their chat as an owed text, never to someone who left", async () => {
+  demo.reset();
+  const t = setup();
+  const me = t.person("+13105550441");
+  const them = t.person("+13105550442", "Finn Finder");
+  const mine = bareCtx(t, me.id);
+  assert.equal(ctxAs(mine, me.id), mine);
+  const theirs = ctxAs(mine, them.id)!;
+  assert.equal(theirs.user.id, them.id);
+  assert.equal(theirs.event.chatId, them.chatId);
+  assert.equal(theirs.event.text, "", "the other person never inherits this person's message");
+  await theirs.say("(an aside)");
+  assert.deepEqual(mine.owed, [{ to: them.id, text: "(an aside)" }]);
+  assert.deepEqual(mine.said, []);
+  updateUser(t.db, them.id, { stopped: 1 });
+  assert.equal(ctxAs(mine, them.id), null);
 });

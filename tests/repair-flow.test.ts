@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { setDemoHooks } from "../src/staff.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import type { FlowHandler, IncomingEvent, IncomingImage, MessagingAdapter } from "../src/types.ts";
 import { openDb, getOrCreateUser, getFlowState, updateUser } from "../src/db/index.ts";
 import { seed } from "../src/db/seed.ts";
@@ -28,6 +30,43 @@ type Report = { id: number; userId: number; kind: string; category: string; desc
 
 // No model by default: every reply path has to work without one.
 let model: ((prompt: string) => string) | null = null;
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+setDemoHooks({
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "repair", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+});
+
 setModelCall(async (opts) => {
   if (!model) throw new Error("no json");
   return model(opts.prompt);
@@ -338,4 +377,105 @@ test("repair: with other wording on every line, the office, the count of others 
   } finally {
     setVariantPicker(null);
   }
+});
+
+// ---------- judge asides and the simulated technician ----------
+
+type Setup = ReturnType<typeof setup>;
+const repairAsides = () => demo.asides.map((a) => a.note);
+/** The fixture's people took the judge skip. This makes one a real student (a usc email). */
+const realStudent = (t: Setup, handle: string) => {
+  const s = t.student(handle);
+  updateUser(t.db, s.id, { verifiedVia: "usc_email" });
+  return s;
+};
+
+test("asides: a filed repair says where it was routed and why, with the directory's own office name", async () => {
+  demo.reset();
+  const t = setup();
+  const a = t.student("+13105550301");
+  await a.text("the light is broken in taper hall 2nd floor");
+  assert.deepEqual(repairAsides(), [
+    { step: "repair_filed", behind: { did: "worked out what's broken from ur words and routed it to {office} because {because}", numbers: { office: FMS, because: "it's a campus building" } }, decision: "steps_back" },
+  ]);
+
+  demo.reset();
+  await a.text("the washer is broken in pardee tower");
+  assert.deepEqual(repairAsides()[0]!.behind?.numbers, { office: HOUSING, because: "it's in usc housing" });
+
+  // A second student on the same thing: the aside carries how many were already on it.
+  demo.reset();
+  const b = t.student("+13105550302");
+  await b.text("light is out on the 2nd floor of taper hall");
+  assert.deepEqual(repairAsides().map((n) => [n.step, n.behind?.numbers]), [["repair_joined", { alreadyOnIt: 1, office: FMS }]]);
+});
+
+test("asides: a photo the model read is the 'photo replaces the form' one, an unread photo is the 'works when the ai is down' one", async () => {
+  demo.reset();
+  const t = setup();
+  const a = t.student("+13105550303");
+  model = () => '{"category": "Broken Light", "description": "ceiling light is hanging loose", "location": "taper hall 2nd floor hallway"}';
+  try {
+    await a.text("this is broken", [{ path: "/tmp/troy-test/light.jpg", mime: "image/jpeg" }]);
+  } finally {
+    model = null;
+  }
+  assert.equal(repairAsides()[0]!.decision, "photo");
+  assert.match(repairAsides()[0]!.behind!.did, /^read ur photo/);
+
+  demo.reset();
+  await a.text("the door is broken at leavey library 3rd floor", [{ path: "/tmp/troy-test/door.jpg", mime: "image/jpeg" }]);
+  assert.equal(repairAsides()[0]!.decision, "ai_down");
+  assert.match(repairAsides()[0]!.behind!.did, /^couldn't get the photo read by the ai/);
+});
+
+test("something dangerous: the dps line, no aside and no simulation, even for a judge", async () => {
+  demo.reset();
+  demo.accept = true;
+  const t = setup();
+  const a = t.student("+13105550304");
+  const reply = await a.text("the outlet is broken and there are exposed wires in olin hall");
+  assert.equal(reply[0], DANGER_LINE);
+  assert.equal(demo.asides.length, 0);
+  assert.equal(demo.offers.length, 0);
+  assert.equal(a.state(), null);
+});
+
+test("simulation: with no technician assigned, a judge is offered the technician's side and the flow stops there", async () => {
+  demo.reset();
+  demo.accept = true;
+  const t = setup();
+  const judge = t.student("+13105550305");
+  const reply = await judge.text("the light is broken in taper hall 2nd floor");
+  assert.equal(reply[0], CONFIRM_FMS);
+  assert.match(reply.at(-1)!, /^demo note:/, "the confirmation and the honest demo note still go out first");
+  assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.where, o.context.office]), [["repair", "Taper Hall, 2nd floor", FMS]]);
+  assert.equal(judge.state()?.step, "sim_offer");
+  assert.equal(demo.asides.length, 0, "no aside stacked on the offer");
+  assert.equal(t.mine().length, 1, "the report itself is real");
+
+  // The tap on "show me" is a poll vote. The simulation gets it first; the flow itself ignores poll votes.
+  demo.consume = true;
+  assert.deepEqual(await judge.send({ pollVote: { pollMessageId: "poll-1", optionIndex: 0 } }), [SIM_LINE]);
+  assert.equal(demo.runs, 1);
+});
+
+test("simulation: a student is offered it only when nobody else real is on troy, and otherwise just waits for the status text", async () => {
+  demo.reset();
+  demo.accept = true;
+  const t = setup();
+  const alone = realStudent(t, "+13105550306");
+  await alone.text("the light is broken in taper hall 2nd floor");
+  assert.deepEqual(demo.offers.map((o) => o.kind), ["repair"], "the seeded example people and judges don't count as other students");
+
+  demo.reset();
+  demo.accept = true;
+  const t2 = setup();
+  realStudent(t2, "+13105550307");
+  const pilot = realStudent(t2, "+13105550308");
+  const reply = await pilot.text("the light is broken in taper hall 2nd floor");
+  assert.equal(demo.offers.length, 0, "a student in a live pilot is never shown a simulation in place of real waiting");
+  assert.equal(reply[0], CONFIRM_FMS);
+  assert.equal(pilot.state(), null);
+  assert.equal(demo.asides.length, 1, "the aside hook is still called; it is the judge module that says nothing to a student");
 });

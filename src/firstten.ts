@@ -9,15 +9,28 @@
 //   6. one follow-up on his own, tied to what they did
 //
 // WHEN THINGS FIRE (all times are from the moment onboarding ended unless it says otherwise)
-//   0 s      the "what else" line and the "near u" bubbles, in the same turn as the end of onboarding
-//   0 s      judges only: the "try me" poll, right after those bubbles
-//   30 s     nobody has texted since: the "try me" poll (three options, one tap starts that move)
-//   2 min    after their last text, when they have chatted but started nothing: the one question
+//   0 s      the "what else" line, the "near u" bubbles and then the "try me" poll (three options, one tap starts
+//            that move), all in the same turn as the end of onboarding. The poll is part of that turn, so it is not
+//            the unprompted message.
+//   reply    while they are NEW AND UNTRIED (see below), a bare "ok" / "cool" / "k" / "lol" / thumbs up gets his next
+//            move in the same reply: the tour offer, then one specific nearby thing, then the one question.
+//   25 s     of quiet in BOTH directions (their last text and his last bubble), untried and with no step open:
+//            the one question, on his own. Never while a reply to them is still going out.
+//   90 s     when his own last bubble is still an open ask (the poll they never answered, a reply that ended on a
+//            question): the one question waits this long, so two asks never land back to back
 //   7 min    when they did one of the moves: one follow-up tied to it
 //   10 min   nothing new is started after this. 60 min: the plan is over.
 // Never more than ONE of those unprompted messages per person in the first hour: once one went out, the rest are off.
-// A real request (lost, found, food, repair, usg, a topic, a setting), pause and STOP end all of it. No move is
-// offered to the same person twice. Paused people and people in quiet hours get nothing unprompted.
+// Replies to their own texts are not unprompted. A real request (lost, found, food, repair, usg, a topic, a setting),
+// pause and STOP end all of it. No move is offered to the same person twice. Paused people and people in quiet hours
+// get nothing unprompted.
+//
+// NEW AND UNTRIED (John, "First ten minutes must pull, not wait"): from the end of onboarding until this person has
+// actually tried one thing (started a tour run or "stump me", made a real request, or answered the one question),
+// troy never ends on a dead end. Code makes the next move on a neutral reply (here), the chat brain is told so on
+// every free reply, and its checks reject a sign-off (src/brain.ts, untriedState). Trying something, saying they're
+// good ("i'm good", "maybe later", "gtg"), a second no, or the hour ending clears it, and he relaxes. Saying they're
+// good is checked first everywhere (the tour offer, a decline, free chat): it gets one easy line and no next step.
 //
 // State lives in the first_ten table, so a restart loses nothing: the sweep the server already runs every 30 seconds
 // (pipeline.sweep) picks up whatever is due. In-process timers only make the 30 second and 2 minute marks land on time.
@@ -44,14 +57,18 @@ const MIN = 60 * SEC;
 
 /** The exact trigger times. Tests and the final report read these. */
 export const FIRST_TEN = {
-  /** Silence after the "near u" bubbles before the "try me" poll. */
-  pollAfterMs: 30 * SEC,
-  /** Quiet after their last text (having started nothing) before the one question. */
-  questionAfterMs: 2 * MIN,
+  /** The "try me" poll goes out right after the "near u" bubbles, in the same turn. */
+  pollAfterMs: 0,
+  /** Only if that send failed and they stay silent: the poll is tried once more after this. */
+  pollRetryMs: 30 * SEC,
+  /** Quiet after their last text (still untried, nothing open) before the one question. John: about 25 seconds, not two minutes. */
+  questionAfterMs: 25 * SEC,
+  /** They never texted at all, so the poll is still the open ask: the one question waits this long instead. */
+  silentQuestionAfterMs: 90 * SEC,
   /** After onboarding ended, for someone who did a move: the one follow-up (John: six to eight minutes in). */
   followUpAfterMs: 7 * MIN,
   /** An unprompted message never goes out while they texted this recently. */
-  settleMs: 45 * SEC,
+  settleMs: 25 * SEC,
   /** Nothing unprompted is started later than this. */
   planMs: 10 * MIN,
   /** At most one unprompted message inside this window. Offers made in it stay answerable until it ends. */
@@ -67,7 +84,7 @@ export const FIRST_TEN = {
 
 export const TRY_ME_OPTIONS = ["pretend i lost something", "show me free food near me", "stump me"] as const;
 
-export type Move = "what_else" | "near" | "poll" | "tour_lost" | "tour_food" | "tour_repair" | "tour_offer" | "stump" | "question" | "study_spot" | "follow_up";
+export type Move = "what_else" | "near" | "poll" | "tour_lost" | "tour_food" | "tour_repair" | "tour_offer" | "nearby" | "stump" | "question" | "study_spot" | "follow_up";
 
 type Deps = { now: () => number; timers: boolean };
 const deps: Deps = { now: () => Date.now(), timers: true };
@@ -188,6 +205,8 @@ export function markMove(db: DatabaseSync, userId: number, move: Move, opts: { d
   }
   const moves = row.moves.includes(move) ? row.moves : [...row.moves, move];
   patch(db, userId, opts.did ? { moves, did: move } : { moves });
+  // They actually tried something: he relaxes and stops prompting.
+  if (opts.did) relax(db, userId);
   // The chat brain keeps its own once-per-person list for the moves it can make in free chat. Keep the two in step.
   const theirs = BRAIN_MOVE[move];
   const mark = (brainMod as Record<string, unknown>).markMove;
@@ -214,9 +233,22 @@ function brainDid(db: DatabaseSync, userId: number, move: Move): boolean {
   }
 }
 
+// ---------- new and untried ----------
+
+/** True from the end of onboarding until this person tried one thing, said they're good, or the hour ended. */
+export function isUntried(db: DatabaseSync, userId: number, now: number = deps.now()): boolean {
+  return !!brainMod.untriedState(db, userId, now);
+}
+
+/** They tried something or said they're good: no more pulling. Safe to call any time. */
+export function relax(db: DatabaseSync, userId: number): void {
+  if (brainMod.untriedState(db, userId, deps.now())) brainMod.setUntried(db, userId, null);
+}
+
 /** A real request, pause or STOP: nothing unprompted goes out anymore. What was already offered stays answerable. */
 export function cancelFirstTen(db: DatabaseSync, userId: number): void {
   try {
+    relax(db, userId);
     const row = load(db, userId);
     if (!row || row.endedAt !== null) return;
     patch(db, userId, { endedAt: deps.now(), stumpUntil: null, questionAt: null });
@@ -232,7 +264,7 @@ export function noteStudentMessage(db: DatabaseSync, userId: number): void {
     const now = deps.now();
     if (!inWindow(row, now) || row.endedAt !== null) return;
     patch(db, userId, { lastInAt: now });
-    if (row.unpromptedAt === null) schedule(db, userId, FIRST_TEN.questionAfterMs + SEC);
+    if (row.unpromptedAt === null) schedule(db, userId, FIRST_TEN.questionAfterMs + 500);
   } catch {
     // Same: never worth a reply.
   }
@@ -304,8 +336,20 @@ const WHAT_ELSE: Brief = {
 
 const people = (n: number): string => (n === 1 ? "1 person" : `${n} people`);
 
-function lostBrief(n: number, near: boolean): Brief {
+/**
+ * `ask` false is for example numbers: the bubble only states the fact, because the "try me" poll that follows is the
+ * one thing he asks for (three asks in a row read as a form). Real reports keep the offer of details.
+ */
+function lostBrief(n: number, near: boolean, ask = true): Brief {
   const where = near ? "near u" : "around campus";
+  if (!ask) {
+    return {
+      goal: "one short text: mention how many people reported losing something close by. just say it: no question, no offer, no item details, and no word about when it happened (never today or this week)",
+      mustCover: [`${people(n)} reported losing something ${where}`],
+      facts: { count: people(n) },
+      fallback: [[`also ${people(n)} reported losing something ${where}`], [`and ${people(n)} lost something ${where} recently`], [`plus ${people(n)} ${where} reported something lost`]],
+    };
+  }
   return {
     goal: "one short text: mention how many people reported losing something close by, and that they can ask for details to keep an eye out. no item details, and no word about when it happened (never today or this week)",
     mustCover: [`${people(n)} reported losing something ${where}`, "they can ask for details so they can keep an eye out"],
@@ -321,10 +365,10 @@ function lostBrief(n: number, near: boolean): Brief {
 function exampleFoodBrief(): Brief {
   const walk = FIRST_TEN.exampleWalk;
   return {
-    goal: "one short text: there's free pizza close to them, and ask if they want the spot. don't name a place",
-    mustCover: [`free pizza about ${walk} from them`, "ask if they want the spot"],
+    goal: "one short text: there's free pizza close to them right now. just say it: no question and no offer (a poll follows), and don't name a place",
+    mustCover: [`free pizza about ${walk} from them`],
     facts: { walk },
-    fallback: [[`btw there's free pizza about ${walk} from u. want the spot?`], [`oh and there's free pizza like ${walk} from u rn. want the spot?`], [`also free pizza, about ${walk} from where u are. want me to send the spot?`]],
+    fallback: [[`btw there's free pizza about ${walk} from u rn`], [`oh and there's free pizza like ${walk} from u right now`], [`also free pizza, about ${walk} from where u are rn`]],
   };
 }
 
@@ -351,6 +395,21 @@ const REVEAL: Brief = {
   ],
 };
 
+/** One honest line right before an example run starts, for someone who was told about example pizza or lost reports and never asked. */
+function labelBrief(food: boolean, lost: boolean): Brief {
+  const what = food && lost ? "that pizza and those lost reports" : food ? "that pizza" : "those lost reports";
+  const were = food && !lost ? "was an example" : "were examples";
+  return {
+    goal: `exactly ONE short bubble, one honest line before he starts: ${what} he mentioned a minute ago ${were}, because this is a hackathon build. nothing to walk to. no question`,
+    mustCover: [`${what} ${were}`, "this is a hackathon build"],
+    fallback: [
+      [`first, real talk: ${what} ${were}. this is a hackathon build, so nothing to walk to`],
+      [`one honest thing before we start: ${what} ${were}, this is a hackathon build`],
+      [`quick heads up: this is a hackathon build, so ${what} ${were}. don't go looking`],
+    ],
+  };
+}
+
 const REVEAL_NO_OFFER: Brief = {
   goal: "be honest: this is a hackathon build, so the free pizza and the lost items he just mentioned were examples and there is nothing to walk to. then say what it looks like when it's real",
   mustCover: ["this is a hackathon build", "the pizza and the lost items were examples, nothing to walk to", "when it's real they get the spot, the walk and how many are left"],
@@ -376,10 +435,45 @@ function realLostBrief(places: string[]): Brief {
   };
 }
 
+// The pull: what he does with a neutral reply from someone who hasn't tried anything yet.
+const TOUR_PULL: Brief = {
+  goal: "they gave a neutral reply (ok, cool) and haven't tried anything yet. don't sign off. in one short text, offer to show them right now instead of telling them: they pretend they lost something and he runs the real check on them. end by asking if they're down",
+  mustCover: ["they pretend they lost something", "he runs the real check on them", "ask if they're down"],
+  fallback: [
+    ["lemme show u instead of telling u. pretend u lost something and i'll run the real check on u. down?"],
+    ["easier if i just show u. u pretend u lost something, i run the real check on u. wanna try?"],
+    ["ok here's the fun part: pretend u lost something and i'll put u through the real check. down?"],
+    ["quickest way to get it is to try it. pretend u lost something and i'll run the real check on u. want to?"],
+  ],
+};
+
+const QUESTION_AFTER_NO: Brief = {
+  goal: "they passed on what he offered. a couple of easy words that it's fine, then ask the one question: what's one thing they wish was easier at usc. one short text, no pitch, no sign-off",
+  mustCover: ["no problem", "what's one thing they wish was easier at usc"],
+  fallback: [
+    ["all good. random q tho: what's one thing u wish was easier at usc?"],
+    ["fair enough. lemme ask u one thing instead: what do u wish was easier at usc?"],
+    ["no worries. quick one tho, if u could make one thing at usc easier, what would it be?"],
+    ["that's fine. real question tho: what's the one thing at usc u wish just worked better?"],
+  ],
+};
+
 const NO_THANKS: Brief = {
   goal: "they said no thanks to the offer. one short easy line, no push",
   mustCover: ["no problem"],
   fallback: [["all good"], ["no worries"], ["bet, i'm around if u change ur mind"], ["easy. text me whenever"]],
+};
+
+const DONE_FOR_NOW: Brief = {
+  goal: "they said they're good for now (maybe later, i'm good, gotta go). one short easy line that takes them at their word. no question, no offer, no next step",
+  mustCover: ["no problem"],
+  fallback: [["all good"], ["no worries, catch u later"], ["bet, have a good one"], ["easy. later"], ["sounds good, take care"]],
+};
+
+const QUESTION_SHRUG: Brief = {
+  goal: "he asked what they wish was easier at usc and they had nothing much to say (ok, idk, nothing). one short easy line that it's fine. no question, no push, no new offer",
+  mustCover: ["that's fine"],
+  fallback: [["fair, nothing is a fine answer"], ["all good, didn't mean to put u on the spot"], ["that's fair. if something ever bugs u, i'm the one to tell"], ["no worries, was just curious"]],
 };
 
 const TRY_ME_QUESTION = ["wanna see what i do? tap one", "want a quick demo? pick one", "curious what i actually do? tap one", "wanna try me out? pick one"];
@@ -402,10 +496,10 @@ export const STUMP_HINT =
   "they are playing 'stump me': they named a campus problem to see if troy knows who handles it. tell them who handles it, using only the looked up rows for names and contacts. do not file a report or hand off, it's a game. if it's something troy himself handles (lost and found, free food, broken things, a complaint for student government), say so and that they can do it for real anytime.";
 
 const ONE_QUESTION: Brief = {
-  goal: "ask one easy question out of the blue: what's one thing they wish was easier at usc. one short text, no pitch",
+  goal: "ask one easy question, casually, like it just occurred to him (something like 'since ur here'): what's one thing they wish was easier at usc. one short text, no pitch",
   mustCover: ["what's one thing they wish was easier at usc"],
   fallback: [
-    ["random q: what's one thing u wish was easier at usc?"],
+    ["random q since ur here: what's one thing u wish was easier at usc?"],
     ["been wondering, what's one thing at usc u wish was less of a hassle?"],
     ["quick one: if u could make one thing at usc easier, what would it be?"],
     ["curious, what's the one thing at usc u wish just worked better?"],
@@ -518,6 +612,11 @@ function realLostNear(db: DatabaseSync, user: User, now: number): { count: numbe
 
 // ---------- onboarding just ended ----------
 
+/** TROY_CHAT_DEBUG=1: one line saying which first-ten path took a message. Never the text, never a handle. */
+const trace = (what: string): void => {
+  if (process.env.TROY_CHAT_DEBUG === "1") console.log(`first ten: ${what}`);
+};
+
 const ids = (list: (string | null)[]): string[] => list.filter((id): id is string => typeof id === "string" && !!id);
 
 /**
@@ -555,19 +654,22 @@ export async function afterOnboarding(ctx: FlowContext): Promise<void> {
   const lost = realLostNear(db, user, now);
   near.lost = lost.count > 0 ? "real" : "example";
   near.lostCount = lost.count > 0 ? lost.count : FIRST_TEN.exampleLost;
-  near.lostIds = ids(await ctx.say(...(await inHisWords(me, `firstten:lost:${near.lost}`, lostBrief(near.lostCount, lost.count > 0 ? lost.near : true)))));
+  near.lostIds = ids(await ctx.say(...(await inHisWords(me, `firstten:lost:${near.lost}`, lostBrief(near.lostCount, lost.count > 0 ? lost.near : true, lost.count > 0)))));
   near.open = true;
   patch(db, user.id, { near });
   markMove(db, user.id, "near");
 
-  // Judges get the "try me" poll right away. Everyone else gets it after 30 seconds of silence.
-  if (judge) await sendTryMe(me, now);
-  else schedule(db, user.id, FIRST_TEN.pollAfterMs + SEC);
+  // From here until they try one thing, he pulls: no dead ends, one easy next step every time.
+  brainMod.setUntried(db, user.id, { since: now, pollAt: null });
+  // The "try me" poll goes out right away, for everyone, so starting takes a single tap. It belongs to this turn,
+  // so it does not use up the one unprompted message.
+  if (await sendTryMe(me, now, false)) brainMod.setUntried(db, user.id, { since: now, pollAt: now });
+  schedule(db, user.id, FIRST_TEN.silentQuestionAfterMs + 500);
 }
 
 // ---------- the "try me" poll ----------
 
-async function sendTryMe(ctx: FlowContext, now: number): Promise<boolean> {
+async function sendTryMe(ctx: FlowContext, now: number, unprompted = true): Promise<boolean> {
   const { db, user } = ctx;
   const chatId = user.chatId;
   const question = pickVariant(db, user.id, "firstten:tryme", TRY_ME_QUESTION);
@@ -587,7 +689,7 @@ async function sendTryMe(ctx: FlowContext, now: number): Promise<boolean> {
     ref = { pollId: null, optionIds: poll.optionMessageIds, mode: poll.mode, at: now };
     await ctx.say(pickVariant(db, user.id, `firstten:tryme:${poll.mode}`, poll.mode === "tap" ? TRY_ME_TAP_HINT : TRY_ME_NUMBER_HINT));
   }
-  patch(db, user.id, { poll: ref, unpromptedAt: now });
+  patch(db, user.id, unprompted ? { poll: ref, unpromptedAt: now } : { poll: ref });
   markMove(db, user.id, "poll");
   return true;
 }
@@ -611,8 +713,8 @@ async function startTour(ctx: FlowContext, variant: "lost" | "food" | "repair"):
 /** Start the move a "try me" option stands for. A real drop nearby goes to the real food flow; otherwise the example. */
 async function playPick(ctx: FlowContext, index: number): Promise<void> {
   const { db, user } = ctx;
-  const row = load(db, user.id);
-  if (row?.near?.open) patch(db, user.id, { near: { ...row.near, open: false } });
+  // Nobody is left believing there is pizza to walk to: the honest line comes before the run they picked.
+  await labelExamples(ctx);
   if (index === 0) {
     await startTour(ctx, "lost");
     return;
@@ -632,6 +734,144 @@ async function playPick(ctx: FlowContext, index: number): Promise<void> {
   await ctx.say(...(await inHisWords(ctx, "firstten:stump", STUMP)));
   markMove(db, user.id, "stump", { did: true });
   patch(db, user.id, { stumpUntil: deps.now() + FIRST_TEN.answerMs });
+}
+
+/**
+ * The "near u" bubbles used example numbers and this person never asked about them (so they never got the honest
+ * answer): one line saying so, right before an example run starts. Closes the offer either way. True when it spoke.
+ */
+export async function labelExamples(ctx: FlowContext): Promise<boolean> {
+  const { db, user } = ctx;
+  const row = load(db, user.id);
+  const near = row?.near;
+  if (!near?.open) return false;
+  patch(db, user.id, { near: { ...near, open: false } });
+  const food = near.food === "example";
+  const lost = near.lost === "example";
+  if (!food && !lost) return false;
+  // One bubble, always: it sits in front of a run that has several of its own.
+  const brief = labelBrief(food, lost);
+  const own = await inHisWords(ctx, "firstten:label", brief);
+  await ctx.say(...(own.length === 1 ? own : rotate(db, user.id, "firstten:label", brief.fallback)));
+  return true;
+}
+
+// ---------- the pull ----------
+
+const THUMBS = /^(?:\s|\u{1F44D}|\u{1F44C}|\u{2705}|\u{1F64F}|\u{1F525}|\u{1F60E}|\u{1F642}|\u{1F60A}|[\u{1F3FB}-\u{1F3FF}]|\u{FE0F})+$/u;
+const NEUTRAL_WORD = "ok|okay|okie|okk|k|kk|cool|bet|lol|lmao|haha|hahaha|nice|sweet|word|aight|ight|alright|gotcha|got it|sounds good|sg|noted|i see|oh|ah|interesting|neat|dope|fire|wow|hm|hmm|mhm|true|fair|good to know|makes sense|yea|yeah|yep|yup|yes|sure|thats cool|thats fire|love that|sick|w";
+const NEUTRAL = new RegExp(`^(?:${NEUTRAL_WORD})(?: (?:${NEUTRAL_WORD}|then|i guess|thanks|thx|ty))*$`);
+/** A clear yes to "wanna see what i do?": the tour starts without another question. */
+const EAGER = /^(?:(?:ok|okay|yes|yeah|yea|yep|yup|sure|bet|ooh|lol)\s+)*(?:yes|yeah|yea|yep|yup|sure|down|im down|lets go|lets do it|do it|show me|go ahead|go for it|why not|hit me|try me)(?: (?:pls|please|lol|then|show me|lets go))*$/;
+/** They said they're good. He relaxes: no more next steps. */
+const DONE =
+  /^(?:(?:nah|no|nope|ok|okay|lol|haha|thanks|thx|ty|cool|bet|all good)\s+)*(?:im (?:good|all good|all set|done|ok|okay|fine|chilling|straight)|all (?:good|set)|thats (?:all|it)|nothing(?: rn| right now| else)?|not (?:rn|right now|now)|maybe later|later|gtg|g2g|gotta go|bye|goodnight|gn|ttyl|peace|no thanks|no thank u|no thank you|no thx|ill pass|pass|leave it|stop asking)(?: (?:thanks|thx|ty|tho|though|for now|rn|bro|man|lol))*$/;
+
+const plainWords = (text: string): string => (text ?? "").toLowerCase().replace(/[\u2018\u2019'`]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+/** A bare "ok", "cool", "k", "lol", "sounds good" or a thumbs up typed as a text: it means keep going, not goodbye. */
+export function isNeutral(text: string): boolean {
+  const raw = (text ?? "").trim();
+  if (!raw || raw.includes("?")) return false;
+  if (THUMBS.test(raw)) return true;
+  const t = plainWords(raw);
+  return !!t && t.split(" ").length <= 5 && NEUTRAL.test(t);
+}
+
+/** "i'm good", "maybe later", "gtg": they are done for now. */
+export function saysDone(text: string): boolean {
+  const t = plainWords(text);
+  return !!t && t.split(" ").length <= 7 && DONE.test(t);
+}
+
+const tourSeen = (db: DatabaseSync, row: Row): boolean => row.moves.some((m) => m === "tour_offer" || m === "tour_lost" || m === "tour_food" || m === "tour_repair") || brainDid(db, row.userId, "tour_offer");
+const questionSeen = (db: DatabaseSync, row: Row): boolean => row.moves.includes("question") || brainDid(db, row.userId, "question");
+
+/** The one question, as a reply (not the unprompted one). Their answer goes somewhere real (adjustIntent). */
+async function askQuestion(ctx: FlowContext, brief: Brief, key: string): Promise<void> {
+  await ctx.say(...(await inHisWords(ctx, key, brief)));
+  markMove(ctx.db, ctx.user.id, "question");
+  patch(ctx.db, ctx.user.id, { questionAt: deps.now() });
+}
+
+/** One specific thing nearby: a real drop's spot, where real lost reports are, or (with only examples around) the labeled food run. */
+async function nearbyMove(ctx: FlowContext, row: Row): Promise<boolean> {
+  const { db } = ctx;
+  const user = getUserById(db, ctx.user.id) ?? ctx.user;
+  const now = deps.now();
+  const drop = row.near?.food === "real" ? null : realDropNear(db, user, now);
+  if (drop) {
+    await ctx.say(...(await inHisWords(ctx, "firstten:food:real", realFoodBrief(drop.what, drop.where, drop.walk))));
+    return true;
+  }
+  if (row.near?.lost === "real" && realLostNear(db, user, now).count > 0) {
+    await realDetails(ctx, row);
+    return true;
+  }
+  if (row.moves.includes("tour_food")) return false;
+  await startTour(ctx, "food");
+  return true;
+}
+
+/**
+ * His next move for someone who is new and untried and just gave him nothing to work with ("ok", a thumbs up):
+ * the tour offer (one yes or thumbs up starts it), then one specific nearby thing, then the one question.
+ * False when every move has been played: he has nothing left to pull with, so he relaxes.
+ */
+export async function nextMove(ctx: FlowContext, opts: { offersOnly?: boolean } = {}): Promise<boolean> {
+  const { db, user } = ctx;
+  const row = load(db, user.id);
+  if (!row || !isUntried(db, user.id)) return false;
+  // The one question is his open ask: whatever they said to it was their answer. He never stacks a move on top.
+  if (row.questionAt !== null) return false;
+  if (!tourSeen(db, row)) {
+    const sent = ids(await ctx.say(...(await inHisWords(ctx, "firstten:pull:tour", TOUR_PULL))));
+    markMove(db, user.id, "tour_offer");
+    ctx.setState({ flow: TOUR, step: "offer", data: { variant: "lost", qid: sent[sent.length - 1] ?? null } });
+    return true;
+  }
+  // `offersOnly`: after a pool reply to something they actually said, he may close on a one-line offer, but he never
+  // launches a whole example run they didn't react to.
+  if (!opts.offersOnly && !row.moves.includes("nearby")) {
+    markMove(db, user.id, "nearby");
+    if (await nearbyMove(ctx, row)) return true;
+  }
+  if (!questionSeen(db, row)) {
+    await askQuestion(ctx, ONE_QUESTION, "firstten:question");
+    return true;
+  }
+  relax(db, user.id);
+  return false;
+}
+
+/**
+ * They said no to something he offered while still untried. He doesn't leave it there and doesn't push the same
+ * thing: one easy "all good" and the one question. True when that went out. False when he should just say "all good"
+ * (they've tried something, or the question was already asked: a second no means he relaxes).
+ */
+export async function afterDecline(ctx: FlowContext): Promise<boolean> {
+  const { db, user } = ctx;
+  const row = load(db, user.id);
+  if (!row || !isUntried(db, user.id)) return false;
+  // "nah im good", "maybe later": that is them saying they're good, not a no to one offer. No question on top.
+  if (questionSeen(db, row) || saysDone(ctx.event.text)) {
+    relax(db, user.id);
+    return false;
+  }
+  await askQuestion(ctx, QUESTION_AFTER_NO, "firstten:question:afterno");
+  return true;
+}
+
+/** The chat brain asked the one question itself (src/flows/smalltalk.ts): the next answer goes somewhere real. */
+export function noteQuestionAsked(db: DatabaseSync, userId: number): void {
+  try {
+    const row = load(db, userId);
+    if (!row || !inWindow(row, deps.now())) return;
+    markMove(db, userId, "question");
+    patch(db, userId, { questionAt: deps.now() });
+  } catch {
+    // Best effort.
+  }
 }
 
 // ---------- their replies ----------
@@ -683,8 +923,9 @@ async function answerNear(ctx: FlowContext, row: Row, input: { yes: boolean; no:
     return true;
   }
   if (input.no) {
-    await ctx.say(...(await inHisWords(ctx, "firstten:nothanks", NO_THANKS)));
     patch(ctx.db, ctx.user.id, { near: { ...near, open: false } });
+    // Still untried: not a dead end, the one question instead. Otherwise one easy line.
+    if (!(await afterDecline(ctx))) await ctx.say(...(await inHisWords(ctx, "firstten:nothanks", NO_THANKS)));
     return true;
   }
   return false;
@@ -705,6 +946,7 @@ export async function firstTenIntercept(ctx: FlowContext): Promise<boolean> {
   // answers a numbered poll that is still fresh.
   const pick = typedPick(event.text, !!row.poll && row.poll.mode === "numbered" && now - row.poll.at < FIRST_TEN.answerMs);
   if (pick !== -1) {
+    trace(`typed pick ${pick}`);
     await playPick(ctx, pick);
     return true;
   }
@@ -713,7 +955,73 @@ export async function firstTenIntercept(ctx: FlowContext): Promise<boolean> {
   // of his (a chat reply, the poll), "yes" belongs to that, and only the words themselves ("where?", "details?") count.
   const fresh = !!row.near && nearIsLastWord(db, user.chatId, row.near);
   const yn = fresh ? readYesNo({ event, questionMessageId: null }) : null;
-  return answerNear(ctx, row, { yes: yn === "yes", no: yn === "no", spot: wantsSpot(t), details: wantsDetails(t) });
+  if (await answerNear(ctx, row, { yes: yn === "yes", no: yn === "no", spot: wantsSpot(t), details: wantsDetails(t) })) {
+    trace(`answered the near-u bubbles (fresh=${fresh})`);
+    return true;
+  }
+  const pulled = await pull(ctx, row);
+  trace(`pull=${pulled} untried=${isUntried(db, user.id)} neutral=${isNeutral(event.text)}`);
+  return pulled;
+}
+
+/** "ok", "idk", "nothing", "no": not an answer he can send anywhere. */
+function shrugs(text: string): boolean {
+  if (isNeutral(text) || readYesNo({ event: { text } as IncomingEvent, questionMessageId: null }) !== null) return true;
+  const t = plainWords(text);
+  return !!t && t.split(" ").length <= 4 && /^(?:idk|i dont know|dunno|not sure|nothing|none|no idea|nm|not much|cant think of (?:anything|one))\b/.test(t);
+}
+
+/**
+ * They said they're good for now while he was still pulling. He takes them at their word: he relaxes and sends one
+ * easy line with no next step. True when that happened; false for any other text, or for someone he isn't pulling.
+ */
+export async function doneForNow(ctx: FlowContext): Promise<boolean> {
+  const { db, user, event } = ctx;
+  if (event.reaction || event.pollVote || event.images.length || !saysDone(event.text) || !isUntried(db, user.id)) return false;
+  relax(db, user.id);
+  const row = load(db, user.id);
+  if (row && row.questionAt !== null) patch(db, user.id, { questionAt: null });
+  await ctx.say(...(await inHisWords(ctx, "firstten:done", DONE_FOR_NOW)));
+  return true;
+}
+
+/** New and untried, nothing open, and the text gives him nothing to answer: he makes the next move himself. */
+async function pull(ctx: FlowContext, row: Row): Promise<boolean> {
+  const { db, user, event } = ctx;
+  if (!isUntried(db, user.id)) return false;
+  // "i'm good", "maybe later": they said so. He relaxes: one easy line, and nothing more to do.
+  if (await doneForNow(ctx)) return true;
+  // The one question is his open ask and they gave him nothing ("ok", "idk", "nothing", "no"): that was their answer.
+  // He relaxes and makes no new move.
+  if (row.questionAt !== null && shrugs(event.text)) {
+    patch(db, user.id, { questionAt: null });
+    relax(db, user.id);
+    await ctx.say(...(await inHisWords(ctx, "firstten:question:shrug", QUESTION_SHRUG)));
+    return true;
+  }
+  const t = plainWords(event.text);
+  // A clear yes while the poll ("wanna see what i do?") is the open ask: the tour starts, no second question.
+  if (row.poll && !row.moves.includes("tour_lost") && EAGER.test(t) && lastOutIsPoll(db, user.chatId, row.poll)) {
+    await playPick(ctx, 0);
+    return true;
+  }
+  if (readYesNo({ event, questionMessageId: null }) === "no" && t.split(" ").length <= 3) return afterDecline(ctx);
+  if (!isNeutral(event.text)) return false;
+  return nextMove(ctx);
+}
+
+/** True when the newest thing Troy sent in this chat is the "try me" poll (or its tap / number hint). */
+function lastOutIsPoll(db: DatabaseSync, chatId: string, poll: PollRef): boolean {
+  try {
+    const last = db.prepare("SELECT providerMessageId AS id, text FROM messages WHERE chatId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(chatId) as { id: string | null; text: string | null } | undefined;
+    if (!last) return false;
+    if (last.id && (last.id === poll.pollId || poll.optionIds.includes(last.id))) return true;
+    // Tap and numbered polls end on a one-line hint.
+    const text = last.text ?? "";
+    return TRY_ME_TAP_HINT.includes(text) || TRY_ME_NUMBER_HINT.includes(text);
+  } catch {
+    return false;
+  }
 }
 
 /** True when the newest thing Troy sent in this chat is one of the "near u" bubbles. */
@@ -724,6 +1032,19 @@ function nearIsLastWord(db: DatabaseSync, chatId: string, near: Near): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * "where's the pizza?" or "what did they lose?" asked while something else of his was the open question (a tour
+ * offer). The offer's owner calls this before letting the message go, so the honest answer about the "near u"
+ * numbers is never lost to a chat reply. True when it answered.
+ */
+export async function nearQuestion(ctx: FlowContext): Promise<boolean> {
+  if (ctx.event.reaction || ctx.event.pollVote || ctx.event.images.length) return false;
+  const row = load(ctx.db, ctx.user.id);
+  if (!inWindow(row, deps.now())) return false;
+  const t = words(ctx.event.text);
+  return answerNear(ctx, row, { yes: false, no: false, spot: wantsSpot(t), details: wantsDetails(t) });
 }
 
 /**
@@ -764,7 +1085,18 @@ export async function firstTenTap(ctx: FlowContext): Promise<boolean> {
       return true;
     }
   }
+  // A thumbs up on anything else of his, from someone still untried with nothing open, means keep going.
+  if (positive && !ctx.state && isUntried(db, user.id) && !onFoodAlert(db, user.id, r.targetMessageId)) return nextMove(ctx);
   return false;
+}
+
+/** A tapback on a real food alert is a claim (the pipeline hands it to the food flow), never a "keep going". */
+function onFoodAlert(db: DatabaseSync, userId: number, messageId: string): boolean {
+  try {
+    return !!db.prepare("SELECT 1 FROM food_alert_bubbles WHERE messageId = ? AND userId = ? LIMIT 1").get(messageId, userId);
+  } catch {
+    return false;
+  }
 }
 
 const ABOUT_OFFER = /\b(?:pizza|food|slice|spot|where|wheres|addy|address|location|building|lost|details?|items?|which|send|show|tell|yes|yeah|yea|sure|ok|okay|please|pls|hungry|starving|omw|eat)\b/;
@@ -792,6 +1124,7 @@ export async function firstTenChat(ctx: FlowContext): Promise<boolean> {
     ],
   });
   if (!out) return false;
+  trace(`chat about the example offer, action=${out.action ?? "none"}`);
   if (out.action === "reveal") {
     await reveal(ctx, row);
     return true;
@@ -818,6 +1151,8 @@ export function adjustIntent(db: DatabaseSync, user: User, event: IncomingEvent,
     }
     if (row.questionAt !== null) {
       patch(db, user.id, { questionAt: null });
+      // Whatever they say to the one question, they answered it: he stops prompting.
+      relax(db, user.id);
       const t = words(event.text);
       const real = t.split(" ").length >= 3 && !t.includes("?") && readYesNo({ event, questionMessageId: null }) === null && !/^(?:idk|i dont know|not sure|nothing|none|no idea|hm+|lol)\b/.test(t);
       if (now - row.questionAt < FIRST_TEN.answerMs && intent.flow === "smalltalk" && real) return { flow: "usg", action: "concern", details: { ...intent.details, fromFirstTen: true }, source: intent.source };
@@ -884,11 +1219,62 @@ export function dueNow(db: DatabaseSync, userId: number, now: number = deps.now(
   if (elapsed >= FIRST_TEN.planMs) return null;
   // Mid-step in something (a flow's question, the tour): he doesn't talk over it.
   if (getFlowState(db, userId) || isBusy(db, userId, now)) return null;
-  if (row.lastInAt === null) return elapsed >= FIRST_TEN.pollAfterMs && !row.moves.includes("poll") ? "poll" : null;
+  const untried = isUntried(db, userId, now);
+  if (row.lastInAt === null) {
+    // The poll normally went out with the "near u" bubbles. If that send failed, it is tried once more.
+    if (!row.moves.includes("poll")) return elapsed >= FIRST_TEN.pollRetryMs ? "poll" : null;
+    // They never texted and the poll is still sitting there: the one question, later than for someone who chatted.
+    return untried && elapsed >= FIRST_TEN.silentQuestionAfterMs && !questionSeen(db, row) ? "question" : null;
+  }
   if (now - row.lastInAt < FIRST_TEN.settleMs) return null;
-  // They did a move: the follow-up is the better fit. They only chatted: the one question.
+  // They did a move: the follow-up is the better fit. They chatted but tried nothing: the one question.
   if (row.did) return elapsed >= FIRST_TEN.followUpAfterMs && !row.moves.includes("follow_up") && !!FOLLOW_UPS[row.did] ? "follow_up" : null;
-  return now - row.lastInAt >= FIRST_TEN.questionAfterMs && !row.moves.includes("question") && !brainDid(db, userId, "question") ? "question" : null;
+  // Someone who said they're good is left alone.
+  if (!untried || questionSeen(db, row)) return null;
+  // Quiet is measured from the newest message in EITHER direction: his reply to their last text may have landed
+  // many seconds after it. And when his own last bubble still asks something, the question waits longer, so two
+  // asks never land back to back.
+  const out = lastOut(db, user.chatId);
+  const quietSince = Math.max(row.lastInAt, out?.at ?? 0);
+  const wait = out && out.at >= row.lastInAt && asksSomething(out.text) ? FIRST_TEN.silentQuestionAfterMs : FIRST_TEN.questionAfterMs;
+  return now - quietSince >= wait ? "question" : null;
+}
+
+/** The newest thing Troy sent in this chat: when, and what it said. */
+function lastOut(db: DatabaseSync, chatId: string): { at: number; text: string } | null {
+  try {
+    const r = db.prepare("SELECT createdAt AS at, text FROM messages WHERE chatId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(chatId) as { at: number; text: string | null } | undefined;
+    return r ? { at: Number(r.at) || 0, text: r.text ?? "" } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** His bubble leaves them something to answer: a question, a poll, or exact words to text. */
+function asksSomething(text: string): boolean {
+  const t = (text ?? "").trim();
+  return /\?["')\s]*$/.test(t) || t.startsWith("[poll]") || /\b(?:text|reply|tap|thumbs up)\b[^.]*"[^"]{1,40}"/.test(t) || TRY_ME_TAP_HINT.includes(t) || TRY_ME_NUMBER_HINT.includes(t);
+}
+
+/**
+ * Runs a job in a person's own message queue (the pipeline's), so nothing he starts by himself can land in the
+ * middle of a reply that is still going out to them. Without a pipeline the job just runs.
+ */
+type Queue = (userId: number, job: () => Promise<void>) => Promise<void>;
+const queueFor = new WeakMap<DatabaseSync, Queue>();
+export function setFirstTenQueue(db: DatabaseSync, queue: Queue): void {
+  queueFor.set(db, queue);
+}
+
+async function runQueued(io: SweepIo, userId: number, now: number): Promise<Due> {
+  const queue = queueFor.get(io.db);
+  if (!queue) return runOne(io, userId, now);
+  let out: Due = null;
+  await queue(userId, async () => {
+    // Re-checked once the queue is free: a reply may have gone out while this waited.
+    out = await runOne(io, userId, Math.max(now, deps.now()));
+  });
+  return out;
 }
 
 async function runOne(io: SweepIo, userId: number, now: number): Promise<Due> {
@@ -923,7 +1309,7 @@ export async function sweepFirstTen(io: SweepIo, now: number = deps.now()): Prom
   let sent = 0;
   for (const r of rows) {
     try {
-      if (await runOne(io, r.userId, now)) sent++;
+      if (await runQueued(io, r.userId, now)) sent++;
     } catch {
       // One person's failed send never stops the sweep.
     }
@@ -931,12 +1317,25 @@ export async function sweepFirstTen(io: SweepIo, now: number = deps.now()): Prom
   return sent;
 }
 
-function schedule(db: DatabaseSync, userId: number, ms: number): void {
+function schedule(db: DatabaseSync, userId: number, ms: number, again = true): void {
   if (!deps.timers) return;
   const timer = setTimeout(() => {
     const io = ioFor.get(db);
     if (!io) return;
-    runOne(io, userId, deps.now()).catch(() => {});
+    runQueued(io, userId, deps.now())
+      .then((sent) => {
+        // Not due yet because his own reply landed after their text: one more look when that quiet has run out.
+        // (The server's 30 second sweep would catch it anyway; this only makes it land on time.)
+        if (sent || !again) return;
+        const row = load(db, userId);
+        const user = getUserById(db, userId);
+        if (!row || !user || row.endedAt !== null || row.unpromptedAt !== null || row.lastInAt === null) return;
+        const out = lastOut(db, user.chatId);
+        if (!out || out.at < row.lastInAt) return;
+        const wait = (asksSomething(out.text) ? FIRST_TEN.silentQuestionAfterMs : FIRST_TEN.questionAfterMs) - (deps.now() - out.at);
+        if (wait > 0) schedule(db, userId, wait + 500, false);
+      })
+      .catch(() => {});
   }, ms);
   timer.unref?.();
 }

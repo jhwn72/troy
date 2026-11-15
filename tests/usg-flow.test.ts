@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { setDemoHooks } from "../src/staff.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import type { FlowHandler, Intent, MessagingAdapter } from "../src/types.ts";
 import { openDb, getOrCreateUser, getFlowState, updateUser } from "../src/db/index.ts";
 import { seed } from "../src/db/seed.ts";
@@ -29,6 +31,43 @@ const DINING_COMMITTEE = "USG Committee on Sustainability and Campus Infrastruct
 
 type Report = { id: number; userId: number; anonymous: number; category: string; description: string; routedTo: string; status: string; followers: string; isExample: number };
 type Dir = { name: string; details: string; url: string | null; isExample: number };
+
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+setDemoHooks({
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "usg", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+});
 
 // No model: every reply path has to work without one.
 setModelCall(async () => {
@@ -461,4 +500,76 @@ test("poolProblems catches a variant that drops a value, adds an emoji, shouts, 
   assert.match(poolProblems({ few: ["only one", "only two"] }).join("\n"), /want 3 to 5/);
   assert.match(poolProblems({ a: ["same words", "x one", "x two"], b: ["other words", "same words", "y two"] }).join("\n"), /also in/);
   assert.match(poolProblems({ two: [["a b", "c d"], ["only one bubble"], ["e f", "g h"]] }).join("\n"), /bubbles/);
+});
+
+// ---------- judge asides and the simulated usg member ----------
+
+const usgAsides = () => demo.asides.map((a) => a.note);
+
+test("asides: a sent concern names the committee and how many students share it; a joined one carries the real count", async () => {
+  demo.reset();
+  const t = setup();
+  const a = t.student("+13235550301");
+  await a.text("usc should have more vegetarian options at evk");
+  assert.equal(demo.asides.length, 0, "nothing while the name question is still open");
+  await a.text("anonymously pls");
+  assert.deepEqual(usgAsides().map((n) => [n.step, n.decision, n.behind?.numbers]), [["usg_sent", "steps_back", { committee: DINING_COMMITTEE, topic: "dining", studentsSharingIt: 1 }]]);
+  assert.ok(!JSON.stringify(demo.asides).includes("Tess"), "a name is never handed over");
+
+  // Someone else raises the same thing: the aside says how many share it now.
+  demo.reset();
+  const b = t.student("+13235550302");
+  const reply = await b.text("usc should really have more vegetarian options at evk");
+  const others = Number(reply[0]!.match(/^(\d+) other/)![1]);
+  assert.deepEqual(usgAsides().map((n) => [n.step, n.decision, n.behind?.numbers]), [["usg_joined", "texts_first", { studentsSharingIt: others + 1, committee: DINING_COMMITTEE }]]);
+  assert.equal(others + 1, 2);
+});
+
+test("a plain program answer gets no aside: the stored text is the whole reply", async () => {
+  demo.reset();
+  const t = setup();
+  const a = t.student("+13235550303");
+  await a.text("how does my club get funding");
+  assert.equal(demo.asides.length, 0);
+  assert.equal(demo.offers.length, 0);
+});
+
+test("simulation: with no usg member assigned, a judge is offered the member's side; a student in a live pilot just waits", async () => {
+  demo.reset();
+  demo.accept = true;
+  const t = setup();
+  const judge = t.student("+13235550304");
+  await judge.text("usc should have more vegetarian options at evk");
+  const reply = await judge.text("with my name");
+  assert.equal(reply[0], `sent to the ${DINING_COMMITTEE}. i'll text u when they pick it up.`);
+  assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.committee, o.context.topic, o.context.anonymous]), [["usg", DINING_COMMITTEE, "dining", "no"]]);
+  assert.equal(judge.state()?.step, "sim_offer");
+  assert.equal(demo.asides.length, 0, "no aside stacked on the offer");
+  assert.equal(t.mine().length, 1, "the concern itself is real and on the dashboard");
+  // A typed yes is the simulation's.
+  demo.consume = true;
+  assert.deepEqual(await judge.text("yes"), [SIM_LINE]);
+
+  // Two real students: neither is ever shown a simulation.
+  demo.reset();
+  demo.accept = true;
+  const t2 = setup();
+  const s1 = t2.student("+13235550305");
+  const s2 = t2.student("+13235550306");
+  for (const s of [s1, s2]) updateUser(t2.db, s.id, { verifiedVia: "usc_email" });
+  await s1.text("usc should have more vegetarian options at evk");
+  const waited = await s1.text("anonymously pls");
+  assert.equal(demo.offers.length, 0);
+  assert.equal(waited[0], `sent to the ${DINING_COMMITTEE}. i'll text u when they pick it up.`);
+  assert.equal(s1.state(), null);
+
+  // One real student and nobody else: offered.
+  demo.reset();
+  demo.accept = true;
+  const t3 = setup();
+  const only = t3.student("+13235550307");
+  updateUser(t3.db, only.id, { verifiedVia: "usc_email" });
+  await only.text("usc should have more vegetarian options at evk");
+  await only.text("anonymously pls");
+  assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.anonymous]), [["usg", "yes"]]);
 });

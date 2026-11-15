@@ -158,6 +158,8 @@ export interface Intent {
 export interface Bubble {
   text: string;
   effect?: SendEffect;
+  /** Someone else's words passed along (a relayed message, a thank-you note): never reworded, whatever the person's tone setting. */
+  verbatim?: boolean;
 }
 
 export interface FlowContext {

@@ -10,13 +10,17 @@ import { createPipeline } from "../src/pipeline.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
 import { saveUserLocation } from "../src/location.ts";
 import { hasMove, setFirstTenDeps } from "../src/firstten.ts";
+import { setSimulateDeps } from "../src/simulate.ts";
 import { EXAMPLE_DROP, EXAMPLE_ITEM, TOUR_HOLDS } from "../src/flows/tour.ts";
 import { THRESHOLDS, scoreDescription } from "../src/flows/lostfound/verify.ts";
 
 console.warn = () => {};
 setFirstTenDeps({ timers: false });
+// The example finder's pauses are real time in production. Not here.
+setSimulateDeps({ pause: async () => {} });
 after(() => {
   setFirstTenDeps(null);
+  setSimulateDeps(null);
   setModelCall(null);
 });
 beforeEach(() => setModelCall(null));
@@ -95,7 +99,7 @@ const count = (db: DatabaseSync, table: string) => (db.prepare(`SELECT COUNT(*) 
 function assertNothingSaved(db: DatabaseSync): void {
   for (const table of ["listings", "matches", "verifications", "handoffs", "food_drops", "claims", "reports", "relays"]) assert.equal(count(db, table), 0, `${table} is empty`);
 }
-const saysExample = (bubbles: string[]) => /example|pretend|not real|nothing here is real|none of this is real/.test(bubbles.join(" "));
+const saysExample = (bubbles: string[]) => /example|pretend|simulation|not real|nothing here is real|none of this is real/.test(bubbles.join(" "));
 
 test("the example item is checked by the real scoring: the right description passes the rules, a wrong or vague one doesn't", async () => {
   const good = await scoreDescription(EXAMPLE_ITEM, GOOD, { useAi: false });
@@ -333,4 +337,19 @@ test("the offer at the end: yes starts the next example, no is one easy line, an
   await n.say("yes");
   assert.equal((await n.say("nah")).length, 1);
   assert.equal(n.state(), null);
+});
+
+test("the lost round runs on the simulation engine, and a bare 'ok' is never scored as a description", async () => {
+  const w = world();
+  await w.say("show me the lost one");
+  const sim = w.state()?.data.sim as { kind: string; tour: boolean; strict: boolean; tries: number };
+  assert.deepEqual({ kind: sim.kind, tour: sim.tour, strict: sim.strict, tries: sim.tries }, { kind: "lost_found_owner", tour: true, strict: true, tries: 0 });
+  const ok = await w.say("ok");
+  assert.ok(ok.length > 0, "he says something");
+  assert.ok(!/line up|matching/.test(ok.join(" ")), "and it is not a miss");
+  assert.equal(w.state()?.step, "describe");
+  assert.equal((w.state()?.data.sim as { tries: number }).tries, 0);
+  // The fixed example item keeps the real pass mark: vague is still a miss.
+  assert.match((await w.say("it's a bottle i think")).join(" "), /line up/);
+  assertNothingSaved(w.db);
 });

@@ -11,6 +11,7 @@ import { setModelCall } from "../src/ai.ts";
 import type { AskOpts } from "../src/ai.ts";
 import { DPS as DPS_NUMBERS } from "../src/commands.ts";
 import {
+  JOHN_EMAIL,
   aboutFor,
   clearHeavy,
   getChatHealth,
@@ -33,6 +34,11 @@ import {
   loadBrain,
   lookupFacts,
   recentMessages,
+  sentenceCase,
+  setJudgeHooks,
+  setUntried,
+  toPlainEnglish,
+  untriedState,
 } from "../src/brain.ts";
 import { countEmoji } from "../src/voice.ts";
 
@@ -133,9 +139,10 @@ test("the three brain files load as one stable block with the expected sections"
   assert.ok(chatSystem().startsWith(brain.block));
   // Long enough to cache: 512 tokens is the minimum on both models, and three characters a token is a harsh estimate.
   assert.ok(chatSystem().length / 3 > 512);
-  // No em dashes anywhere in the copy, and no made-up contact details in about-troy.md.
+  // No em dashes anywhere in the copy, and no made-up contact details in about-troy.md: the one contact is john's
+  // email, which is there for hackathon judges (and which the checks keep from everyone else).
   assert.doesNotMatch(brain.block, /[—–]/);
-  assert.deepEqual(contactTokens(brain.about), []);
+  assert.deepEqual(contactTokens(brain.about), [JOHN_EMAIL]);
 });
 
 test("the persona has 8 to 10 example exchanges and tells the model not to reuse them", () => {
@@ -422,7 +429,7 @@ test("TROY_EXPLAIN picks which explanation of his own workings reaches the model
     assert.match(brain.about, /never gives the answer key/);
     assert.match(brain.about, /free for students/);
     assert.match(brain.about, /nobody at usc has been told/);
-    assert.deepEqual(contactTokens(brain.about), []);
+    assert.deepEqual(contactTokens(brain.about), [JOHN_EMAIL]);
   }
   assert.notEqual(chatSystem(detailed), chatSystem(generic));
   // The environment decides, read on every call, detailed by default.
@@ -727,4 +734,123 @@ test("a lookup result is a source: its one link passes, a second link fails, and
   assert.ok(checkReply(["october 9 going by the usc academic calendar, double check"], odd).ok);
   // Outside a lookup nothing changes: a stored row's link is still fine.
   assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "how does my club get funding from usg" }).onlyLink, undefined);
+});
+
+// ---------- new and untried: he pulls, he doesn't wait ----------
+
+test("new and untried: the brief says so, a sign-off is rejected, and a reply has to close on one concrete step", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550170", CHAT);
+  const now = Date.now();
+  setUntried(db, user.id, { since: now, pollAt: now });
+  const c = buildChatContext({ db, user, chatId: CHAT, text: "ok so what now", pull: true, now });
+  assert.match(c.prompt, /NEW AND UNTRIED/);
+  assert.match(c.prompt, /exactly one easy, concrete next step/);
+  assert.match(c.prompt, /pretend they lost something/, "the step he is pointed at is the first move they haven't seen");
+  assert.ok(c.untried);
+  // What John got on his phone, word for word, plus the usual suspects.
+  for (const line of ["cool, those 3 loss reports near u are there if u want", "bet, no rush on any of it", "all good, text me whenever", "lmk if u need anything", "i'm around if u change ur mind", "take ur time"]) {
+    assert.match(rejected([line], c), /new and hasn't tried anything/, line);
+  }
+  // Not a sign-off, but nothing to do either.
+  assert.match(rejected(["those are real reports from around campus"], c), /nothing to do/);
+  // One easy step: a question, exact words to text, or a tap.
+  assert.ok(checkReply(["they're real reports from around campus", "wanna see how the check works? pretend u lost something. down?"], c).ok);
+  assert.ok(checkReply(['easiest way to see it: text "pretend i lost something"'], c).ok);
+  assert.ok(checkReply(["tap one of those up there and i'll show u"], c).ok);
+
+  // Not for a line he starts himself, not at a step, and never in a heavy conversation.
+  assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "", now }).untried, null);
+  assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "ok", pull: true, heavy: true, now }).untried, null);
+  assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "ok", pull: true, lockedStep: true, now }).untried, null);
+  // Once it is cleared, or an hour has passed, he is his relaxed self again.
+  assert.equal(untriedState(db, user.id, now + 61 * 60_000), null);
+  setUntried(db, user.id, null);
+  const relaxed = buildChatContext({ db, user, chatId: CHAT, text: "ok", pull: true, now });
+  assert.equal(relaxed.untried, null);
+  assert.ok(!/NEW AND UNTRIED/.test(relaxed.prompt));
+  assert.ok(checkReply(["bet"], relaxed).ok);
+});
+
+// ---------- judges, and the judge who asked for plain english ----------
+
+test("a judge's context says so, john's email is theirs to get and nobody else's, and the cost and pitch answers are in the about section", () => {
+  const db = seeded();
+  const student = getOrCreateUser(db, "+12135550171", CHAT);
+  const judge = getOrCreateUser(db, "+12135550172", CHAT);
+  updateUser(db, judge.id, { verifiedAt: Date.now(), verifiedVia: "judge_skip" });
+  const j = buildChatContext({ db, user: { ...judge, verifiedVia: "judge_skip" }, chatId: CHAT, text: "what would this cost to run" });
+  assert.ok(j.judge);
+  assert.match(j.prompt, /hackathon judge/);
+  assert.match(j.prompt, /pitch question/);
+  // The figures are his to give, exactly as written, and the unmeasured part stays unmeasured.
+  assert.ok(checkReply(["free for students", "a real pilot is about $260 a month for 200 students, plus $79 for live location", "ai usage hasn't been measured yet, so i won't guess that one"], j).ok);
+  assert.match(rejected(["around $500 a month all in"], j), /date, time, price/);
+  assert.ok(checkReply([`for the full breakdown, john's at ${JOHN_EMAIL}`], j).ok);
+  const s = buildChatContext({ db, user: student, chatId: CHAT, text: "how do i reach whoever made u" });
+  assert.ok(!s.judge);
+  assert.ok(!/hackathon judge trying the demo/.test(s.prompt));
+  assert.match(rejected([`email john at ${JOHN_EMAIL}`], s), /not in the looked up rows/);
+
+  const about = loadBrain().about;
+  assert.match(about, /free/);
+  assert.match(about, /builder's mac/);
+  assert.match(about, /\$260 a month for 200 students/);
+  assert.match(about, /\$79/);
+  assert.match(about, /hasn't been measured yet/);
+  for (const q of [/different from chatgpt/, /what's next/, /who is it for/, /does usc know/]) assert.match(about, q);
+  assert.match(about, /follows up/);
+  assert.match(about, /brief on purpose/);
+});
+
+test("plain tone: the brief asks for standard english, and the checks enforce it instead of u and ur", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550173", CHAT);
+  setJudgeHooks({ isJudge: () => true, plainTone: (_db, id) => id === user.id });
+  try {
+    const c = buildChatContext({ db, user, chatId: CHAT, text: "how do you verify the owner?" });
+    assert.ok(c.plain && c.judge);
+    assert.match(c.prompt, /full, standard english/);
+    assert.match(c.prompt, /overrides the lowercase and u\/ur rules/);
+    // Standard spelling goes out as written: nothing is lowercased and "you" stays "you".
+    const ok = checkReply(["You describe the item before you see any photo.", "Then I compare that with what the finder sent."], c);
+    assert.ok(ok.ok);
+    if (ok.ok) assert.deepEqual(ok.bubbles, ["You describe the item before you see any photo.", "Then I compare that with what the finder sent."]);
+    // A lowercase reply in standard words gets its capitals.
+    const cased = checkReply(["you describe it first. then i compare it with what the finder sent."], c);
+    assert.ok(cased.ok);
+    if (cased.ok) assert.deepEqual(cased.bubbles, ["You describe it first. Then I compare it with what the finder sent."]);
+    // Texting shortcuts are what gets rejected now.
+    assert.match(rejected(["u describe it before u see anything"], c), /plain english/);
+    assert.match(rejected(["Send me your photo and I will check it rn."], c), /plain english/);
+    assert.match(rejected(["idk, that one is for John"], c), /plain english/);
+    // Exact words to type keep their form, and every other check still runs.
+    assert.ok(checkReply(['Text "forget my location" and I will erase it.'], c).ok);
+    assert.match(rejected(["Call the front desk at 213-555-0199."], c), /not in the looked up rows/);
+    assert.match(rejected(["I am a student too, so I get it."], c), /troy is an ai/);
+    assert.equal(checkReply(["A".repeat(200)], c).ok, false);
+
+    // Everyone else is unchanged: lowercase, u and ur.
+    const other = getOrCreateUser(db, "+12135550174", CHAT);
+    const normal = checkReply(["You describe it before you see anything"], buildChatContext({ db, user: other, chatId: CHAT, text: "how do u verify" }));
+    assert.ok(normal.ok);
+    if (normal.ok) assert.deepEqual(normal.bubbles, ["u describe it before u see anything"]);
+  } finally {
+    setJudgeHooks(null);
+  }
+});
+
+test("plain tone reaches the hand-written lines too, and exact phrases to type are left alone", async () => {
+  assert.equal(toPlainEnglish("lmk if u want back in rn"), "Let me know if you want back in right now");
+  assert.equal(toPlainEnglish("ur both in a group chat now. thanks for looking out"), "You're both in a group chat now. Thanks for looking out");
+  assert.equal(toPlainEnglish('text "hey troy" if u ever want back in. i\'ll keep ur spot'), 'Text "hey troy" if you ever want back in. I\'ll keep your spot');
+  assert.equal(sentenceCase("ok. i think i'm done"), "Ok. I think I'm done");
+  const s = scene("");
+  setJudgeHooks({ plainTone: () => true });
+  try {
+    const out = await sayInHisWords(s.flow, { goal: "confirm it", mustCover: ["saved"], fallback: [["bet, saved. i'll text u when it moves"]] });
+    assert.deepEqual(out, ["Okay, saved. I'll text you when it moves"]);
+  } finally {
+    setJudgeHooks(null);
+  }
 });

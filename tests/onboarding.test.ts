@@ -20,6 +20,7 @@ import type { Brief, OnboardingDeps, StepSpec } from "../src/onboarding.ts";
 import type { EmailSendResult } from "../src/email.ts";
 import { BUILT_IN_TOPICS, listTopics, openTopicRequests, topicsFor } from "../src/topics.ts";
 import { TEMPLATES } from "../src/commands.ts";
+import { plainTone } from "../src/judge.ts";
 
 const HANDLE = "+12135550100";
 const CHAT = "chat-1";
@@ -221,6 +222,9 @@ async function toLocationStep(opts: Fake = {}) {
   assert.equal(t.step(), "location");
   return t;
 }
+
+/** The one bubble a judge can tap for plain English (src/judge.ts). */
+const TONE_TAPS = ["tap ❤️ on this if u want me to drop the slang", "want me to drop the slang? tap ❤️ on this one", "heart this text if u'd rather i drop the slang"];
 
 const ALERT_OPTIONS = [...BUILT_IN_TOPICS.map((b) => b.label), "something else"].join(" / ");
 
@@ -615,8 +619,9 @@ test("alerts poll: the options are the built-in topics in order plus something e
     poll.endsWith(": free food and stuff nearby 🌯 / rides home and to lax ✈️ / extra tickets for game day 🏈 / pickup games right now 🏀 / experienced trojans 💼 / something else"),
     poll,
   );
-  // A native poll needs no how-to line.
-  assert.deepEqual(t.fake.texts().slice(-1), [JUDGE_LINE]);
+  // A native poll needs no how-to line: the last bubble before it is the judge's tone tap, not instructions.
+  assert.ok(TONE_TAPS.includes(t.fake.texts().at(-1)!), t.fake.texts().at(-1) ?? "");
+  assert.ok(t.fake.texts().includes(JUDGE_LINE));
 });
 
 test("votes are saved as they arrive, and a burst gets one reply in plain words", async () => {
@@ -1184,4 +1189,73 @@ test("guessName only accepts first.last", () => {
   assert.equal(guessName("john.wang@usc.edu"), "John Wang");
   assert.equal(guessName("jwang72@usc.edu"), null);
   assert.equal(guessName("ttrojan@usc.edu"), null);
+});
+
+// ---------- judge mode in onboarding (John, "Judge mode") ----------
+
+test("a judge is told once what is different for them and gets the one-tap tone switch, between the thanks line and the alerts poll", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  const reply = await t.text("judge");
+  assert.equal(reply[0], JUDGE_LINE);
+  // What is different, in his own words (the brief went through this file's composer).
+  const brief = brain.said.find((b) => b.mustCover.some((p) => /faster/.test(p)));
+  assert.ok(brief, "the disclaimer was composed, not canned");
+  assert.ok(brief.mustCover.some((p) => /normal texting pace/.test(p)));
+  assert.ok(brief.mustCover.some((p) => /built for students/.test(p)));
+  assert.ok(brief.mustCover.some((p) => /say anything straight/.test(p)));
+  const said = reply.join(" ");
+  assert.match(said, /typing a bit faster to save u time/);
+  assert.match(said, /a student would see me at a normal texting pace/);
+  assert.match(said, /built for students/);
+  assert.match(said, /straight/);
+  // Then exactly one bubble to tap, and after it the alerts poll.
+  const taps = reply.filter((b) => TONE_TAPS.includes(b));
+  assert.equal(taps.length, 1);
+  assert.equal(reply.indexOf(taps[0]!), reply.length - 2, "the tap is the last bubble before the poll (the tap-mode hint follows the poll)");
+  assert.equal(t.fake.polled().length, 2);
+  assert.equal(t.step(), "alerts");
+  assert.equal(plainTone(t.db, t.user().id), false);
+
+  // The tap turns plain tone on, and the alerts step is still open.
+  const on = await t.tap(t.idOf(taps[0]!), "love");
+  assert.equal(on.length, 1);
+  assert.match(on[0]!, /"slang back on"/);
+  assert.match(on[0]!, /^[A-Z]/, "already in plain english");
+  assert.equal(plainTone(t.db, t.user().id), true);
+  assert.equal(t.step(), "alerts");
+  // Tapping again, or taking it back, says nothing more.
+  assert.deepEqual(await t.tap(t.idOf(taps[0]!), "love"), []);
+  assert.deepEqual(await t.tap(t.idOf(taps[0]!), "love", true), []);
+
+  // Everything after is plain, including onboarding's own pools.
+  const none = await t.text("none");
+  assert.ok(none.every((b) => !/\b(?:u|ur)\b/.test(b.replace(/"[^"]*"/g, ""))), none.join(" / "));
+  assert.equal(t.step(), "location");
+  // Typed, mid-step: the slang comes back and the location ask stays open.
+  const off = await t.text("slang back on");
+  assert.match(off.join(" "), /"drop the slang"/);
+  assert.equal(plainTone(t.db, t.user().id), false);
+  assert.equal(t.step(), "location");
+  // The disclaimer and the tap were sent once in all of that.
+  assert.equal(t.fake.texts().filter((b) => TONE_TAPS.includes(b)).length, 1);
+  assert.equal(t.fake.texts().filter((b) => /typing a bit faster/.test(b)).length, 1);
+});
+
+test("a student never sees the judge disclaimer or the tone tap", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
+  await t.text("tommy@usc.edu");
+  await t.text(codeFor(t.db));
+  assert.equal(t.user().verifiedVia, "usc_email");
+  await t.text("none");
+  await t.text("leavey and the village");
+  const all = t.fake.texts();
+  assert.ok(!all.some((b) => TONE_TAPS.includes(b)));
+  assert.ok(!all.some((b) => /typing a bit faster|drop the slang|built for students/.test(b)), all.join(" / "));
+  assert.ok(!brain.said.some((b) => b.mustCover.some((p) => /faster/.test(p))));
+  // And the words that switch a judge's tone do nothing for a student.
+  await t.text("formal");
+  assert.equal(plainTone(t.db, t.user().id), false);
 });

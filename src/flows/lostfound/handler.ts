@@ -74,6 +74,8 @@ import type { MatchResult } from "./match.ts";
 import { findCandidates, loadListing, matchListing, publicScore } from "./match.ts";
 import { THRESHOLDS, generatePickupCode, nameMatches, scoreDescription } from "./verify.ts";
 import { profileItem, sameItem, sanitizeProfile } from "./vision.ts";
+import type { AsideNote } from "../../staff.ts";
+import { DECISION, aside, ctxAs, simulateIfAlone, simulationTurn } from "../../staff.ts";
 
 // ---------- fixed copy ----------
 
@@ -90,6 +92,8 @@ export const COPY = {
   checking: "on it. checking what's been turned in",
   nothingYet: "nothing yet, still looking",
   willText: "i'll text u the second something turns up",
+  /** Goes with "nothing yet": one thing they can do in the meantime, so a first report never ends on a dead end. */
+  meanwhile: 'meanwhile, text me "still looking" anytime and i\'ll check again',
   mightHave: "might have something",
   turnedUp: "something like what u lost just turned up",
   quickCheck: "quick check first",
@@ -204,6 +208,13 @@ export const LF_POOLS: Pools = {
   logged: (summary) => [T.logged(summary), `got it logged: ${summary}`, `ok, it's logged: ${summary}`],
   holdOnto: [COPY.holdOnto, "keep it with u for now. i'll text u when the owner turns up", "hold onto it for now, and i'll text u once the owner turns up"],
   finderHeadsUp: [COPY.finderHeadsUp, "i think someone's already looking for this. checking with them now", "someone may be looking for this already. checking with them now"],
+
+  meanwhile: [
+    COPY.meanwhile,
+    'and if u want me to look again sooner, just text "still looking"',
+    'u can also text me "still looking" whenever and i\'ll run it again',
+    'want me to recheck later? text "still looking" and i\'ll go through it again',
+  ],
 
   // owner: reporting
   askLostWhat: [COPY.askLostWhat, "ah no. what'd u lose?", "oh no, what's missing?"],
@@ -398,6 +409,8 @@ const TAP_STEPS = new Set<string>(["finder_check", "gc_consent", "await_pickup"]
 const ASK_STEPS = new Set<string>(["finder_check", "finder_decide", "handoff_choice", "gc_consent", "verify_describe", "proof"]);
 /** Intake questions and the thank-you ask go stale: an answer hours later is a new message, not an answer. */
 const INTAKE_STEPS = new Set<string>(["found_what", "found_place", "found_marks", "lost_category", "lost_place", "lost_time"]);
+/** Every step this flow opens. Any other open step under this flow is a simulation's (src/simulate.ts). */
+const OWN_STEPS: ReadonlySet<string> = new Set<Step>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "handoff_choice", "gc_consent", "lost_category", "lost_place", "lost_time", "verify_describe", "proof", "await_finder", "await_pickup", "thanks_note"]);
 export const INTAKE_TTL_MS = 60 * 60 * 1000;
 export const THANKS_TTL_MS = 30 * 60 * 1000;
 /** A claim the claimant isn't moving is let go after this long once someone else is waiting on the item. */
@@ -447,6 +460,19 @@ export interface LostFoundIo {
   say(userId: number, ...bubbles: (string | Bubble | null | undefined | false)[]): Promise<(string | null)[]>;
   setState(userId: number, step: Step | null, data?: Data): void;
   adapter: MessagingAdapter | null;
+  /** The conversation this is running in, or null outside one. Only used for a judge's asides. */
+  ctx: FlowContext | null;
+}
+
+/**
+ * A judge's aside for one side of the exchange, after a step that person just saw. Nothing outside a conversation
+ * (the dashboard, timers), and nothing for someone who can't be texted. Never call it after a miss, a rejection
+ * or a dangerous item: those moments get no commentary. Nothing here may come from the verification answer key.
+ */
+async function judgeNote(io: LostFoundIo, userId: number | null, n: AsideNote): Promise<void> {
+  if (!io.ctx || userId === null) return;
+  const to = ctxAs(io.ctx, userId);
+  if (to) await aside(to, n);
 }
 
 function ioFrom(ctx: FlowContext): LostFoundIo {
@@ -454,6 +480,7 @@ function ioFrom(ctx: FlowContext): LostFoundIo {
     db: ctx.db,
     me: ctx.user.id,
     adapter: ctx.adapter,
+    ctx,
     async say(userId, ...bubbles) {
       const real = LF_VOICE.bubbles(ctx.db, userId, bubbles.filter((b): b is string | Bubble => !!b));
       if (!real.length) return [];
@@ -800,8 +827,23 @@ async function continueFound(ctx: FlowContext, io: LostFoundIo, draft: FoundDraf
   }
   const id = saveFound(io.db, me, draft);
   io.setState(me, null);
-  await io.say(me, T.logged(draft.profile.publicSummary || kindOf(draft.profile.category)), COPY.holdOnto);
-  await afterNewListing(io, id, "found");
+  const summary = draft.profile.publicSummary || kindOf(draft.profile.category);
+  await io.say(me, T.logged(summary), COPY.holdOnto);
+  const res = await afterNewListing(io, id, "found");
+  // Nobody has reported losing it, so the finder would just wait. A judge (or a student with nobody else on here)
+  // is offered the owner's side played out; a student in a live pilot waits for a real owner.
+  if (!res.matched && (await simulateIfAlone(ctx, "lost_found_finder", { item: summary, where: draft.spot?.text ?? "", listingId: String(id) }))) return;
+  // The finder's own item, so the count of details is theirs to hear. Real numbers from this run.
+  const numbers = { details: draft.profile.distinguishing.length, openReports: res.checked };
+  if (draft.photo && draft.fromText !== true) {
+    await aside(ctx, { step: "found_photo", behind: { did: "read the photo, pulled {details} details only its owner would know and checked it against {openReports} open lost reports", numbers }, decision: DECISION.photoReplacesForm });
+  } else if (draft.photo) {
+    await aside(ctx, { step: "found_photo", behind: { did: "couldn't get the photo read by the ai, so i took the item from ur words and checked it against {openReports} open lost reports", numbers: { openReports: res.checked } }, decision: DECISION.worksWhenAiDown });
+  } else if (res.matched) {
+    await aside(ctx, { step: "found_match", behind: { did: "ranked {candidatesRanked} open lost reports against what u found and went with the best fit", numbers: { candidatesRanked: res.ranked } }, decision: res.byRules ? DECISION.worksWhenAiDown : DECISION.oneEngine });
+  } else {
+    await aside(ctx, { step: "found_logged", behind: { did: "checked it against {openReports} open lost reports. none fit yet, so it waits for its owner and gets rechecked with every new report", numbers: { openReports: res.checked } }, decision: DECISION.oneEngine });
+  }
 }
 
 async function reportFound(ctx: FlowContext, io: LostFoundIo): Promise<void> {
@@ -895,7 +937,22 @@ async function nextLost(ctx: FlowContext, io: LostFoundIo, d: LostDraft): Promis
   const id = mergeIntoOpenReport(io.db, me, d) ?? saveLost(io.db, me, d);
   io.setState(me, null);
   await io.say(me, COPY.checking);
-  await afterNewListing(io, id, "lost");
+  const res = await afterNewListing(io, id, "lost");
+  // A match went straight to the blind question (startClaim). Nothing more here.
+  if (res.matched) return;
+  // Nothing turned in fits, so the owner would just wait. A judge (or a student with nobody else on here) is
+  // offered the finder's side played out; a student in a live pilot waits for a real finder. Same for everyone
+  // whatever they wrote: neither the offer nor the aside looks at a score.
+  // The simulation checks their description against their own report: only what they told Troy themselves goes in.
+  const own = { item: kindOf(d.category), category: d.category ?? "", color: d.color ?? "", brand: d.brand ?? "", description: d.text, where: d.spot?.text ?? "", listingId: String(id) };
+  if (await simulateIfAlone(ctx, "lost_found_owner", own)) return;
+  // Otherwise one thing they can do meanwhile, so "nothing yet" is never where a first report ends.
+  await io.say(me, COPY.meanwhile);
+  await aside(ctx, {
+    step: "lost_no_match",
+    behind: { did: "saved ur report and checked it against {foundItemsOpen} found items. nothing fits yet, so it stays open and gets rechecked with every new find", numbers: { foundItemsOpen: res.checked } },
+    decision: res.byRules ? DECISION.worksWhenAiDown : DECISION.oneEngine,
+  });
 }
 
 async function reportLost(ctx: FlowContext, io: LostFoundIo): Promise<void> {
@@ -986,19 +1043,41 @@ function pickBest(db: DatabaseSync, results: MatchResult[]): MatchResult | null 
   return null;
 }
 
-/** Run two-sided matching for a listing that was just saved and act on the best result. */
-async function afterNewListing(io: LostFoundIo, listingId: number, side: "found" | "lost"): Promise<void> {
-  const best = pickBest(io.db, await matchListing(io.db, listingId));
+/** What matching just did, for the person who reported. Counts only: nothing here says how well anything fit. */
+interface Matched {
+  /** A pair was acted on (the owner was asked the blind question). */
+  matched: boolean;
+  /** How many candidates were ranked against this listing. */
+  ranked: number;
+  /** How many open listings of the other kind, from other real people, there were to check against. */
+  checked: number;
+  /** The ranking ran on the rule score because the AI was unavailable. */
+  byRules: boolean;
+}
+
+/**
+ * Run two-sided matching for a listing that was just saved and act on the best result. An owner with nothing to
+ * match is told so and what happens next; the caller adds the one thing they can do meanwhile (never a dead end).
+ */
+async function afterNewListing(io: LostFoundIo, listingId: number, side: "found" | "lost"): Promise<Matched> {
+  const results = await matchListing(io.db, listingId);
+  const best = pickBest(io.db, results);
   const listing = rawListing(io.db, listingId);
-  if (!listing) return;
+  const out: Matched = { matched: false, ranked: results.length, checked: 0, byRules: results.some((r) => r.source === "fallback") };
+  if (!listing) return out;
+  out.checked = Number(
+    (io.db.prepare("SELECT COUNT(*) AS n FROM listings WHERE type = ? AND status IN ('open','matched') AND userId != ? AND isExample = 0").get(side === "found" ? "lost" : "found", listing.userId) as { n: number }).n,
+  );
   if (!best) {
     if (side === "lost") await io.say(listing.userId, ...NOTHING_YET);
-    return;
+    return out;
   }
   const pair = loadPair(io.db, best.matchId);
-  if (!pair) return;
+  if (!pair) return out;
   if (side === "found") await io.say(pair.finderId, COPY.finderHeadsUp);
   await startClaim(io, pair, side === "found" ? "found_later" : "just_reported");
+  out.matched = true;
+  return out;
 }
 
 /**
@@ -1055,7 +1134,10 @@ async function startClaim(io: LostFoundIo, pair: Pair, why: "found_later" | "jus
     // The owner can't be reached. The item goes back in the pool instead of waiting on them.
     release(db, pair.match, "proposed", true);
     await rematch(io, pair.match.foundListingId, depth + 1);
+    return;
   }
+  // Why they are asked before they are shown anything. The decision only: no numbers, nothing about the item.
+  if (res === "sent") await judgeNote(io, owner.id, { step: "blind_check", decision: DECISION.proveItFirst });
 }
 
 const DESCRIBES = /\b(?:stickers?|scratch\w*|crack\w*|dent\w*|logo|engrav\w*|initials?|keychain|key ring|charm|strap|lanyard|label|tag|cover|sleeve|case|written|writing|drawn|drawing|says|stain\w*|chip(?:ped)?|missing|zipper|pocket|pattern|strip(?:e|es|ed)|plain|inside|front|back|bottom|lid|corner|side)\b/;
@@ -1107,7 +1189,8 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
   const attempt = usedTries(db, pair.match.foundListingId, me) + 1;
   const pass = res.score >= THRESHOLDS.descriptionPass;
   if (pass && res.source === "fallback") {
-    await toFinderCheck(io, pair, answer, res.score);
+    // The AI check was unavailable, so the finder decides. Said as the design choice it is, with no score.
+    if (await toFinderCheck(io, pair, answer, res.score)) await judgeNote(io, me, { step: "finder_decides", decision: DECISION.worksWhenAiDown });
     return;
   }
   addVerification(db, pair.match.id, "blind_description", answer, res.score, pass ? "pass" : "fail", attempt);
@@ -1131,7 +1214,7 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
  * to DPS in person. The description is saved with no result and counts as a try while the finder has it; the
  * finder's answer becomes the result.
  */
-async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score: number | null): Promise<void> {
+async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score: number | null): Promise<boolean> {
   const { db } = io;
   db.prepare("INSERT INTO verifications (matchId, method, ownerAnswer, score, result, attempts, createdAt) VALUES (?, 'blind_description', ?, ?, NULL, ?, ?)").run(
     pair.match.id,
@@ -1146,14 +1229,20 @@ async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score:
     clearFor(io, pair.ownerId, pair.match.id);
     await io.say(pair.ownerId, COPY.dpsInPerson, ...dpsReach(db));
     await rematch(io, pair.match.foundListingId);
-    return;
+    return false;
   }
   setMatch(db, pair.match.id, "finder_check");
   await io.say(pair.ownerId, ...COPY.checkingHolder);
   await ask(io, pair.ownerId, "await_finder", { matchId: pair.match.id });
   const theirs = PLURAL.has(normalizeCategory(pair.profile.category)) ? "are theirs" : "is theirs";
   const res = await ask(io, pair.finderId, "finder_check", { matchId: pair.match.id }, T.finderClaims(pair.summary, theirs), COPY.howDescribed, quote(answer), COPY.finderCheck);
-  if (res === "failed") await finderUnreachable(io, pair);
+  if (res === "failed") {
+    await finderUnreachable(io, pair);
+    return false;
+  }
+  // The finder is told why the call is theirs: the AI couldn't score it, or there was nothing on file to score against.
+  if (res === "sent") await judgeNote(io, pair.finderId, { step: "finder_check", decision: score === null ? DECISION.finderChooses : DECISION.worksWhenAiDown });
+  return true;
 }
 
 /** The finder can't be asked (they texted STOP). The claimant isn't left waiting on an answer that can't come. */
@@ -1242,7 +1331,7 @@ async function toFinderDecide(io: LostFoundIo, pair: Pair, lead: string | null):
   await io.say(pair.ownerId, lead, COPY.askingHolder);
   await ask(io, pair.ownerId, "await_finder", { matchId: pair.match.id });
   const answers = (db.prepare("SELECT ownerAnswer FROM verifications WHERE matchId = ? AND method = 'blind_description' AND ownerAnswer IS NOT NULL ORDER BY id").all(pair.match.id) as { ownerAnswer: string }[]).map((r) => r.ownerAnswer);
-  const quotes = [...new Set([pair.report.description, ...answers].map(quote))].slice(-3);
+  const quotes = [...new Set([pair.report.description, ...answers].map(quote))].slice(-3).map((text) => ({ text, verbatim: true }));
   const res = await ask(io, pair.finderId, "finder_decide", { matchId: pair.match.id }, T.tryingToClaim(pair.summary), COPY.howDescribed, ...quotes, COPY.finderCall);
   if (res === "failed") {
     await finderUnreachable(io, pair);
@@ -1318,7 +1407,13 @@ async function startHandoff(io: LostFoundIo, pair: Pair): Promise<void> {
   clearFor(io, pair.ownerId, pair.match.id);
   await io.say(pair.ownerId, COPY.checkingHandoff);
   const res = await ask(io, pair.finderId, "handoff_choice", { matchId: pair.match.id }, T.ownerCheckedOut(pair.summary), nudge, COPY.handoffAsk);
-  if (res === "failed") await dpsPath(io, pair);
+  if (res === "failed") {
+    await dpsPath(io, pair);
+    return;
+  }
+  // Both sides hear why the finder is the one choosing. The owner's version says nothing about how they were checked.
+  if (res === "sent") await judgeNote(io, pair.finderId, { step: "handoff_choice", decision: DECISION.finderChooses });
+  await judgeNote(io, pair.ownerId, { step: "verified", behind: { did: "confirmed it's urs without showing u anything about the item first. the person holding it now picks how to hand it back" }, decision: DECISION.finderChooses });
 }
 
 function hasHandoff(db: DatabaseSync, matchId: number): boolean {
@@ -1346,6 +1441,11 @@ async function dpsPath(io: LostFoundIo, pair: Pair): Promise<void> {
   else await io.say(pair.finderId, COPY.dropAtDps, ...where, T.tellCode(code));
   await io.say(pair.ownerId, alreadyThere ? COPY.atDps : COPY.finderDropping, ...where, T.urCode(code), COPY.gotItHint);
   await ask(io, pair.ownerId, "await_pickup", { matchId: pair.match.id });
+  // Never for a dangerous item: that path gets no commentary.
+  if (pair.profile.isDangerous || rawListing(db, pair.match.foundListingId)?.isDangerous) return;
+  if (io.me === pair.finderId || io.me === pair.ownerId) {
+    await judgeNote(io, io.me, { step: "pickup_code", behind: { did: "made the pickup code in code, never by the ai, and gave the same one to both of u so dps can match the owner to the item" }, decision: DECISION.codeOwnsFacts });
+  }
 }
 
 const consentKey = (matchId: number) => `lf_consent:${matchId}`;
@@ -1385,6 +1485,11 @@ async function startMeet(io: LostFoundIo, pair: Pair, busy: boolean): Promise<vo
     await relayHandoff(io, pair, busy, null);
     return;
   }
+  // Before any group chat: why each of them is asked first. After the warning, never instead of it.
+  for (const u of [finder, owner]) {
+    const cur = getFlowState(db, u.id);
+    if (cur?.flow === "lost_found" && cur.step === "gc_consent" && Number(cur.data.matchId) === pair.match.id) await judgeNote(io, u.id, { step: "gc_consent", decision: DECISION.contactAfterBothYes });
+  }
 }
 
 async function relayHandoff(io: LostFoundIo, pair: Pair, busy: boolean, lead: string | null): Promise<void> {
@@ -1402,6 +1507,7 @@ async function relayHandoff(io: LostFoundIo, pair: Pair, busy: boolean, lead: st
   await io.say(pair.finderId, lead, ...RELAY_COPY.start, busy ? COPY.meetBusy : null);
   await io.say(pair.ownerId, lead, ...RELAY_COPY.start, COPY.gotItHint);
   await ask(io, pair.ownerId, "await_pickup", { matchId: pair.match.id });
+  await judgeNote(io, io.me, { step: "relay", behind: { did: "connected u two through me instead of a group chat, so neither of u sees the other's number" }, decision: DECISION.contactAfterBothYes });
 }
 
 async function handleConsent(ctx: FlowContext, io: LostFoundIo, pair: Pair, data: Data, yn: boolean | null): Promise<void> {
@@ -1460,6 +1566,7 @@ async function handleConsent(ctx: FlowContext, io: LostFoundIo, pair: Pair, data
   await io.say(pair.finderId, COPY.inGroupFinder, busy ? COPY.meetBusy : null);
   await io.say(pair.ownerId, COPY.inGroupOwner, COPY.gotItHint);
   await ask(io, pair.ownerId, "await_pickup", { matchId: pair.match.id });
+  await judgeNote(io, me, { step: "group_chat", behind: { did: "both of u said yes to the warning, so i started the group chat and stepped back. it closes out when the owner texts that they have it" }, decision: DECISION.officesStayInCharge });
 }
 
 // ---------- closing the loop ----------
@@ -1487,11 +1594,12 @@ async function handleThanks(ctx: FlowContext, io: LostFoundIo, pair: Pair, text:
   const note = text.replace(/\s+/g, " ").trim().slice(0, 500);
   if (!skip && note) {
     io.db.prepare("UPDATE handoffs SET thankYouNote = ? WHERE id = (SELECT MAX(id) FROM handoffs WHERE matchId = ?)").run(note, pair.match.id);
-    await io.say(pair.finderId, T.thanksFrom(pair.summary), quote(note));
+    await io.say(pair.finderId, T.thanksFrom(pair.summary), { text: quote(note), verbatim: true });
   }
   const win: Bubble = { text: COPY.win, effect: "confetti" };
   await io.say(pair.finderId, win);
   await io.say(pair.ownerId, win);
+  await judgeNote(io, ctx.user.id, { step: "returned", behind: { did: "closed both reports and the handoff, and passed the thank-you to the finder" }, decision: DECISION.troyTextsFirst });
 }
 
 /** The owner's unfinished handoff, if any ("got it back" with no open step still closes it). */
@@ -1537,7 +1645,7 @@ async function stillLooking(ctx: FlowContext, io: LostFoundIo): Promise<void> {
       return;
     }
   }
-  await io.say(me, ...NOTHING_YET);
+  await io.say(me, ...NOTHING_YET, COPY.meanwhile);
 }
 
 function plainIo(db: DatabaseSync, send: (userId: number, bubbles: (string | Bubble)[]) => Promise<(string | null)[]>, adapter: MessagingAdapter | null): LostFoundIo {
@@ -1545,6 +1653,7 @@ function plainIo(db: DatabaseSync, send: (userId: number, bubbles: (string | Bub
     db,
     me: null,
     adapter,
+    ctx: null,
     async say(userId, ...bubbles) {
       const real = LF_VOICE.bubbles(db, userId, bubbles.filter((b): b is string | Bubble => !!b));
       return real.length ? send(userId, real) : [];
@@ -1861,6 +1970,8 @@ async function startFresh(ctx: FlowContext, io: LostFoundIo): Promise<void> {
 }
 
 async function handle(ctx: FlowContext): Promise<void> {
+  // An open simulation (the other person's side, played out) gets the message first, taps included.
+  if (await simulationTurn(ctx, OWN_STEPS)) return;
   const io = ioFrom(ctx);
   const me = ctx.user.id;
   const { event } = ctx;

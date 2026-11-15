@@ -13,7 +13,7 @@ import type { FlowContext, FlowHandler } from "../types.ts";
 import { askJson, composeReply } from "../ai.ts";
 import { CANCEL, CANCELLED, CANCELLED_POOL, directoryRows, follow, insertReport, isFresh, makeVoice, openReports, othersPhrase, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, userNotes } from "./reports-shared.ts";
 import type { DirectoryRow, Pools, Voice } from "./reports-shared.ts";
-import { handleStaffTurn, notifyStaffOfReport, queueStaffNotice, recordPerson, restoreStaffPointer, tellerFor } from "../staff.ts";
+import { DECISION, STAFF_STEP, TALK_STEP, aside, handleStaffTurn, notifyStaffOfReport, queueStaffNotice, recordPerson, restoreStaffPointer, simulateIfAlone, simulationTurn, tellerFor } from "../staff.ts";
 
 export const TOPICS = ["dining", "safety", "housing", "academics", "transportation", "club funding", "other"] as const;
 export type Topic = (typeof TOPICS)[number];
@@ -24,6 +24,8 @@ export const ASK_JOIN_NAME = "want ur name on it too, or should i keep u anonymo
 const CHECK_WITH_USG = "i'd check with usg";
 /** Used only if the directory has no committee rows (an unseeded database). */
 const ROUTE_FALLBACK = "USG";
+/** Every step this flow (or a usg member's summary) opens. Any other open step under this flow is a simulation's. */
+const OWN_STEPS: ReadonlySet<string> = new Set(["ask_name", "ask_join_name", "offer_send", STAFF_STEP, TALK_STEP]);
 
 // ---------- topic ----------
 
@@ -124,6 +126,11 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
     queueStaffNotice(ctx.db, dup.id);
     ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...p, reportId: dup.id } });
     await ctx.say(...lead, UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp, ASK_JOIN_NAME);
+    await aside(ctx, {
+      step: "usg_joined",
+      behind: { did: "found the same concern already open and added u to it instead of filing a second one. {studentsSharingIt} students share it now, with the {committee}", numbers: { studentsSharingIt: others + 1, committee: p.routedTo } },
+      decision: DECISION.troyTextsFirst,
+    });
     return;
   }
   ctx.setState({ flow: "usg", step: "ask_name", data: { ...p } });
@@ -138,8 +145,20 @@ async function send(ctx: FlowContext, p: Pending, anonymous: boolean, note?: str
   if (note) bubbles.push(note);
   else if (anonymous) bubbles.push(SAY.sentAnon);
   // The committee's assigned member gets a summary: counts only, never who. Said plainly when that person is a stand-in.
-  if (await tellStaff(ctx, reportId)) bubbles.push(SAY.exampleMember);
+  const texted = await tellStaff(ctx, reportId);
+  if (texted) bubbles.push(SAY.exampleMember);
   await ctx.say(...bubbles);
+  // Nobody is assigned to this committee, so nothing would happen next. A judge (or a student with nobody else on
+  // here) is offered the usg member's side played out; a student in a live pilot waits for the real update.
+  if (!texted && (await simulateIfAlone(ctx, "usg", { what: p.description, topic: p.topic, committee: p.routedTo, anonymous: anonymous ? "yes" : "no", reportId: String(reportId) }))) return;
+  await aside(ctx, {
+    step: "usg_sent",
+    behind: {
+      did: "worked out the topic, {topic}, picked the committee that covers it, the {committee}, and put it on their list. students sharing this concern so far: {studentsSharingIt}",
+      numbers: { committee: p.routedTo, topic: p.topic, studentsSharingIt: 1 },
+    },
+    decision: DECISION.officesStayInCharge,
+  });
 }
 
 /** Texts the committee's assigned member (an example contact for now). Never allowed to cost the student their reply. */
@@ -372,6 +391,8 @@ export const usg: FlowHandler = {
   async handle(plain) {
     // Everything this flow says goes out through USG_VOICE: facts as written, wording from the pools.
     const ctx = USG_VOICE.wrap(plain);
+    // An open simulation (the usg member's side, played out) gets the message first, taps included.
+    if (await simulationTurn(plain, OWN_STEPS)) return;
     // A usg member's answer to a summary, or a student's answer about joining a group chat with them, comes first.
     if (await handleStaffTurn(plain)) return;
     // Any other tapback or poll vote means nothing here.

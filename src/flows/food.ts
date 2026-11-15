@@ -14,6 +14,7 @@ import { registerPendingHooks } from "../pending.ts";
 import { countServings as realCountServings } from "./lostfound/vision.ts";
 import type { Pools, Voice } from "./reports-shared.ts";
 import { makeVoice, unvoiced } from "./reports-shared.ts";
+import { DECISION, aside, simulateIfAlone, simulationTurn } from "../staff.ts";
 
 // ---------- settings ----------
 
@@ -29,6 +30,8 @@ const ALERT_STALE_MS = 6 * 60 * 60 * 1000;
 export const SWEEP_EVERY_MS = 30_000;
 /** How many times one person can let go of a serving from the same drop and still claim it again. */
 export const MAX_REGRABS = 2;
+/** Every step this flow opens. Any other open step under this flow is a simulation's. */
+const OWN_STEPS: ReadonlySet<string> = new Set(["post_count", "post_confirm", "post_spot", "post_club", "alerted", "claimed", "relay_ask", "relay_offer", "relay_wait"]);
 
 // ---------- injected pieces (tests swap them) ----------
 
@@ -71,6 +74,8 @@ export const FOOD_COPY = {
   noDropToUpdate: "u don't have a post up rn. send a photo and what it is to post one",
   closed: "got it, closed it out. thanks for sharing",
   nothingLive: "nothing going rn. i'll text u when something pops up",
+  /** Goes with nothingLive: one thing they can do right now, so asking never ends on a dead end. */
+  nothingLiveNext: "got extra food urself? send me a pic of it and i'll get it to people nearby",
   claimHow: "reply 'me' if u want one",
   reactHow: "react if u want one",
   relayOffer: "i can connect u two through me, no numbers shared. want me to ask them?",
@@ -135,6 +140,11 @@ export const FOOD_POOLS: Pools = {
   postLater: [FOOD_COPY.postLater, "no worries. text me again when ur ready to post it", "all good, just text me again when ur ready to post it"],
   dropped: [FOOD_COPY.dropped, "no worries, i dropped it", "all good, dropped it"],
   posted: (told, people) => [FT.posted(told, people), `it's up. i texted ${told} ${people} nearby`, `posted, and i texted ${told} ${people} nearby`],
+  nothingLiveNext: [
+    FOOD_COPY.nothingLiveNext,
+    "if u ever have leftovers, send me a pic and i'll text the people close by",
+    "and if ur club has extra food sometime, send me a photo and i'll get it claimed",
+  ],
   postedNobody: [FOOD_COPY.postedNobody, "posted. nobody's nearby rn, but it's up if anyone asks", "it's up. nobody's close by rn, but it's there if anyone asks"],
   postedHow: [
     FOOD_COPY.postedHow,
@@ -704,6 +714,15 @@ export async function findSubscribers(
   return out.sort((a, b) => a.user.id - b.user.id);
 }
 
+/**
+ * How many people follow one of `keys` at all, wherever they are: the "out of how many" next to the number an
+ * alert actually reached. Same people findSubscribers starts from, before quiet hours and distance.
+ */
+export function countFollowers(db: DatabaseSync, posterUserId: number, keys: readonly string[]): number {
+  const rows = db.prepare("SELECT * FROM users WHERE verifiedAt IS NOT NULL AND stopped = 0 AND isExample = 0 AND id != ?").all(posterUserId) as Row[];
+  return rows.filter((r) => keys.some((k) => rowToUser(r).subscriptions.includes(k))).length;
+}
+
 /** Free food goes to "free_food", free items to "free_stuff", and both to people who follow the free topic. */
 const FOOD_KEYS = { food: ["free_food", "free_nearby"], stuff: ["free_stuff", "free_nearby"] } as const;
 
@@ -777,9 +796,12 @@ async function startPost(ctx: FlowContext): Promise<void> {
   }
   const draft = parsePost(ctx.db, ctx.event.text, ctx.intent.details);
   const image = ctx.event.images[0];
+  /** What the photo reader counted: a number, 0 when it saw nothing countable, null when it couldn't be read at all. */
+  let seen: number | null = null;
   if (image) {
     draft.photo = image.path;
     const guess = await deps.countServings(image, ctx.event.text).catch(() => null);
+    if (guess) seen = guess.count;
     if (guess) {
       // The poster's own number wins over the photo. Either way they confirm it.
       if (draft.count === null && guess.count > 0) {
@@ -792,6 +814,13 @@ async function startPost(ctx: FlowContext): Promise<void> {
   }
   if (!draft.what) draft.what = draft.kind === "stuff" ? "stuff" : "food";
   await advance(ctx, draft);
+  // Only when a question is now open. A post that went straight out already said what happened (publish).
+  if (!image || !getFlowState(ctx.db, ctx.user.id)?.step.startsWith("post_")) return;
+  if (seen === null) {
+    await aside(ctx, { step: "food_photo", behind: { did: "couldn't get the photo read by the ai, so i'm asking u for what it would have counted" }, decision: DECISION.worksWhenAiDown });
+  } else if (seen > 0) {
+    await aside(ctx, { step: "food_photo", behind: { did: "read ur photo and counted about {count} in it, so all u have to do is confirm the number", numbers: { count: seen } }, decision: DECISION.photoReplacesForm });
+  }
 }
 
 /** True when the message is clearly a new request for another flow, not an answer to our question. */
@@ -916,10 +945,23 @@ async function publish(ctx: FlowContext, draft: Draft): Promise<void> {
   db.prepare("UPDATE food_drops SET alertMessageIds = ? WHERE id = ?").run(JSON.stringify(claimable), dropId);
 
   const told = Object.keys(claimable).length;
-  await ctx.say(
-    told ? FT.posted(String(told), told === 1 ? "person" : "people") : FOOD_COPY.postedNobody,
-    FOOD_COPY.postedHow,
-  );
+  if (told) {
+    await ctx.say(FT.posted(String(told), told === 1 ? "person" : "people"), FOOD_COPY.postedHow);
+  } else {
+    await ctx.say(FOOD_COPY.postedNobody);
+    // Nobody in range, so nothing would happen next. A judge (or a student with nobody else on here) is offered the
+    // other side played out (people claiming it); a student in a live pilot keeps the post up for real people.
+    if (await simulateIfAlone(ctx, "food", { what, where: spot, count: String(count), dropId: String(dropId) })) return;
+    await ctx.say(FOOD_COPY.postedHow);
+  }
+  await aside(ctx, {
+    step: "food_alert",
+    behind: {
+      did: "checked who follows this and is close enough to walk over right now: {inRange} of {subscribed} got the text",
+      numbers: { inRange: told, subscribed: countFollowers(db, ctx.user.id, FOOD_KEYS[draft.kind]) },
+    },
+    decision: DECISION.locationDecides,
+  });
 }
 
 // ---------- claims ----------
@@ -966,6 +1008,11 @@ async function doClaim(ctx: FlowContext, drop: Drop, viaTap: boolean): Promise<v
   if (!ctx.state || ctx.state.flow === "food") ctx.setState({ flow: "food", step: "claimed", data: { dropId: drop.id, claimId: res.claimId } });
   await ctx.say(FT.yours(String(res.hold)), FOOD_COPY.gotItHow, FT.talkTo(drop.clubName ?? "whoever posted it"));
   await pushCount(ctx.db, flowOut(ctx), drop.id, before, [ctx.user.id]);
+  await aside(ctx, {
+    step: "food_claim",
+    behind: { did: "held one for u for {holdMinutes} minutes and took it off the count everyone else sees, in code, so two people can't end up with the same one", numbers: { holdMinutes: res.hold } },
+    decision: DECISION.codeOwnsFacts,
+  });
 }
 
 async function doRelease(ctx: FlowContext, drop: Drop, claimId: number): Promise<void> {
@@ -1136,7 +1183,8 @@ async function status(ctx: FlowContext): Promise<void> {
   const rows = ctx.db.prepare("SELECT * FROM food_drops WHERE status = 'live' AND servingsLeft > 0 AND posterUserId != ? AND isExample = 0 ORDER BY id DESC LIMIT 1").all(ctx.user.id) as Row[];
   const drop = rows.length ? rowToDrop(rows[0]) : null;
   if (!drop) {
-    await ctx.say(FOOD_COPY.nothingLive);
+    // What happens next, and one thing they can do right now. Never just "nothing".
+    await ctx.say(FOOD_COPY.nothingLive, FOOD_COPY.nothingLiveNext);
     return;
   }
   if (!ctx.state || ctx.state.flow === "food") ctx.setState({ flow: "food", step: "alerted", data: { dropId: drop.id } });
@@ -1303,6 +1351,8 @@ export const food: FlowHandler = {
   async handle(plain) {
     // Everything this flow says goes out through FOOD_VOICE: facts as written, wording from the pools.
     const ctx = FOOD_VOICE.wrap(plain);
+    // An open simulation (people claiming the drop, played out) gets the message first, taps included.
+    if (await simulationTurn(plain, OWN_STEPS)) return;
     ensureTables(ctx.db);
     const now = deps.now();
     const state = freshState(ctx, now);

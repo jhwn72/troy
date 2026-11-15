@@ -149,7 +149,8 @@ export async function relayMessage(ctx: FlowContext): Promise<boolean> {
   let delivered = false;
   if (other && !other.stopped) {
     if (text) {
-      const ids = await ctx.sayTo(otherId, `${label} ${text}`);
+      // Their words go across exactly as typed, whatever tone the person receiving them asked troy for.
+      const ids = await ctx.sayTo(otherId, { text: `${label} ${text}`, verbatim: true });
       delivered = ids.some((id) => id !== null);
     }
     // Photos only follow when the text got through (or there was no text), so quiet hours hold for both.

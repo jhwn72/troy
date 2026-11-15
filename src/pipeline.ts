@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Bubble, FlowContext, FlowHandler, FlowName, FlowState, IncomingEvent, Intent, MessagingAdapter, User } from "./types.ts";
 import { isEnabled } from "./config.ts";
 import { getFlowState, getOrCreateUser, getSetting, getUserById, saveMessage, setFlowState, setSetting, updateUser } from "./db/index.ts";
-import { COMMAND_POOLS, endsPlayful, isHeyTroy, matchCommand, safetySignal, TEMPLATES } from "./commands.ts";
+import { COMMAND_POOLS, endsPlayful, isHeyTroy, matchCommand, meantCommand, safetySignal, TEMPLATES } from "./commands.ts";
 import type { CommandKind } from "./commands.ts";
 import * as onboardingMod from "./onboarding.ts";
 import { handleOnboarding, needsOnboarding } from "./onboarding.ts";
@@ -12,9 +12,12 @@ import { getFlow } from "./flows/index.ts";
 import * as aiMod from "./ai.ts";
 import { detectIntent as realDetectIntent, modelReady } from "./ai.ts";
 import * as brainMod from "./brain.ts";
-import { pickVariant } from "./voice.ts";
+import { keepVerbatim, pickVariant, toPlain } from "./voice.ts";
+import { forgetJudge, handleToneTap, handleToneText, isJudge, judgeWrapUp, plainTone, tourWasFinished, wrapUpSent } from "./judge.ts";
+import { COPY as LOST_FOUND_COPY } from "./flows/lostfound/handler.ts";
+import { DANGER_LINE } from "./flows/repair.ts";
 import { noteOpenQuestion, openQuestionId, readYesNo } from "./yes.ts";
-import { adjustIntent, cancelFirstTen, firstTenChat, firstTenIntercept, firstTenTap, inHisWords, noteStudentMessage, setFirstTenIo, sweepFirstTen } from "./firstten.ts";
+import { adjustIntent, cancelFirstTen, firstTenChat, firstTenIntercept, firstTenTap, inHisWords, noteStudentMessage, setFirstTenIo, setFirstTenQueue, sweepFirstTen } from "./firstten.ts";
 import * as topics from "./topics.ts";
 import { activeRelayFor, relayMessage } from "./relay.ts";
 import { inQuietHours } from "./quiet.ts";
@@ -63,7 +66,18 @@ const TOUR_HOLD_STEPS = new Set(["describe", "repair_photo", "study_spot"]);
 
 type AskKind = "stop" | "start" | "pause" | "resume" | "forget_location" | "delete_data" | "unsubscribe_topic" | "checkin";
 /** One short question of Troy's own that is waiting for a yes or a no (kept in settings, so it survives a restart). */
-type OpenAsk = { kind: AskKind; topicId?: number; qid: string | null; at: number };
+type OpenAsk = {
+  kind: AskKind;
+  topicId?: number;
+  qid: string | null;
+  at: number;
+  /**
+   * The row id of the newest thing Troy had sent in this chat when he asked (the question itself). A typed yes only
+   * answers the question while that is still the last thing he said: once anything else of his went out (a poll
+   * pick's reply, a parked question, something he started on his own), a "yes" belongs to that, not to this.
+   */
+  lastOut?: number | null;
+};
 
 const CHECK_IN = {
   goal: "they said something that might be real distress. check in like a person who cares: one direct, kind question asking whether they are okay or thinking about hurting themselves. nothing else. no hotline, no advice, no emoji, no joke",
@@ -98,6 +112,15 @@ export const TIMING = {
   /** Bubbles longer than this are split (see chunkBubble). */
   chunkChars: 160,
 } as const;
+
+/**
+ * Judges get the same texting feel, faster (John, "Judge mode" (1)): typing times, the gaps between bubbles and any
+ * longer beat are this share of what a student sees. "Read" still shows first, with its full beat.
+ */
+export const JUDGE_PACE = 0.45;
+
+// The rest of the safety list, word for word in every tone: the contact-sharing warning and the dangerous-item lines.
+keepVerbatim(LOST_FOUND_COPY.dangerous, LOST_FOUND_COPY.consent, LOST_FOUND_COPY.consentHow, DANGER_LINE);
 
 const between = (range: readonly [number, number] | readonly number[], r: number) => Math.round(range[0] + (range[1] - range[0]) * Math.min(Math.max(r, 0), 1));
 
@@ -271,6 +294,17 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     }
   }
 
+  /** 1 for a student, JUDGE_PACE for a judge. */
+  const paceOf = (userId: number): number => {
+    const u = getUserById(db, userId);
+    return u && isJudge(u) ? JUDGE_PACE : 1;
+  };
+  /** Pace and tone for whoever owns a chat (for the adapter calls flows make directly: polls, the contact card). */
+  function chatOwner(chatId: string): { pace: number; plain: boolean } {
+    const row = db.prepare("SELECT id FROM users WHERE chatId = ? LIMIT 1").get(chatId) as { id: number } | undefined;
+    return row ? { pace: paceOf(row.id), plain: plainTone(db, row.id) } : { pace: 1, plain: false };
+  }
+
   /** A new turn: the read beat starts now (the caller has just marked the chat read). */
   const newTurn = (): Turn => ({ sent: false, ready: pause(between(TIMING.readBeat, random())).catch(() => {}), done: false });
 
@@ -291,6 +325,9 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     const turn = opts.turn;
     const ids: (string | null)[] = [];
     const stopped = () => !opts.force && isStopped(to.id);
+    // Read fresh: the person may have become a judge, or tapped "drop the slang", earlier in this same turn.
+    const pace = paceOf(to.id);
+    const plain = plainTone(db, to.id);
     let sentAny = false;
     let first = true;
     let continued = !!turn?.sent;
@@ -298,20 +335,22 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     for (let n = 0; n < bubbles.length; n++) {
       const b = bubbles[n]!;
       const bubble: PacedBubble = typeof b === "string" ? { text: b } : b;
-      const pieces = chunkBubble(bubble.text);
+      // Plain tone: spelled-out standard English for this person. The safety list comes back untouched.
+      // Someone else's words (a relayed message, a thank-you note) are passed along exactly as written.
+      const pieces = chunkBubble(plain && !bubble.verbatim ? toPlain(bubble.text) : bubble.text);
       let id: string | null = null;
       for (let k = 0; k < pieces.length; k++) {
         const text = pieces[k];
         if (stopped()) break;
         const instant = first && !!opts.instant;
         if (first && turn && !instant) await turn.ready;
-        if (continued) await pause(between(TIMING.gap, random()));
+        if (continued) await pause(Math.round(between(TIMING.gap, random()) * pace));
         first = false;
         continued = true;
         if (!instant) {
           if (stopped()) break;
           await quiet(adapter.startTyping(chatId), undefined);
-          await pause(typingMs(text, random()));
+          await pause(Math.round(typingMs(text, random()) * pace));
         }
         // Checked again after the pause, right before the send, so a STOP that lands mid-reply wins.
         if (stopped()) break;
@@ -328,7 +367,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       const beat = Number(bubble.pauseAfterMs);
       if (id && Number.isFinite(beat) && beat > 0 && n < bubbles.length - 1 && !stopped()) {
         await quiet(adapter.stopTyping(chatId), undefined);
-        await pause(Math.min(beat, 15_000));
+        await pause(Math.round(Math.min(beat, 15_000) * pace));
       }
     }
     if (sentAny || !isStopped(to.id)) await quiet(adapter.stopTyping(chatId), undefined);
@@ -349,13 +388,15 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
   function flowAdapter(turn: Turn): MessagingAdapter {
     const real = deps.getAdapter();
     const lead = async (chatId: string) => {
+      const { pace } = chatOwner(chatId);
       await turn.ready;
-      if (turn.sent) await pause(between(TIMING.gap, random()));
+      if (turn.sent) await pause(Math.round(between(TIMING.gap, random()) * pace));
       turn.sent = true;
       if (chatStopped(chatId)) return;
       await quiet(real.startTyping(chatId), undefined);
-      await pause(between(TIMING.attachment, random()));
+      await pause(Math.round(between(TIMING.attachment, random()) * pace));
     };
+    const worded = (chatId: string, text: string): string => (chatOwner(chatId).plain ? toPlain(text) : text);
     const landed = async <T>(chatId: string, sending: Promise<T>): Promise<T> => {
       try {
         return await sending;
@@ -366,7 +407,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     return {
       provider: real.provider,
       capabilities: () => real.capabilities(),
-      sendMessage: async (chatId, text, opts) => (chatStopped(chatId) ? null : real.sendMessage(chatId, text, opts)),
+      sendMessage: async (chatId, text, opts) => (chatStopped(chatId) ? null : real.sendMessage(chatId, worded(chatId, text), opts)),
       sendImage: async (chatId, path, caption) => (chatStopped(chatId) ? null : real.sendImage(chatId, path, caption)),
       async sendContactCard(chatId) {
         if (chatStopped(chatId)) return null;
@@ -382,7 +423,9 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         const none = { optionMessageIds: options.map(() => null), mode: "tap" as const };
         if (chatStopped(chatId)) return none;
         await lead(chatId);
-        return chatStopped(chatId) ? none : landed(chatId, real.sendPoll(chatId, question, options));
+        if (chatStopped(chatId)) return none;
+        // A poll's question and options are bubbles too.
+        return landed(chatId, real.sendPoll(chatId, worded(chatId, question), options.map((o) => worded(chatId, o).replace(/\.$/, ""))));
       },
       createGroupChat: (members, firstMessage) => real.createGroupChat(members, firstMessage),
       getLiveLocation: (handle) => real.getLiveLocation(handle),
@@ -489,6 +532,19 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     } catch {
       return null;
     }
+  }
+  /** The row id of the newest thing Troy sent in a chat, or null. */
+  function newestOut(chatId: string): number | null {
+    try {
+      const row = db.prepare("SELECT id FROM messages WHERE chatId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(chatId) as { id: number } | undefined;
+      return row ? Number(row.id) : null;
+    } catch {
+      return null;
+    }
+  }
+  /** True while the question is still the last thing Troy said in that chat. */
+  function askIsLastWord(ask: OpenAsk, chatId: string): boolean {
+    return ask.lastOut === undefined || ask.lastOut === null || newestOut(chatId) === ask.lastOut;
   }
   function setAsk(userId: number, ask: OpenAsk | null): void {
     try {
@@ -646,6 +702,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(user.id);
         setFlowState(db, user.id, null);
         cancelFirstTen(db, user.id);
+        forgetJudge(db, user.id);
         updateUser(db, user.id, {
           name: null,
           uscEmail: null,
@@ -720,15 +777,16 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     if (command.certainty !== "clear" && endsPlayful(event.text)) return false;
     // Asking how to control him is a question. The chat brain answers it; the exact word HELP still gets the fixed list.
     if (command.name === "help") return false;
-    const ask = async (bubbles: string[], open: Omit<OpenAsk, "qid" | "at">, tapback = true): Promise<boolean> => {
+    const ask = async (bubbles: string[], open: Omit<OpenAsk, "qid" | "at">): Promise<boolean> => {
       const ids = await send(user, event.chatId, bubbles, { turn });
       const last = [...ids].reverse().find((id) => !!id) ?? null;
-      // Deleting needs a typed yes, so its question keeps no bubble a thumbs up could land on.
-      setAsk(user.id, { ...open, qid: tapback ? last : null, at: Date.now() });
+      // The bubble is kept for every question, the delete one too: a tapback still never answers that one
+      // (answerAsk refuses it), but a tap anywhere else is how code knows they moved on.
+      setAsk(user.id, { ...open, qid: last, at: Date.now(), lastOut: newestOut(event.chatId) });
       return true;
     };
     // Anything that destroys data asks once first, however sure the read was.
-    if (command.name === "delete_data") return ask(TEMPLATES.confirmDelete, { kind: "delete_data" }, false);
+    if (command.name === "delete_data") return ask(vary(user, "askDelete"), { kind: "delete_data" });
     if (command.name === "unsubscribe_topic") {
       const topic = command.topic ? topics.findTopic(db, command.topic) : null;
       if (!topic) {
@@ -757,6 +815,12 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
    */
   async function answerAsk(ask: OpenAsk, user: User, event: IncomingEvent, turn: Turn): Promise<boolean> {
     if (ask.kind === "checkin") return false;
+    // Something else of his went out since he asked (they tapped a poll and he answered, a parked question was
+    // delivered, he started something himself): a typed "yes" now answers that, never this. The question is closed.
+    if (!event.reaction && !askIsLastWord(ask, event.chatId)) {
+      setAsk(user.id, null);
+      return false;
+    }
     const answer = readYesNo({ event, questionMessageId: ask.qid, allowTapback: ask.kind !== "delete_data" });
     if (event.reaction && !answer) return false;
     setAsk(user.id, null);
@@ -779,7 +843,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         const adapter = deps.getAdapter();
         if (adapter.capabilities().tapbacks && (await adapter.react(event.chatId, event.messageId, event.images.length ? "love" : "like"))) return;
         if (hasSaid() || isStopped(user.id)) return;
-        const line = TEMPLATES.acks[ackTurn++ % TEMPLATES.acks.length];
+        const ack = TEMPLATES.acks[ackTurn++ % TEMPLATES.acks.length]!;
+        const line = plainTone(db, user.id) ? toPlain(ack) : ack;
         const sent = await adapter.sendMessage(event.chatId, line);
         if (sent) saveMessage(db, { userId: user.id, chatId: event.chatId, direction: "out", providerMessageId: sent.messageId, text: line });
       } catch {
@@ -820,6 +885,11 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       const ask = openAsk(user.id);
       if (ask && (await answerAsk(ask, user, event, turn))) return;
     }
+    // "want me to delete everything?" does not stay armed through a tap on anything else: a poll vote, or a tapback
+    // on some other bubble, means they moved on, and a later "yes" must never be read as the answer to it.
+    // (A tapback on the delete question itself changes nothing either way: it only ever takes a typed yes.)
+    const armed = openAsk(user.id);
+    if (armed?.kind === "delete_data" && !(event.reaction && !!armed.qid && event.reaction.targetMessageId === armed.qid)) setAsk(user.id, null);
     // Which bubble is this person's open question, and whether this tap answers it: a heart or thumbs up on exactly
     // that bubble is a yes, a thumbs down a no. A tap anywhere else is only an acknowledgement. Flows read it from
     // intent.details.yesNo; a step that can't be answered by a tap (a description, a code, a name) ignores it.
@@ -829,6 +899,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     if (yesNo) details.yesNo = yesNo;
     if (event.reaction) details.onOpenQuestion = !!qid && event.reaction.targetMessageId === qid;
     const intent: Intent = { flow: state?.flow ?? "food", action: event.reaction ? "reaction" : "poll_vote", details, source: "fallback" };
+    // A judge's tap on the "drop the slang" bubble, at any point (it is sent in the middle of onboarding).
+    if (event.reaction && (await handleToneTap(makeContext(user, event, intent, state, () => {}, undefined, turn)))) return;
     if (needsOnboarding(user, state)) {
       const track = newTrack();
       await handleOnboarding(makeContext(user, event, intent, state, track.on, "onboarding", turn), { saveLocation });
@@ -852,6 +924,25 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       }
     } finally {
       noteOpenQuestion(db, user.id, getFlowState(db, user.id), track.lastId);
+    }
+    await judgeAfterTour(user, event, intent, state, turn);
+  }
+
+  /**
+   * The judge's wrap-up (John, "Judge mode" (6)): once, when a judge who went through the try-it tour has nothing
+   * left open. `before` is the state this message arrived in, so it only fires on the turn that closed something.
+   */
+  async function judgeAfterTour(user: User, event: IncomingEvent, intent: Intent, before: FlowState | null, turn: Turn): Promise<void> {
+    try {
+      // Only when this message closed a step of the tour itself, and a run actually reached its end: a judge who
+      // backs out ("stop the example") gets no wrap-up and keeps it for when they do finish. A real flow closing never counts.
+      if (!before || before.flow !== TOUR || getFlowState(db, user.id)) return;
+      const now = getUserById(db, user.id);
+      if (!now || !isJudge(now) || now.stopped || wrapUpSent(db, now.id)) return;
+      if (!tourWasFinished(db, now.id)) return;
+      await judgeWrapUp(makeContext(now, event, intent, null, () => {}, undefined, turn));
+    } catch (err) {
+      console.error("pipeline error:", describe(err));
     }
   }
 
@@ -946,6 +1037,19 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       // "joke" or "none": a normal reply.
     }
 
+    // A command code can read from the words alone ("delete me pls", "how do i delete my data"): he confirms or
+    // offers to do it, at any point, and never answers with the words to type instead.
+    const plainlyMeant = event.images.length ? null : meantCommand(event.text);
+    if (plainlyMeant && (await handleMeantCommand(plainlyMeant, user, event, turn))) {
+      await deliver();
+      return;
+    }
+    // A judge asking for plain English, or for the slang back, in words. Works mid-onboarding: the open step stays open.
+    if (await handleToneText(makeContext(user, event, { flow: "smalltalk", action: "tone", details: {}, source: "fallback" }, getFlowState(db, user.id), () => {}, undefined, turn))) {
+      await deliver();
+      return;
+    }
+
     // Every share or pin replaces the saved fix. A share with no words gets one fixed line and nothing else.
     if (event.location) await saveLocation(user.id, event.location);
     const bareShare = !!event.location && !event.text.trim() && !event.images.length;
@@ -990,6 +1094,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
 
     const track = newTrack();
     const cancelAck = startAckTimer(event, user, () => track.said);
+    const before = state;
     try {
       // Typing shows while Troy works, but only once the read beat is over and only if nothing has gone out yet.
       void turn.ready.then(() => (turn.done || turn.sent ? undefined : quiet(adapter.startTyping(event.chatId), undefined)));
@@ -1039,6 +1144,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
           await other.handle(makeContext(user, event, passed, null, track.on, other.name, turn));
         }
       }
+      await judgeAfterTour(user, event, intent, before, turn);
       await deliver();
     } finally {
       cancelAck();
@@ -1065,23 +1171,26 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     stopConfirm.add(event.messageId);
   }
 
-  function handleEvent(event: IncomingEvent): Promise<void> {
-    try {
-      applyStopNow(event);
-    } catch (err) {
-      console.error("pipeline error:", describe(err));
-    }
-    const key = event.userHandle;
+  /** One job at a time per person, in arrival order. One bad job never breaks the queue or the process. No text or handles in the log. */
+  function enqueue(key: string, job: () => Promise<void>): Promise<void> {
     const prev = queues.get(key) ?? Promise.resolve();
-    // One bad message never breaks the queue or the process. No text or handles in the log.
     const next = prev
-      .then(() => process(event))
+      .then(job)
       .catch((err) => console.error("pipeline error:", describe(err)))
       .finally(() => {
         if (queues.get(key) === next) queues.delete(key);
       });
     queues.set(key, next);
     return next;
+  }
+
+  function handleEvent(event: IncomingEvent): Promise<void> {
+    try {
+      applyStopNow(event);
+    } catch (err) {
+      console.error("pipeline error:", describe(err));
+    }
+    return enqueue(event.userHandle, () => process(event));
   }
 
   /** Timers: flows release what went stale, then parked questions go to whoever is free. Safe to call any time. */
@@ -1098,6 +1207,12 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
   }
 
   setFirstTenIo(db, firstTenIo());
+  // What he starts on his own waits its turn behind any reply still going out to that person.
+  setFirstTenQueue(db, async (userId, job) => {
+    const who = getUserById(db, userId);
+    if (!who) return;
+    await enqueue(who.handle, job);
+  });
 
   return { handleEvent, sweep };
 }

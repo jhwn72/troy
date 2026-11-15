@@ -575,3 +575,51 @@ test("a topics handoff on the model's word alone carries no action of its own", 
   assert.equal(seen[0]!.action, "from_chat");
   assert.equal(seen[0]!.details.unconfirmed, true);
 });
+
+// ---------- new and untried: he pulls ----------
+
+test("new and untried: 'ok' gets his next move with no model call, and a move the model makes in its own words counts as made", async () => {
+  const { afterOnboarding, isUntried, hasMove, setFirstTenDeps } = await import("../src/firstten.ts");
+  const { moveUsed } = await import("../src/brain.ts");
+  setFirstTenDeps({ timers: false });
+  const withPoll = (s: ReturnType<typeof setup>) => {
+    s.ctx.adapter = { sendPoll: async (_c: string, _q: string, options: string[]) => ({ optionMessageIds: options.map(() => "poll-1"), mode: "native" as const }) } as unknown as MessagingAdapter;
+    return s;
+  };
+  try {
+    // A bare "ok" from someone who just finished setup: the tour offer, from code, with no model call.
+    const a = withPoll(setup("ok"));
+    await afterOnboarding(a.ctx);
+    a.said.length = 0;
+    const calls = model(reply(["bet, no rush"]));
+    calls.length = 0;
+    setModelCall(null);
+    await smalltalk.handle(a.ctx);
+    assert.equal(a.said.length, 1);
+    assert.match(a.said[0]!, /pretend u lost something/);
+    assert.match(a.said[0]!, /\?$/);
+    assert.ok(hasMove(a.db, a.user.id, "tour_offer"));
+
+    // The model is told, its sign-off is refused, and the retry that offers the run goes out and counts as the offer.
+    const b = withPoll(setup("so what now"));
+    await afterOnboarding(b.ctx);
+    b.said.length = 0;
+    const asked = model(reply(["bet, no rush on any of it"]), reply(["lemme show u. pretend u lost something and i'll run the real check on u. down?"]));
+    await smalltalk.handle(b.ctx);
+    assert.equal(asked.length, 2);
+    assert.match(asked[0]!.prompt, /NEW AND UNTRIED/);
+    assert.match(asked[1]!.prompt, /sign-off/);
+    assert.deepEqual(b.said, ["lemme show u. pretend u lost something and i'll run the real check on u. down?"]);
+    assert.ok(moveUsed(b.db, b.user.id, "tour"), "so code never offers it a second time");
+    assert.ok(isUntried(b.db, b.user.id), "an offer is not a try");
+
+    // Someone who is not new gets none of this: "ok" is just "ok".
+    const c = setup("ok");
+    const plain = model(reply(["bet"]));
+    await smalltalk.handle(c.ctx);
+    assert.deepEqual(c.said, ["bet"]);
+    assert.ok(!/NEW AND UNTRIED/.test(plain[0]!.prompt));
+  } finally {
+    setFirstTenDeps(null);
+  }
+});

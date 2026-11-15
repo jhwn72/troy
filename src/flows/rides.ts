@@ -25,12 +25,16 @@ import { QUIET_TIME_ZONE } from "../quiet.ts";
 import { RELAY_COPY, startRelay as realStartRelay } from "../relay.ts";
 import { isBusy, onSweep, onUserGone, parkAsk, registerPendingHooks } from "../pending.ts";
 import { unvoiced } from "./reports-shared.ts";
+import { keepVerbatim } from "../voice.ts";
 import type { Brief } from "./topics.ts";
 import { inHisWords, readsYesNo, rotate } from "./topics.ts";
 import { isSubscribed, subscribe, topicByKey } from "../topics.ts";
+import { DECISION, aside, simulateIfAlone, simulationTurn } from "../staff.ts";
 
 /** The contact-sharing warning. Fixed wording: a yes here is what lets a group chat show people each other's numbers. */
 export const RIDE_WARNING = "heads up, that shares ur contact info. ok?";
+// On the safety list: word for word in every tone, plain english included.
+keepVerbatim(RIDE_WARNING);
 /** Trips leaving within this many minutes of each other count as the same ride. */
 export const MATCH_WINDOW_MIN = 60;
 /** Riders who haven't answered the group chat question after this long count as a no. */
@@ -38,6 +42,8 @@ export const GROUP_WAIT_MS = 30 * 60 * 1000;
 const STEP_STALE_MS = 30 * 60 * 1000;
 const LISTING_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_RIDERS = 3;
+/** Every step this flow opens. Any other open step under this flow is a simulation's. */
+const OWN_STEPS: ReadonlySet<string> = new Set(["ask", "offer", "gc_ask", "sub_offer"]);
 
 type StartRelay = (db: DatabaseSync, a: number, b: number, context: string, labels?: { a?: string; b?: string }) => number;
 export type RidesDeps = { startRelay: StartRelay; now: () => number };
@@ -466,12 +472,29 @@ async function offer(ctx: FlowContext, need: Need): Promise<void> {
     await say(ctx, "found", BRIEFS.found({ count: matches.length, need }));
     const ids = await ctx.say(RIDE_WARNING);
     ctx.setState({ flow: "rides", step: "offer", data: { listingId, mode: "real", riders: matches.map((m) => m.listingId), offerId: ids[0] ?? null } });
+    await aside(ctx, {
+      step: "rides_match",
+      behind: { did: "matched ur trip against other students' open trips, same place and day and leaving within {windowMinutes} minutes, and found {riders}", numbers: { riders: matches.length, windowMinutes: MATCH_WINDOW_MIN } },
+      decision: DECISION.oneEngine,
+    });
     return;
   }
-  // Nobody real yet: the answer looks like the real thing, and the very next bubble says those riders are examples.
-  const ids = await say(ctx, "found", BRIEFS.found({ count: exampleRiderCount(need), need }));
+  // Nobody real yet. A judge, or a student with no other student on here at all, is offered the other riders'
+  // side played out by the same engine every flow uses; it says plainly that nobody else is on right now.
+  const examples = exampleRiderCount(need);
+  // The engine joins day and time with "around", so "around noon" goes in as "noon" and "in the morning" rides with the day.
+  const around = need.timeText?.startsWith("around ") ? need.timeText.slice(7) : "";
+  const context: Record<string, string> = { dest: need.dest ?? "", day: [need.dayText, around ? "" : need.timeText].filter(Boolean).join(" "), time: around, riders: String(examples), listingId: String(listingId) };
+  if (await simulateIfAlone(ctx, "rides", context)) return;
+  // Otherwise the answer looks like the real thing, and the very next bubble says those riders are examples.
+  const ids = await say(ctx, "found", BRIEFS.found({ count: examples, need }));
   await say(ctx, "exampleNote", BRIEFS.exampleNote());
   ctx.setState({ flow: "rides", step: "offer", data: { listingId, mode: "example", riders: [], offerId: ids[ids.length - 1] ?? null } });
+  await aside(ctx, {
+    step: "rides_example",
+    behind: { did: "saved ur trip and looked for real ones to the same place that day. found {realMatches}, so those {exampleRiders} riders are examples", numbers: { realMatches: 0, exampleRiders: examples } },
+    decision: DECISION.oneEngine,
+  });
 }
 
 /** After the ride question is settled: one offer, ever, to follow the rides topic. */
@@ -572,6 +595,7 @@ async function answerOffer(ctx: FlowContext, state: FlowState, yes: boolean): Pr
     // Example riders: nothing is created, whatever they answer.
     await say(ctx, yes ? "exampleYes" : "exampleNo", yes ? BRIEFS.exampleYes(trip.need) : BRIEFS.exampleNo(trip.need));
     await maybeOfferTopic(ctx);
+    if (yes) await aside(ctx, { step: "rides_example_yes", decision: DECISION.contactAfterBothYes });
     return;
   }
   if (!yes) {
@@ -586,6 +610,11 @@ async function answerOffer(ctx: FlowContext, state: FlowState, yes: boolean): Pr
     return;
   }
   await say(ctx, "askingRiders", BRIEFS.askingRiders(asked));
+  await aside(ctx, {
+    step: "rides_asking",
+    behind: { did: "asked each matched rider, {ridersAsked} in all, the same question with the same warning. nobody's number is shared until they say yes", numbers: { ridersAsked: asked } },
+    decision: DECISION.contactAfterBothYes,
+  });
 }
 
 async function answerGroupAsk(ctx: FlowContext, state: FlowState, yes: boolean): Promise<void> {
@@ -626,6 +655,8 @@ export const rides: FlowHandler = {
   async handle(ctx) {
     const { db, user } = ctx;
     const now = deps.now();
+    // An open simulation (the other riders' side, played out) gets the message first, taps included.
+    if (await simulationTurn(ctx, OWN_STEPS)) return;
     let state = ctx.state?.flow === "rides" ? ctx.state : null;
     if (state && state.step !== "gc_ask" && now - state.updatedAt > STEP_STALE_MS) {
       ctx.setState(null);

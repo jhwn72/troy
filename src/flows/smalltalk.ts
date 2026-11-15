@@ -29,6 +29,7 @@ import { lookupOn } from "../config.ts";
 import { getFlowState } from "../db/index.ts";
 import { isProtected, pendingFor } from "../pending.ts";
 import { isDistress, pickVariant } from "../voice.ts";
+import { doneForNow, isNeutral, isUntried, nextMove, noteQuestionAsked } from "../firstten.ts";
 import { directoryRows, rowMentioned } from "./reports-shared.ts";
 import { isConcern } from "./usg.ts";
 
@@ -332,6 +333,10 @@ export async function stumpInvite(ctx: FlowContext): Promise<void> {
 }
 
 const SOUNDS_LIKE_STUMP = /\bstump me\b|\bname (?:any|a|some) (?:campus )?(?:problem|issue)\b/;
+/** He offered the try-it run in his own words. It counts as offered, so code never offers it again. */
+const SOUNDS_LIKE_TOUR = /\bpretend (?:u|you)(?:'ve| have)? lost\b|\breal check on (?:u|you)\b|\bpractice (?:run|round)\b|\btry[- ]it (?:tour|run)\b/;
+/** He asked the one question in his own words. The answer then goes somewhere real (src/firstten.ts adjustIntent). */
+const SOUNDS_LIKE_QUESTION = /\bwish (?:was|were|felt) (?:easier|simpler|less)\b|\b(?:easier|simpler|less of a hassle) at usc\b|\bat usc (?:u|you)(?:'d| would)? (?:wish|change|fix)\b/;
 
 // ---------- the reply ----------
 
@@ -375,7 +380,9 @@ export async function chatReply(input: {
   const lockedStep = lockedStepOpen(db, user.id);
   // Never a lookup in a heavy or frightening moment, at an open step, or when it is switched off.
   const lookupAvailable = !heavy && !lockedStep && !isDistress(event.text) && !isCrisis(event.text) && !isEmergency(event.text) && lookupFn() !== null;
-  const base = { db, user, chatId: event.chatId, text: event.text, messageId: event.messageId, hasImage: event.images.length > 0, details: intent.details, brain, lockedStep, heavy };
+  // New and untried, with no step open: the brief tells him to close on one concrete next step, and the checks hold him to it.
+  const pull = !getFlowState(db, user.id);
+  const base = { db, user, chatId: event.chatId, text: event.text, messageId: event.messageId, hasImage: event.images.length > 0, details: intent.details, brain, lockedStep, heavy, pull };
   let c = buildChatContext({ ...base, lookupAvailable });
   let lookedUp = false;
   const model = chatModel();
@@ -441,6 +448,13 @@ export const smalltalk: FlowHandler = {
     if (!again && wantsStump(ctx)) return stumpInvite(ctx);
     // A question about a directory program goes to the flow that sends the stored answer.
     if (!again && asksAboutProgram(ctx.db, ctx.event.text) && (await handOff(ctx, { flow: "usg", action: "question" }))) return;
+    // New and untried with nothing open: a bare "ok" or "cool" is not a goodbye. He makes the next move himself
+    // (the pipeline usually catches this earlier, in firstTenIntercept; this is the same move for any other path here).
+    // "maybe later", "nah im good", "gtg" come first: he takes them at their word, one easy line and no next step.
+    const calm = !isHeavy(ctx.db, ctx.user.id) && ctx.intent.details.heavy !== true;
+    if (!again && calm && !getFlowState(ctx.db, ctx.user.id) && (await doneForNow(ctx))) return;
+    const untried = !again && !getFlowState(ctx.db, ctx.user.id) && calm && isUntried(ctx.db, ctx.user.id);
+    if (untried && isNeutral(ctx.event.text) && (await nextMove(ctx))) return;
     const ack = (line: string) => ctx.say(line);
     let reply = await chatReply({ db: ctx.db, ctx, allowHandoff: !again, ack });
     if (reply.handoff) {
@@ -451,6 +465,18 @@ export const smalltalk: FlowHandler = {
     const bubbles = reply.bubbles.length ? reply.bubbles : fallbackReply(ctx.db, ctx.user.id, ctx.event.text, { heavy: isHeavy(ctx.db, ctx.user.id) });
     await ctx.say(...bubbles);
     // He made the "stump me" dare on his own: it counts as used, and what they name next is their attempt.
-    if (reply.source === "model" && SOUNDS_LIKE_STUMP.test(bubbles.join(" ").toLowerCase())) markMove(ctx.db, ctx.user.id, "stump");
+    const said = bubbles.join(" ").toLowerCase();
+    if (reply.source === "model") {
+      if (SOUNDS_LIKE_STUMP.test(said)) markMove(ctx.db, ctx.user.id, "stump");
+      if (SOUNDS_LIKE_TOUR.test(said)) markMove(ctx.db, ctx.user.id, "tour");
+      if (SOUNDS_LIKE_QUESTION.test(said)) {
+        markMove(ctx.db, ctx.user.id, "one_question");
+        noteQuestionAsked(ctx.db, ctx.user.id);
+      }
+      return;
+    }
+    // The model is down, so the line above came from a pool and can't know to pull. Code may close on a one-line
+    // offer (the tour, the one question), but it never launches a whole example run after something they actually said.
+    if (untried && isUntried(ctx.db, ctx.user.id)) await nextMove(ctx, { offersOnly: true });
   },
 };

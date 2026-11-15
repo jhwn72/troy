@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { setDemoHooks } from "../src/staff.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -14,6 +16,43 @@ import { setTopicsDeps } from "../src/flows/topics.ts";
 import { GROUP_WAIT_MS, RIDE_WARNING, dayIn, destIn, exampleRiderCount, findRideMatches, rides, setRidesDeps, timeIn } from "../src/flows/rides.ts";
 
 registerFlow(rides);
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+setDemoHooks({
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "rides", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+});
+
 // Nothing in this file may reach the network.
 setModelCall(async () => {
   throw new Error("off");
@@ -393,5 +432,81 @@ test("someone who no longer needs the ride can say so", async () => {
   assert.equal(out.length, 1);
   assert.match(out[0]!, /lax trip/);
   assert.equal(w.listings()[0]!.status, "expired");
+  w.db.close();
+});
+
+// ---------- judge asides and the simulated riders ----------
+
+const ASK_LAX = "find me people going to lax on the 19th around noon";
+const rideAsides = (w: ReturnType<typeof world>, who: Who) => demo.asides.filter((a) => a.userId === w.ids[who]).map((a) => a.note);
+
+test("the example path still carries its honesty line, and the aside has the real numbers behind it", async () => {
+  demo.reset();
+  const w = world();
+  const out = await w.text("a", ASK_LAX);
+  assert.equal(out[0], SHUTTLE.details);
+  const shown = Number(out[1]!.match(FOUND)![1]);
+  assert.match(out[2]!, /examples/, "right after the riders: they are examples");
+  assert.match(out[2]!, /hackathon/);
+  assert.equal(demo.offers.length, 0, "other real students are on troy, so no simulation takes this student's place in line");
+  assert.deepEqual(rideAsides(w, "a"), [
+    { step: "rides_example", behind: { did: "saved ur trip and looked for real ones to the same place that day. found {realMatches}, so those {exampleRiders} riders are examples", numbers: { realMatches: 0, exampleRiders: shown } }, decision: "one_engine" },
+  ]);
+  w.db.close();
+});
+
+test("asides: a real match says how many riders and the window, and asking them says nobody's number moves before a yes", async () => {
+  demo.reset();
+  const w = await withRealTrip({ caps: { groupChats: true }, groupChat: "group-1" });
+  demo.reset();
+  await w.text("a", ASK_LAX);
+  assert.deepEqual(rideAsides(w, "a").map((n) => [n.step, n.decision, n.behind?.numbers]), [["rides_match", "one_engine", { riders: 1, windowMinutes: 60 }]]);
+  await w.text("a", "yes");
+  assert.deepEqual(rideAsides(w, "a").at(-1), {
+    step: "rides_asking",
+    behind: { did: "asked each matched rider, {ridersAsked} in all, the same question with the same warning. nobody's number is shared until they say yes", numbers: { ridersAsked: 1 } },
+    decision: "contact",
+  });
+  assert.equal(demo.offers.length, 0, "real riders: nothing is simulated");
+  w.db.close();
+});
+
+test("simulation: with no real riders a judge gets the shared engine instead of example riders, and a declined offer falls back to the honest example path", async () => {
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  updateUser(w.db, w.ids.a, { verifiedVia: "judge_skip" });
+  const out = await w.text("a", ASK_LAX);
+  assert.deepEqual(out, [SHUTTLE.details], "the shuttle is still mentioned; the riders come from the simulation, not from this flow");
+  assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.dest, o.context.day, o.context.time]), [["rides", "lax", "on the 19th", "noon"]]);
+  assert.equal(getFlowState(w.db, w.ids.a)?.step, "sim_offer");
+  assert.equal(w.listings().length, 1, "the trip itself is saved for a real match later");
+  assert.equal(demo.asides.length, 0);
+  // The tap on "show me" goes to the simulation, which the flow would otherwise drop as a poll vote.
+  demo.consume = true;
+  await w.pipeline.handleEvent({ provider: "webchat", userHandle: w.handles.a, chatId: "chat-a", isGroup: false, messageId: "vote-1", text: "", images: [], pollVote: { pollMessageId: "poll-1", optionIndex: 0 }, receivedAt: Date.now() });
+  assert.equal(demo.runs, 1);
+  assert.equal(w.textsTo("a").at(-1), SIM_LINE);
+  w.db.close();
+
+  // The engine says no: example riders, and the very next bubble is still the honesty line.
+  demo.reset();
+  const d = world();
+  updateUser(d.db, d.ids.a, { verifiedVia: "judge_skip" });
+  const fallback = await d.text("a", ASK_LAX);
+  assert.equal(demo.offers.length, 1);
+  assert.match(fallback[1]!, FOUND);
+  assert.match(fallback[2]!, /examples/);
+  assert.equal(getFlowState(d.db, d.ids.a)?.data.mode, "example");
+  d.db.close();
+});
+
+test("simulation: a student is offered it only when nobody else real is on troy", async () => {
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  w.db.prepare("UPDATE users SET isExample = 1 WHERE id != ?").run(w.ids.a);
+  assert.deepEqual(await w.text("a", ASK_LAX), [SHUTTLE.details]);
+  assert.deepEqual(demo.offers.map((o) => o.kind), ["rides"]);
   w.db.close();
 });

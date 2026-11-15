@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { setDemoHooks } from "../src/staff.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -17,6 +19,43 @@ import { BUILT_IN_TOPICS, listTopics, openTopicRequests, topicByKey, topicsFor }
 
 registerFlow(food);
 registerFlow(topics);
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+setDemoHooks({
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "topics", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+});
+
 // Nothing in this file may reach the network.
 setModelCall(async () => {
   throw new Error("off");
@@ -590,4 +629,75 @@ test("a message that isn't about topics passes through, and the alert pointer st
   assert.ok(w.textsTo("near").length > before);
   assert.equal((await w.text("near", "ok i'm in")).length, 2);
   w.db.close();
+});
+
+// ---------- judge asides, the simulated follower, and no dead ends ----------
+
+type TopicsWorld = ReturnType<typeof world>;
+const topicAsides = (w: TopicsWorld) => demo.asides.filter((a) => a.userId === w.ids.poster).map((a) => a.note);
+const nobodyFollows = (w: TopicsWorld) => w.db.prepare("UPDATE users SET subscriptions = '[]'").run();
+
+test("asides: a post says how many followers were in range out of how many follow the topic; a new topic says what it was checked against", async () => {
+  demo.reset();
+  const w = world();
+  await w.text("poster", GAME);
+  // near and nowhere heard. far is out of range, paused and quiet are held back: 5 follow pickup, 2 got it.
+  assert.deepEqual(topicAsides(w), [
+    { step: "topic_post", behind: { did: "sent it only to followers of that topic who are close enough and not in quiet hours: {inRange} of {following} got the text", numbers: { inRange: 2, following: 5 } }, decision: "location" },
+  ]);
+  assert.equal(demo.offers.length, 0);
+  w.db.close();
+
+  demo.reset();
+  const t = world({ verdict: () => "ok" });
+  const before = listTopics(t.db).length;
+  await t.text("poster", "something else");
+  await t.text("poster", "study buddies");
+  assert.deepEqual(topicAsides(t).map((n) => [n.step, n.decision, n.behind?.numbers]), [["topic_created", "one_engine", { existing: before }]]);
+  t.db.close();
+});
+
+test("a post nobody could be texted about never ends on a dead end: what happens next, and one thing to do", async () => {
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  nobodyFollows(w);
+  const out = await w.text("poster", GAME);
+  assert.equal(demo.offers.length, 0, "other real students are on troy: this student waits for real people");
+  assert.equal(out.length, 3);
+  assert.match(out[1]!, /nobody|no one/);
+  assert.match(out[2]!, /connect|link/, "what happens next");
+  assert.match(out[2]!, /again/, "and one thing they can do: post it again later");
+  voiceOk(out);
+  const next = w.lastBrief();
+  assert.ok(next.mustCover.some((c) => c.includes("post it again later")));
+  assert.deepEqual(topicAsides(w).at(-1)!.behind?.numbers, { inRange: 0, following: 0 });
+  w.db.close();
+});
+
+test("simulation: a post that reaches nobody is offered to a judge, and to a student only when nobody else real is on troy", async () => {
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  nobodyFollows(w);
+  w.make("poster", { subscriptions: "[]", verifiedVia: "judge_skip" });
+  const out = await w.text("poster", GAME);
+  assert.equal(out.length, 2, "the post is confirmed, and the offer takes the place of the 'meanwhile' line");
+  assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.where, o.context.when, o.context.post]), [["topics", "lyon", "at 6", GAME]]);
+  assert.equal(getFlowState(w.db, w.ids.poster)?.step, "sim_offer");
+  assert.equal(demo.asides.length, 0);
+  assert.equal(w.posts()[0]!.status, "live", "the post itself is real");
+  demo.consume = true;
+  assert.deepEqual(await w.text("poster", "show me"), [SIM_LINE]);
+  assert.equal(demo.runs, 1);
+  w.db.close();
+
+  demo.reset();
+  demo.accept = true;
+  const s = world();
+  nobodyFollows(s);
+  s.db.prepare("UPDATE users SET isExample = 1 WHERE id != ?").run(s.ids.poster);
+  assert.equal((await s.text("poster", GAME)).length, 2);
+  assert.deepEqual(demo.offers.map((o) => o.kind), ["topics"]);
+  s.db.close();
 });

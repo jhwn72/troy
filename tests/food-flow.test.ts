@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { setDemoHooks } from "../src/staff.ts";
+import type { AsideNote, SimKind } from "../src/staff.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -17,6 +19,43 @@ import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
 import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
 
 registerFlow(food);
+// Judge asides (src/judge.ts) and the simulated other side (src/simulate.ts) are other modules. Every test in this
+// file runs against these recording fakes: nothing is said for an aside, and no simulation is offered unless a test
+// turns `demo.accept` on.
+const SIM_LINE = "(example) here's how the other side would play out";
+const demo = {
+  asides: [] as { userId: number; note: AsideNote }[],
+  offers: [] as { userId: number; kind: SimKind; context: Record<string, string> }[],
+  runs: 0,
+  /** offerSimulation says yes and takes the person's open step, the way the real one does. */
+  accept: false,
+  /** runSimulation says it handled the message. */
+  consume: false,
+  reset(): void {
+    this.asides.length = 0;
+    this.offers.length = 0;
+    this.runs = 0;
+    this.accept = false;
+    this.consume = false;
+  },
+};
+setDemoHooks({
+  judgeAside: async (ctx, note) => {
+    demo.asides.push({ userId: ctx.user.id, note });
+  },
+  offerSimulation: async (ctx, kind, context) => {
+    demo.offers.push({ userId: ctx.user.id, kind, context });
+    if (demo.accept) ctx.setState({ flow: "food", step: "sim_offer", data: { simulation: kind } });
+    return demo.accept;
+  },
+  runSimulation: async (ctx) => {
+    demo.runs++;
+    // The real one plays the other side out loud. One line stands in for that here.
+    if (demo.consume) await ctx.say(SIM_LINE);
+    return demo.consume;
+  },
+});
+
 // Nothing in this file may reach the network: every model call fails, so every reply is fallback copy.
 setModelCall(async () => {
   throw new Error("off");
@@ -825,4 +864,103 @@ test("followers of the free topic get both food and stuff alerts, through the sa
   assert.equal(pickup[0]!.minutes, walkingMinutes(TCC, LEAVEY));
   assert.deepEqual(await findSubscribers(w.db, w.adapter, at, ["pickup"], now, { skip: (u) => u.id === w.ids.a }), []);
   w.db.close();
+});
+
+// ---------- judge asides, the simulated other side, and no dead ends ----------
+
+const foodAsides = (w: ReturnType<typeof world>, who: Who) => demo.asides.filter((a) => a.userId === w.ids[who]).map((a) => a.note);
+
+test("asides: the photo count, who was in range out of how many follow it, and the hold, each with this run's numbers", async () => {
+  demo.reset();
+  const w = world({ photoCount: 6 });
+  assert.deepEqual(await w.text("poster", "free chipotle from acm at leavey", PHOTO), ["looks like 6 bowls, right?"]);
+  assert.deepEqual(foodAsides(w, "poster"), [{ step: "food_photo", behind: { did: "read ur photo and counted about {count} in it, so all u have to do is confirm the number", numbers: { count: 6 } }, decision: "photo" }]);
+
+  const out = await w.text("poster", "yes");
+  const told = Number(out[0]!.match(/texted (\d+)/)![1]);
+  const alert = foodAsides(w, "poster").at(-1)!;
+  assert.equal(alert.step, "food_alert");
+  assert.equal(alert.decision, "location");
+  // a, b and g are close enough (or have no location); c is too far, e is paused, h is in quiet hours: 6 follow it, 3 heard.
+  assert.deepEqual(alert.behind?.numbers, { inRange: told, subscribed: 6 });
+  assert.equal(told, 3);
+  assert.match(alert.behind!.did, /\{inRange\} of \{subscribed\}/);
+
+  await w.tap("a", w.claimBubble("a"));
+  assert.deepEqual(foodAsides(w, "a").map((n) => [n.step, n.decision, n.behind?.numbers]), [["food_claim", "facts", { holdMinutes: 15 }]]);
+  assert.equal(demo.offers.length, 0, "people were in range, so nothing is simulated");
+});
+
+test("asides: a post that goes straight out gets one aside, and a photo the ai couldn't read says so", async () => {
+  demo.reset();
+  const w = world({ photoCount: null });
+  await w.post(4);
+  assert.deepEqual(foodAsides(w, "poster").map((n) => n.step), ["food_alert"]);
+
+  demo.reset();
+  const w2 = world({ photoCount: null });
+  assert.deepEqual(await w2.text("poster", "free pizza come grab some", PHOTO), [FOOD_COPY.askCount]);
+  assert.deepEqual(foodAsides(w2, "poster").map((n) => [n.step, n.decision]), [["food_photo", "ai_down"]]);
+
+  // A banned poster gets the fixed refusal and no commentary.
+  demo.reset();
+  const w3 = world();
+  w3.make("poster", { subscriptions: "[]", bannedFromPosting: 1 });
+  await w3.post(3);
+  assert.equal(demo.asides.length, 0);
+});
+
+/** Nobody follows free food, so a post reaches no one. */
+const nobodyListening = (w: ReturnType<typeof world>) => w.db.prepare("UPDATE users SET subscriptions = '[]'").run();
+
+test("simulation: a post that reaches nobody is offered to a judge, and to a student only when nobody else real is on troy", async () => {
+  // A student in a live pilot: other real students exist, they just aren't in range. Real waiting, with what to do next.
+  demo.reset();
+  demo.accept = true;
+  const w = world();
+  nobodyListening(w);
+  assert.deepEqual(await w.post(4), [FOOD_COPY.postedNobody, FOOD_COPY.postedHow]);
+  assert.equal(demo.offers.length, 0);
+  assert.deepEqual(foodAsides(w, "poster").at(-1)!.behind?.numbers, { inRange: 0, subscribed: 0 });
+
+  // A judge in the same spot is offered the other side, and the flow says nothing after the offer.
+  demo.reset();
+  demo.accept = true;
+  const j = world();
+  nobodyListening(j);
+  j.make("poster", { subscriptions: "[]", verifiedVia: "judge_skip" });
+  assert.deepEqual(await j.post(4), [FOOD_COPY.postedNobody]);
+  assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.what, o.context.where, o.context.count]), [["food", "chipotle", "leavey", "4"]]);
+  assert.equal(getFlowState(j.db, j.ids.poster)?.step, "sim_offer");
+  assert.equal(demo.asides.length, 0, "no aside on top of the offer");
+  assert.equal(j.drop().status, "live", "the post itself is real and stays up");
+  // The tap on "show me" reaches the simulation first.
+  demo.consume = true;
+  await j.pipeline.handleEvent(j.event("poster", { pollVote: { pollMessageId: "poll-1", optionIndex: 0 } }));
+  assert.equal(demo.runs, 1);
+  assert.equal(j.textsTo("poster").at(-1), SIM_LINE);
+
+  // A student with nobody else real on troy (everyone else is example data or a judge) gets the offer too.
+  demo.reset();
+  demo.accept = true;
+  const s = world();
+  nobodyListening(s);
+  s.db.prepare("UPDATE users SET isExample = 1 WHERE id != ? AND id != ?").run(s.ids.poster, s.ids.a);
+  s.db.prepare("UPDATE users SET verifiedVia = 'judge_skip' WHERE id = ?").run(s.ids.a);
+  assert.deepEqual(await s.post(4), [FOOD_COPY.postedNobody]);
+  assert.deepEqual(demo.offers.map((o) => o.kind), ["food"]);
+
+  // Declined (or the module is missing): today's reply, whole.
+  demo.reset();
+  const d = world();
+  nobodyListening(d);
+  d.make("poster", { subscriptions: "[]", verifiedVia: "judge_skip" });
+  assert.deepEqual(await d.post(4), [FOOD_COPY.postedNobody, FOOD_COPY.postedHow]);
+  assert.equal(demo.offers.length, 1);
+});
+
+test("asking for food when nothing is live never ends on a dead end", async () => {
+  demo.reset();
+  const w = world({ intent: () => ({ flow: "food", action: "status", details: {}, source: "ai" }) });
+  assert.deepEqual(await w.text("a", "any free food rn?"), [FOOD_COPY.nothingLive, FOOD_COPY.nothingLiveNext]);
 });

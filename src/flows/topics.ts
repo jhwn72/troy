@@ -22,7 +22,8 @@ import { pickVariant } from "../voice.ts";
 import { QUIET_TIME_ZONE, laMinutes } from "../quiet.ts";
 import { RELAY_COPY, activeRelayFor, endRelayByContext, startRelay as realStartRelay } from "../relay.ts";
 import { isBusy, onSweep, onUserGone, parkAsk, registerPendingHooks } from "../pending.ts";
-import { FOOD_COPY, FOOD_VOICE, findSubscribers, saysFake, spotIn, walkLine, yesOrNo } from "./food.ts";
+import { FOOD_COPY, FOOD_VOICE, countFollowers, findSubscribers, saysFake, spotIn, walkLine, yesOrNo } from "./food.ts";
+import { DECISION, aside, simulateIfAlone, simulationTurn } from "../staff.ts";
 import { unvoiced } from "./reports-shared.ts";
 import type { Topic } from "../topics.ts";
 import {
@@ -56,6 +57,8 @@ export const MAX_ALERTS_PER_HOUR = 4;
 /** This many different people reporting a post takes it down until staff look. */
 export const REPORTS_TO_HIDE = 3;
 const STEP_STALE_MS = 30 * 60 * 1000;
+/** Every step this flow opens. Any other open step under this flow is a simulation's. */
+const OWN_STEPS: ReadonlySet<string> = new Set(["alerted", "join_ask", "post_place", "post_topic", "suggest_ask", "unfollow_which"]);
 const ALERT_STALE_MS = 6 * 60 * 60 * 1000;
 
 // ---------- wording ----------
@@ -303,6 +306,15 @@ const BRIEFS = {
       ],
     };
   },
+  postedNobodyNext: (): Brief => ({
+    goal: "their post is up but nobody who follows that topic was close by to text. in one short bubble say what happens next and one thing they can do meanwhile. never end on 'nobody's around'",
+    mustCover: ["if someone's in, he connects them right here through him", "they can post it again later, when more people who follow it are around"],
+    fallback: [
+      [`if someone's in i'll connect u two right here. u can also post it again later when more people are around`],
+      [`the second someone bites i'll link u up through me. worth posting again in a bit too, when more of them are nearby`],
+      [`i'll connect u here as soon as anyone's in. and u can send it again later, once more people who follow it are around`],
+    ],
+  }),
   tooMany: (): Brief => ({
     goal: "they've posted several things in the last hour and code is holding this one back so people's phones don't blow up. say so kindly",
     mustCover: ["they've posted a few in the last hour", "to try again in a bit"],
@@ -637,8 +649,24 @@ async function publish(ctx: FlowContext, draft: Draft, topic: Topic, place: { sp
   );
 
   const f = { noun: topicNoun({ key: topic.key, label: nameOf(topic) }), where: place?.spot ?? null, when: draft.whenText };
-  if (told) await say(ctx, "posted", BRIEFS.posted({ ...f, told }));
-  else await say(ctx, "postedNobody", BRIEFS.postedNobody(f));
+  if (told) {
+    await say(ctx, "posted", BRIEFS.posted({ ...f, told }));
+  } else {
+    await say(ctx, "postedNobody", BRIEFS.postedNobody(f));
+    // Nobody to text, so nothing would happen next. A judge (or a student with nobody else on here) is offered the
+    // other side played out (a follower saying they're in); a student in a live pilot keeps the post up for real people.
+    if (await simulateIfAlone(ctx, "topics", { topic: nameOf(topic), post: draft.text, where: place?.spot ?? "", when: draft.whenText ?? "", postId: String(postId) })) return;
+    // Otherwise what happens next and one thing they can do, so the post never ends on "nobody's around".
+    await say(ctx, "postedNobodyNext", BRIEFS.postedNobodyNext());
+  }
+  await aside(ctx, {
+    step: "topic_post",
+    behind: {
+      did: "sent it only to followers of that topic who are close enough and not in quiet hours: {inRange} of {following} got the text",
+      numbers: { inRange: told, following: countFollowers(db, user.id, subscriptionKeys(topic.key)) },
+    },
+    decision: DECISION.locationDecides,
+  });
 }
 
 function livePostOf(db: DatabaseSync, userId: number, now: number): Post | null {
@@ -913,6 +941,11 @@ async function suggest(ctx: FlowContext, text: string): Promise<void> {
   const topic = createTopic(db, name, user.id);
   subscribe(db, user.id, topic.id);
   await say(ctx, "created", BRIEFS.created(topic.label));
+  await aside(ctx, {
+    step: "topic_created",
+    behind: { did: "checked it against the {existing} topics already there, judged it fine for a campus, and made it a real topic anyone can follow", numbers: { existing: Math.max(0, listTopics(db).length - 1) } },
+    decision: DECISION.oneEngine,
+  });
 }
 
 /** For onboarding's "something else" option and anywhere else a student should be asked what they have in mind. */
@@ -1000,6 +1033,8 @@ export const topics: FlowHandler = {
   async handle(ctx) {
     const { db, user } = ctx;
     const now = deps.now();
+    // An open simulation (a follower's side, played out) gets the message first, taps included.
+    if (await simulationTurn(ctx, OWN_STEPS)) return;
     const state = freshState(ctx, now);
 
     if (ctx.event.pollVote) return;

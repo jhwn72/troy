@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AdapterCapabilities, Bubble, FlowHandler, IncomingEvent, Intent, MessagingAdapter, TapbackType } from "../src/types.ts";
 import { openDb, getUserByHandle, getOrCreateUser, updateUser, setSetting, setFlowState } from "../src/db/index.ts";
-import { chunkBubble, createPipeline, TIMING, typingMs } from "../src/pipeline.ts";
+import { chunkBubble, createPipeline, JUDGE_PACE, TIMING, typingMs } from "../src/pipeline.ts";
+import { noteTourFinished, plainTone } from "../src/judge.ts";
+import { toPlain } from "../src/voice.ts";
+import { markMove } from "../src/firstten.ts";
 import type { LocationStore, SafetyReader } from "../src/pipeline.ts";
 import { COMMAND_POOLS } from "../src/commands.ts";
 import { FALLBACK_POOLS } from "../src/flows/smalltalk.ts";
@@ -79,7 +82,7 @@ function fakeAdapter(caps: Partial<AdapterCapabilities> = {}, calls: Call[] = []
 type Detect = (input: { text: string }) => Intent;
 
 function setup(
-  opts: { caps?: Partial<AdapterCapabilities>; intent?: Intent; verified?: boolean; pause?: (ms: number) => Promise<void>; random?: () => number; detect?: Detect; readSafety?: SafetyReader | null } = {},
+  opts: { caps?: Partial<AdapterCapabilities>; intent?: Intent; verified?: boolean; judge?: boolean; pause?: (ms: number) => Promise<void>; random?: () => number; detect?: Detect; readSafety?: SafetyReader | null } = {},
 ) {
   const db = openDb(":memory:");
   const fake = fakeAdapter(opts.caps);
@@ -97,9 +100,10 @@ function setup(
   // Every wait is instant and recorded in the same list as the adapter calls, so order can be asserted.
   const pause = opts.pause ?? (async (ms: number) => void fake.calls.push({ method: "wait", chatId: CHAT, ms }));
   const pipeline = createPipeline({ db, getAdapter: () => fake.adapter, pause, random: opts.random, location, ackAfterMs: 30, detectIntent: async (i) => (opts.detect ? opts.detect(i) : intent), readSafety: opts.readSafety });
-  if (opts.verified) {
+  // `verified` is a student. `judge` took the hackathon skip, which changes pacing and adds judge mode.
+  if (opts.verified || opts.judge) {
     const u = getOrCreateUser(db, HANDLE, CHAT);
-    updateUser(db, u.id, { verifiedAt: Date.now(), verifiedVia: "judge_skip" });
+    updateUser(db, u.id, { verifiedAt: Date.now(), verifiedVia: opts.judge ? "judge_skip" : "usc_email" });
   }
   let m = 0;
   const event = (over: Partial<IncomingEvent>): IncomingEvent => ({
@@ -643,13 +647,14 @@ test("by meaning: when he can't tell, he asks one short question, and a yes (typ
 test("by meaning: deleting always asks once first and needs a typed yes, never a tapback", async () => {
   const t = setup({ verified: true, detect: meant("delete_data") });
   await t.text("help");
-  assert.deepEqual(await t.text("erase everything u have on me"), TEMPLATES.confirmDelete);
+  const question = await t.text("erase everything u have on me");
+  assert.ok(inPool(question, COMMAND_POOLS.askDelete), question.join(" / "));
   assert.ok(t.user().verifiedAt, "nothing deleted yet");
   assert.ok((t.db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n > 0);
 
   // A heart and a thumbs up on the question do nothing at all.
-  assert.deepEqual(await t.tap(TEMPLATES.confirmDelete[0], "love"), []);
-  assert.deepEqual(await t.tap(TEMPLATES.confirmDelete[0], "like"), []);
+  assert.deepEqual(await t.tap(question[0]!, "love"), []);
+  assert.deepEqual(await t.tap(question[0]!, "like"), []);
   assert.ok(t.user().verifiedAt, "a tapback never deletes");
 
   assert.deepEqual(await t.text("yes"), TEMPLATES.deleteData);
@@ -925,4 +930,190 @@ test("the pipeline can be built before the adapter exists (the server's boot ord
       },
     }),
   );
+});
+
+// ---------- commands by meaning: what code reads by itself (John hit "Delete me pls" on his phone) ----------
+
+test('"Delete me pls" gets the one-step confirmation, never the words to type, and a typed yes deletes', async () => {
+  // The model reads nothing here: it says plain chat for every message.
+  for (const ask of ["Delete me pls", "delete my account", "erase me", "can u delete everything u have on me"]) {
+    const t = setup({ verified: true, detect: () => chat });
+    await t.text("hi");
+    const question = await t.text(ask);
+    assert.ok(inPool(question, COMMAND_POOLS.askDelete), `${ask}: ${question.join(" / ")}`);
+    assert.match(question.join(" "), /reply "yes"/);
+    assert.ok(!/delete my data/.test(question.join(" ")), "he never answers with the command to type");
+    assert.ok(t.user().verifiedAt, "nothing deleted before the yes");
+    assert.deepEqual(await t.text("yes"), TEMPLATES.deleteData);
+    assert.equal(t.user().verifiedAt, null);
+    assert.equal((t.db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 0);
+  }
+});
+
+test('"delete this class from my life lol" deletes nothing and asks nothing', async () => {
+  const t = setup({ verified: true, detect: () => chat });
+  for (const line of ["delete this class from my life lol", "delete me lol", "i can't stop laughing", "erase that from my memory pls"]) {
+    const reply = await t.text(line);
+    assert.ok(!COMMAND_POOLS.askDelete.some((q) => reply.includes(q)), `${line}: ${reply.join(" / ")}`);
+    assert.ok(!reply.includes(TEMPLATES.stop[0]), line);
+  }
+  // Nothing is waiting for a yes either.
+  await t.text("yes");
+  assert.ok(t.user().verifiedAt);
+  assert.equal(t.user().stopped, false);
+});
+
+test('asking how to delete or stop gets an offer to do it ("reply \"yes\""), not instructions', async () => {
+  const t = setup({ verified: true, detect: () => chat });
+  const del = await t.text("how do i delete my data?");
+  assert.ok(inPool(del, COMMAND_POOLS.askDelete), del.join(" / "));
+  assert.ok(inPool(await t.text("no"), COMMAND_POOLS.keptData));
+  assert.ok(t.user().verifiedAt);
+  const stop = await t.text("how do i unsubscribe");
+  assert.ok(inPool(stop, COMMAND_POOLS.askStop), stop.join(" / "));
+  assert.deepEqual(await t.text("yes"), TEMPLATES.stop);
+  assert.equal(t.user().stopped, true);
+});
+
+// ---------- judge mode: pacing, tone, the wrap-up ----------
+
+test("judge pacing: typing, gaps and longer beats are 45 percent of a student's, and the read beat is not shortened", async () => {
+  const waitsFor = async (judge: boolean) => {
+    const t = setup({ verified: !judge, judge, random: () => 0.5 });
+    await t.text("help");
+    return t.fake.calls.filter((c) => c.method === "wait").map((c) => c.ms!);
+  };
+  const student = await waitsFor(false);
+  const judge = await waitsFor(true);
+  assert.equal(JUDGE_PACE, 0.45);
+  assert.equal(student.length, 6);
+  assert.equal(judge.length, student.length, "same bubbles, same order");
+  assert.equal(judge[0], student[0], "read shows for its full beat first");
+  for (let i = 1; i < student.length; i++) assert.equal(judge[i], Math.round(student[i]! * JUDGE_PACE), `wait ${i}`);
+
+  // A beat a flow asked for (pauseAfterMs) is scaled the same way.
+  const beatOf = async (isJudge: boolean) => {
+    const t = setup({ verified: !isJudge, judge: isJudge, detect: usgIntent, random: () => 0.5 });
+    await t.text("paced");
+    const order = t.fake.calls.filter((c) => c.method === "sendMessage" || c.method === "wait").map((c) => (c.method === "wait" ? c.ms : c.text));
+    return order[order.indexOf("one") + 1];
+  };
+  assert.equal(await beatOf(false), 2000);
+  assert.equal(await beatOf(true), 900);
+});
+
+test('plain tone: "drop the slang" from a judge turns every bubble into standard english, safety lines stay word for word, "slang back on" reverses it', async () => {
+  const t = setup({ judge: true, detect: () => chat });
+  const on = await t.text("drop the slang");
+  assert.equal(on.length, 1);
+  assert.match(on[0]!, /"slang back on"/);
+  assert.ok(!/\b(?:u|ur)\b/.test(on[0]!.replace(/"[^"]*"/g, "")), on[0]);
+  assert.match(on[0]!, /^[A-Z]/);
+  assert.equal(plainTone(t.db, t.user().id), true);
+
+  // A fixed line and a variant pool, both through the same conversion.
+  assert.deepEqual(await t.text("help"), TEMPLATES.help.map(toPlain));
+  const paused = await t.text("pause");
+  assert.deepEqual(paused, TEMPLATES.pause.map(toPlain));
+  assert.match(paused[0]!, /^Paused\. No alerts until you text "resume"\. I'll still answer when you text me\.$/);
+  // The safety list is never reworded.
+  assert.deepEqual(await t.text("there's a fire in my building"), TEMPLATES.emergency);
+
+  const off = await t.text("slang back on");
+  assert.match(off.join(" "), /"drop the slang"/);
+  assert.equal(plainTone(t.db, t.user().id), false);
+  assert.deepEqual(await t.text("help"), TEMPLATES.help);
+  // STOP stays word for word in either tone.
+  await t.text("formal");
+  assert.equal(plainTone(t.db, t.user().id), true);
+  assert.deepEqual(await t.text("stop"), TEMPLATES.stop);
+});
+
+test("plain tone is a judge thing: a student typing the same words changes nothing", async () => {
+  const t = setup({ verified: true, detect: () => chat });
+  await t.text("drop the slang");
+  assert.equal(plainTone(t.db, t.user().id), false);
+  assert.deepEqual(await t.text("help"), TEMPLATES.help);
+});
+
+const tourish = (name: FlowHandler["name"]): FlowHandler => ({
+  name,
+  async handle(ctx) {
+    if (ctx.state) {
+      await ctx.say("example over");
+      ctx.setState(null);
+      return;
+    }
+    await ctx.say("example run, describe it");
+    ctx.setState({ flow: name, step: "describe", data: {} });
+  },
+});
+
+test("after the try-it tour a judge gets the wrap-up once, with john's email. a student never does", async () => {
+  registerFlow(tourish("tour"));
+  const tourIntent: Detect = () => ({ flow: "tour", action: "lost", details: {}, source: "ai" });
+  const run = async (judge: boolean) => {
+    const t = setup({ verified: !judge, judge, detect: tourIntent });
+    assert.deepEqual(await t.text("show me how it works"), ["example run, describe it"]);
+    // The real tour marks its move when a variant starts, and notes a run that reached its end.
+    markMove(t.db, t.user().id, "tour_lost", { did: true });
+    noteTourFinished(t.db, t.user().id);
+    return { t, end: await t.text("navy hydro flask with a usc sticker") };
+  };
+  const student = await run(false);
+  assert.deepEqual(student.end, ["example over"]);
+
+  const judge = await run(true);
+  assert.equal(judge.end[0], "example over");
+  const wrap = judge.end.slice(1).join(" ");
+  assert.match(wrap, /short version/);
+  assert.match(wrap, /full walkthrough/);
+  assert.match(wrap, /johnwang@usc\.edu/);
+  assert.match(wrap, /john/);
+  // Once per judge: a second run of the example ends without it.
+  await judge.t.text("show me how it works");
+  assert.deepEqual(await judge.t.text("another description"), ["example over"]);
+});
+
+// ---------- review fixes ----------
+
+test("a judge who backs out of the tour gets no wrap-up, and still gets it when a run does reach its end", async () => {
+  registerFlow(tourish("tour"));
+  const t = setup({ judge: true, detect: () => ({ flow: "tour", action: "lost", details: {}, source: "ai" }) });
+  await t.text("show me how it works");
+  markMove(t.db, t.user().id, "tour_lost", { did: true });
+  // The step closes without the run having finished (they bailed): nothing but the flow's own line.
+  assert.deepEqual(await t.text("stop the example"), ["example over"]);
+  // Later they go through it and the tour notes the finish: now the wrap-up, once.
+  await t.text("show me how it works");
+  noteTourFinished(t.db, t.user().id);
+  const end = await t.text("navy hydro flask with a usc sticker");
+  assert.equal(end[0], "example over");
+  assert.match(end.slice(1).join(" "), /johnwang@usc\.edu/);
+});
+
+test("the wrap-up never fires when some other flow closes, even for a judge who finished the tour earlier", async () => {
+  registerFlow(tourish("rides"));
+  const t = setup({ judge: true, detect: () => ({ flow: "rides", action: "find", details: {}, source: "ai" }) });
+  noteTourFinished(t.db, t.user().id);
+  await t.text("need a ride to lax");
+  assert.deepEqual(await t.text("friday"), ["example over"]);
+});
+
+test("plain tone: someone else's words are passed along exactly as written, and the rides and usg contact warnings stay word for word", async () => {
+  let relayed: (string | Bubble)[] = [];
+  registerFlow({
+    name: "notes",
+    async handle(ctx) {
+      relayed = [{ text: "from the finder: yo i found ur keys lol, they're by tommy trojan rn", verbatim: true }, "ok lmk when u have them", "heads up, that shares ur contact info. ok?"];
+      await ctx.say(...relayed);
+    },
+  });
+  const t = setup({ judge: true, detect: (i) => (/keys/.test(i.text) ? { flow: "notes", action: "x", details: {}, source: "ai" } : chat) });
+  await t.text("drop the slang");
+  assert.equal(plainTone(t.db, t.user().id), true);
+  const out = await t.text("where are my keys");
+  assert.equal(out[0], "from the finder: yo i found ur keys lol, they're by tommy trojan rn", "their words, untouched");
+  assert.equal(out[1], "OK let me know when you have them.", "troy's own line is in plain english");
+  assert.equal(out[2], "heads up, that shares ur contact info. ok?", "the contact-sharing warning is on the safety list");
 });
