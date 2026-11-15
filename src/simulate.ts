@@ -41,7 +41,7 @@ import { othersOnTroy } from "./brain.ts";
 import { normalizeCategory } from "./flows/lostfound/types.ts";
 import type { ItemProfile } from "./flows/lostfound/types.ts";
 import { THRESHOLDS, generatePickupCode, scoreDescription } from "./flows/lostfound/verify.ts";
-import { COPY, isDescriptionAttempt } from "./flows/lostfound/handler.ts";
+import { COPY, isDescriptionAttempt, restatesLoss } from "./flows/lostfound/handler.ts";
 import { FOOD_COPY, countLine } from "./flows/food.ts";
 
 const TOUR = "tour" as FlowName;
@@ -494,6 +494,11 @@ async function onDescribe(ctx: FlowContext, sim: LostSim, data: Record<string, u
   // A bare "ok" is not a description and not confusion either: a short nudge in new words, and the step stays open.
   if (isNeutral(text)) {
     await say(ctx, "describe:nudge", DESCRIBE_NUDGE);
+    return "open";
+  }
+  // "i lost my hydro flask at leavey": the loss told again, nothing to check. A nudge, no try used.
+  if (restatesLoss(text, sim.profile, ctx.db)) {
+    await ctx.say(COPY.describeAgain);
     return "open";
   }
   // "wait what" or a question is not a description: he answers it, no try is used and the step stays open.

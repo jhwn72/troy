@@ -2665,3 +2665,15 @@ test("photo question in tap mode: one hint of ours, never 'tap ❤️ on ur pick
   assert.equal(hints.length, 1, JSON.stringify(out));
   assert.doesNotMatch(hints[0]!, /tap ❤️ on ur pick/);
 });
+
+// John's demo run, Nov 15 1:55am: at the describe step he typed "i lost my hydro flask at leavey" and was told it
+// "doesn't line up" and lost a try. Telling the loss again is not a description.
+test("restating the loss at the describe step gets a nudge, not a miss or a used try", async () => {
+  const w = world();
+  await toDescribe(w);
+  const out = await w.owner.say("i lost my airpods at leavey");
+  assert.deepEqual(out, [COPY.describeAgain]);
+  assert.equal(checks(w.db).length, 0, "nothing scored");
+  const passed = await w.owner.say("white case with a pink dinosaur sticker on the lid");
+  assert.ok(passed.includes(COPY.passed));
+});

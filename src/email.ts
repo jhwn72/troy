@@ -56,7 +56,8 @@ export async function sendVerificationEmail(to: string, code: string, deps: Emai
   const key = deps.key ?? config.resendKey;
   const log = deps.log ?? ((line: string) => console.error(line));
   // So development works without a Resend key.
-  if (dev) console.log(`verification code for ${mask(to)}: ${code}`);
+  // Only without a Resend key, so local development can see the code. With a key the code is never logged.
+  if (dev && !key && !deps.send) console.log(`verification code for ${mask(to)}: ${code}`);
   if (!key && !deps.send) {
     if (dev) return "sent";
     log("verification email failed: no_key (RESEND_API_KEY is not set)");

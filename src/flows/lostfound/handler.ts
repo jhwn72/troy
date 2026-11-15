@@ -144,6 +144,8 @@ export const COPY = {
   turnedUp: "something like what u lost just turned up",
   quickCheck: "quick check first",
   describe: "describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it",
+  /** They told the loss again instead of describing it. No try is used. */
+  describeAgain: "got that part. now describe it for me, like the color, what's on it, anything that makes it urs",
   /** The blind question when the found item is plain. Just as blind: it names nothing about the item. */
   describePlain: "describe it for me in ur own words. the brand, the shape or style, and where and when u lost it",
   /** A plain item and a description that fits. Never a miss, and nothing here asks for another try or a photo. */
@@ -1534,6 +1536,23 @@ const STALLS = /\b(?:idk|i (?:don'?t|dont) know|not sure|one sec|hold on|gimme a
  * stays open and no try is counted. Anything that names a color, a brand or a mark is an attempt whatever its
  * punctuation, so a guess phrased as a question ("is it the one with the sticker?") is never free.
  */
+/**
+ * "i lost my hydro flask at leavey" at the describe step: they told the loss again instead of describing it.
+ * True when every word is the kind of item, its brand, its public summary or title, a place, a time or filler,
+ * so there is nothing in it to check. Not a try and not a miss: they get one nudge and the question stays open.
+ * (Words like color, shape or a sticker are new information, so any of those makes it a real description.)
+ */
+export function restatesLoss(text: string, profile: Pick<ItemProfile, "category" | "title" | "brand" | "publicSummary">, db?: DatabaseSync): boolean {
+  const t = text.toLowerCase().replace(/[‘’]/g, "'").trim();
+  // Only when they say they lost it: "its a bottle with stuff on it" is a (vague) description and is scored.
+  if (!LOST_VERB.test(t)) return false;
+  const known = new Set(canonTokens(`${profile.title ?? ""} ${profile.brand ?? ""} ${profile.publicSummary ?? ""} ${String(profile.category ?? "").replace(/_/g, " ")}`));
+  const filler = new Set(canonTokens("i im i'm my mine it its it's the a an at in on near by around somewhere lost lose left dropped forgot misplaced think maybe probably today yesterday earlier this morning night last week ago just yo hey so um like was is were be had have of to from and or"));
+  const words = canonTokens(t);
+  if (!words.length) return false;
+  return words.every((w) => known.has(w) || filler.has(w) || /^\d+$/.test(w) || (!!db && !!findPlace(db, w)));
+}
+
 export function isDescriptionAttempt(text: string, plain?: { db: DatabaseSync }): boolean {
   const t = text.toLowerCase().replace(/[‘’]/g, "'").trim();
   const d = pullDetails(t);
@@ -1600,6 +1619,10 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
   }
   // Plain is a property of the found item (verify.ts), never of anything the claimant says.
   const plain = isPlainItem(pair.profile);
+  if (restatesLoss(text, pair.profile, db)) {
+    await io.say(me, COPY.describeAgain);
+    return;
+  }
   if (!isDescriptionAttempt(text, plain ? { db } : undefined)) {
     // He answers what they said (never anything about the item: the step's facts stay locked) and the question
     // stays open. Nothing is scored, stored or shown to the finder.
