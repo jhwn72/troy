@@ -1,6 +1,6 @@
 /* Troy: the site's small navigation. Loaded by the landing page (a slim header over the painting and a row of
    links in the footer) and by the dashboard, the panel and the privacy page (a plain header on paper).
-   Colors and fonts come from tokens.css. Nothing here animates. */
+   Colors and fonts come from tokens.css. The only motion here is the handoff between pages, at the bottom. */
 
 /* ---------- Landing: the header over the day painting ---------- */
 
@@ -139,4 +139,34 @@
   .site-head .site-nav-brand { display: none; }
   .site-head .site-nav-links { margin: 0; gap: 0; }
   .site-head .site-nav-links a { padding: 0 9px; font-size: 0.875rem; }
+}
+
+/* ---------- Moving between pages ---------- */
+
+/* Every page loads this file, so a click on a nav link is one continuous move, not a hard cut: the old page fades
+   back, the new one fades up a few pixels behind it, and the brand and the links slide to their new places in the
+   header and stay sharp the whole way. Browsers without cross-page view transitions just load the page as before. */
+@view-transition { navigation: auto; }
+
+.site-nav-brand { view-transition-name: site-brand; }
+.site-nav-links { view-transition-name: site-links; }
+
+@keyframes page-leave {
+  to { opacity: 0; transform: translateY(-6px); }
+}
+@keyframes page-arrive {
+  from { opacity: 0; transform: translateY(12px); }
+}
+::view-transition-old(root) { animation: page-leave 240ms cubic-bezier(0.4, 0, 1, 1) both; }
+::view-transition-new(root) { animation: page-arrive 520ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both; }
+::view-transition-group(site-brand),
+::view-transition-group(site-links) { animation-duration: 520ms; animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+/* The header pieces cross-fade in place as they slide, so the gold underline moves to the new page's link. */
+::view-transition-old(site-brand),
+::view-transition-new(site-brand),
+::view-transition-old(site-links),
+::view-transition-new(site-links) { animation-duration: 320ms; height: 100%; object-fit: contain; }
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
 }

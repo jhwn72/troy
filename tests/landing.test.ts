@@ -156,19 +156,19 @@ test("every page links to the others, with links that work on a plain file serve
   const header = html.slice(html.indexOf('<header class="site-nav">'), html.indexOf('<div id="sky"'));
   assert.ok(html.indexOf('<header class="site-nav">') > 0 && html.indexOf('<header class="site-nav">') < html.indexOf('<div id="sky"'), "the header is the first thing in the page");
   assert.ok(header.includes('<a class="site-nav-brand" href="./">Troy</a>'));
-  assert.deepEqual([...header.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["For staff dashboard.html", "Under the hood panel.html", "Privacy privacy.html"]);
+  assert.deepEqual([...header.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Privacy privacy.html", "For staff dashboard.html", "Under the hood panel.html"]);
   const footer = html.slice(html.indexOf('<footer id="footer">'));
   const footerNav = footer.slice(footer.indexOf('<nav class="footer-links"'));
-  assert.deepEqual([...footerNav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Home ./", "For staff dashboard.html", "Under the hood panel.html", "Privacy privacy.html"]);
+  assert.deepEqual([...footerNav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Home ./", "Privacy privacy.html", "For staff dashboard.html", "Under the hood panel.html"]);
 
   for (const name of SITE_PAGES) {
     const other = readFileSync(join(PUBLIC, name), "utf8");
     const nav = other.slice(other.indexOf('<nav class="site-nav-links"'), other.indexOf("</nav>"));
     assert.deepEqual([...nav.matchAll(/<a href="([^"]+)"( aria-current="page")?>([^<]+)<\/a>/g)].map((m) => `${m[3]} ${m[1]}${m[2] ? " current" : ""}`), [
       "Home ./",
+      `Privacy privacy.html${name === "privacy.html" ? " current" : ""}`,
       `For staff dashboard.html${name === "dashboard.html" ? " current" : ""}`,
       `Under the hood panel.html${name === "panel.html" ? " current" : ""}`,
-      `Privacy privacy.html${name === "privacy.html" ? " current" : ""}`,
     ], name);
     // Same look as the landing page: its tokens, the shared nav and tool styles, Space Grotesk and Inter.
     for (const sheet of ["tokens", "nav", "tool"]) assert.equal(other.split(`href="landing/${sheet}.css"`).length - 1, 1, `${name}: ${sheet}.css once`);

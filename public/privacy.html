@@ -14,6 +14,8 @@
 <link rel="stylesheet" href="landing/nav.css">
 <link rel="stylesheet" href="landing/tool.css">
 <link rel="stylesheet" href="landing/pledge.css">
+<!-- Chrome gets the next page ready while the pointer is on its link, so it is already drawn when the move starts. -->
+<script type="speculationrules">{"prerender":[{"where":{"selector_matches":".site-nav-links a, .site-nav-brand, .footer-links a, .page-foot a"},"eagerness":"moderate"}]}</script>
 </head>
 <body class="pledge">
 
@@ -21,9 +23,9 @@
   <a class="site-nav-brand" href="./">Troy</a>
   <nav class="site-nav-links" aria-label="Site">
     <a href="./">Home</a>
+    <a href="privacy.html" aria-current="page">Privacy</a>
     <a href="dashboard.html">For staff</a>
     <a href="panel.html">Under the hood</a>
-    <a href="privacy.html" aria-current="page">Privacy</a>
   </nav>
 </header>
 
