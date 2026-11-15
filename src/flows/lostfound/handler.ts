@@ -82,6 +82,7 @@ import { DECISION, aside, ctxAs, simulateIfAlone, simulationTurn } from "../../s
 export const COPY = {
   askWhat: "what is it?",
   askFoundPlace: "where'd u find it?",
+  notedDetail: "noted, that helps",
   askMarks: "anything on it only the owner would know? stickers, marks, a case, a name. that part stays between us",
   dangerous: "that one goes to dps, please don't carry it around",
   holdOnto: "hang onto it for now. i'll text u when the owner turns up",
@@ -846,12 +847,12 @@ async function continueFound(ctx: FlowContext, io: LostFoundIo, draft: FoundDraf
   }
 }
 
-async function reportFound(ctx: FlowContext, io: LostFoundIo): Promise<void> {
+async function reportFound(ctx: FlowContext, io: LostFoundIo, keptSpot: Spot | null = null): Promise<void> {
   const text = (ctx.event.text ?? "").trim();
   const photo = ctx.event.images[0] ?? null;
   const seen = photo ? await profileItem(photo, text) : null;
   const profile = seen ?? profileFromText(text, false);
-  const spot = spotFrom(io.db, text, ctx.intent.details.place ?? pullDetails(text).place);
+  const spot = spotFrom(io.db, text, ctx.intent.details.place ?? pullDetails(text).place) ?? keptSpot;
   if (!profile) {
     io.setState(ctx.user.id, "found_what", { photo, spot });
     await io.say(ctx.user.id, COPY.askWhat);
@@ -2040,8 +2041,10 @@ async function handle(ctx: FlowContext): Promise<void> {
     io.setState(me, null);
   };
   if (hasImage && PHOTO_IS_NEW.has(step)) {
+    // "found this near the statue", then the photo: the place they already gave goes with the photo.
+    const kept = step === "found_what" ? ((data.spot as Spot | null) ?? null) : null;
     setAside();
-    return reportFound(ctx, io);
+    return reportFound(ctx, io, kept);
   }
   if (ctx.intent.source === "ai" && CHOICE_STEPS.has(step) && (ctx.intent.action === "report_lost" || ctx.intent.action === "report_found")) {
     setAside();
@@ -2074,6 +2077,22 @@ async function handle(ctx: FlowContext): Promise<void> {
       const pulled = spotFrom(io.db, text, pullDetails(text).place);
       if (!text || (elsewhere && !pulled)) {
         if (!text) await io.say(me, COPY.askFoundPlace);
+        return;
+      }
+      // Asked where, they said more about the item instead ("it's uniqlo sunglasses"). That is not a place: it
+      // goes on the item (brand and color if the photo didn't show them, the words with the hidden details),
+      // and the place is asked once more. A second answer like it is taken as the place, so this never loops.
+      const about = pullDetails(text);
+      const saysWhat = /^(?:its|it s|it is|theyre|they re|they are|these are|those are|thats|that s|that is)\b/.test(w) || !!about.brand || !!about.category;
+      if (!pulled && !about.place && !IDK.test(w) && saysWhat && data.detailNoted !== true) {
+        const fuller = sanitizeProfile({
+          ...profile,
+          brand: profile.brand ?? (typeof about.brand === "string" ? about.brand : null),
+          color: profile.color ?? (typeof about.color === "string" ? about.color : null),
+          distinguishing: [...profile.distinguishing, text.slice(0, 200)],
+        }) ?? profile;
+        io.setState(me, "found_place", { photo: (data.photo as IncomingImage | null) ?? null, profile: fuller, fromText: data.fromText === true, marksAsked: data.marksAsked === true, detailNoted: true });
+        await io.say(me, COPY.notedDetail, COPY.askFoundPlace);
         return;
       }
       // "idk" still saves the listing. A place just makes matching better.

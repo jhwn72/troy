@@ -169,8 +169,10 @@ function hasCoords(l: ListingRow): l is ListingRow & { lat: number; lng: number 
  */
 function roughlyNear(a: ListingRow, b: ListingRow): boolean {
   if (hasCoords(a) && hasCoords(b)) return metersBetween(a, b) <= NEAR_METERS;
-  if (!a.locationText || !b.locationText) return true;
-  return sharedPlaceWords(a.locationText, b.locationText).length > 0;
+  // Without coordinates on both sides the place is only words, and words are not proof of distance: a place Troy
+  // doesn't know ("the statue"), or an answer that wasn't a place at all, must never hide the right item. Shared
+  // place words still add to the score; their absence only means no points.
+  return true;
 }
 
 /**

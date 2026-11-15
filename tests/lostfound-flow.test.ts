@@ -1659,3 +1659,42 @@ test("simulation: a student is offered it only when nobody else real is on troy;
   assert.deepEqual(await w3.owner.say("lost my airpods near leavey yesterday"), [COPY.checking, COPY.nothingYet, COPY.willText, COPY.meanwhile]);
   assert.equal(demo.offers.length, 1);
 });
+
+// John's live test, Nov 14 10:20pm: the finder said where first, sent the photo second, and answered "where'd u
+// spot it?" with more about the item. The owner then described it and was told nothing had turned up.
+test("live replay: place before the photo, an item detail given as the place, and the owner still gets matched", async () => {
+  const w = world();
+  model.profile = { category: "glasses", title: "black rectangular sunglasses", brand: null, color: "black", publicSummary: "black sunglasses", distinguishing: ["thick glossy black rectangular frame", "dark tinted lenses"], nameOnItem: null, isValuable: false, isDangerous: false };
+  model.rank = () => 55;
+  await w.finder.say("found this near the statue");
+  await w.finder.say("", [PHOTO]);
+  // The place given before the photo is kept, so "where" is not asked again and the listing is saved with it.
+  assert.equal(foundListing(w.db).locationText, "statue");
+  const asked = await w.owner.say("Yo, I lost my Uniqlo sunglasses. They're kind of rectangular with rounded corners. black");
+  await w.owner.say("idk");
+  const out = await w.owner.say("today");
+  assert.ok([...asked, ...out, ...w.owner.texts()].includes(COPY.describe), "the owner is asked to describe it");
+  assert.ok(!w.owner.texts().includes(COPY.nothingYet), "never told nothing turned up");
+});
+
+test("asked where, a finder who says more about the item is asked once more, and the detail goes on the item", async () => {
+  const w = world();
+  model.profile = { category: "glasses", title: "black rectangular sunglasses", brand: null, color: "black", publicSummary: "black sunglasses", distinguishing: ["thick glossy black rectangular frame"], nameOnItem: null, isValuable: false, isDangerous: false };
+  await w.finder.say("", [PHOTO]);
+  assert.deepEqual(await w.finder.say("it’s uniqlo sunglasses"), [COPY.notedDetail, COPY.askFoundPlace]);
+  await w.finder.say("by the fountain");
+  const found = w.db.prepare("SELECT locationText, details FROM listings WHERE type = 'found'").get() as { locationText: string; details: string };
+  assert.ok(!/uniqlo/i.test(found.locationText), "the item detail is not the place");
+  assert.equal((JSON.parse(found.details) as { brand: string | null }).brand, "uniqlo");
+});
+
+test("two reports whose places share no words are still compared", async () => {
+  const w = world();
+  model.profile = { category: "glasses", title: "black sunglasses", brand: "uniqlo", color: "black", publicSummary: "black sunglasses", distinguishing: ["thick frame"], nameOnItem: null, isValuable: false, isDangerous: false };
+  model.rank = () => 55;
+  await w.finder.say("found these by the bike racks", [PHOTO]);
+  await w.owner.say("lost my black uniqlo sunglasses somewhere around the statue today");
+  // Whatever he still asks (place, time), the answers don't matter here.
+  for (let i = 0; i < 3 && !w.owner.texts().includes(COPY.describe); i++) await w.owner.say(i === 0 ? "the statue" : "today");
+  assert.ok(w.owner.texts().includes(COPY.describe), `a place Troy can't map never hides the item: ${JSON.stringify(w.owner.texts())}`);
+});

@@ -142,7 +142,7 @@ test("candidates: 7 day window", () => {
   assert.deepEqual(ids(findCandidates(db, loadListing(db, lost)!)), [inside, viaCreated].sort((a, b) => a - b));
 });
 
-test("candidates: distance with coordinates, place words without", () => {
+test("candidates: distance with coordinates rules out, place words never do", () => {
   const db = openDb(":memory:");
   const lost = addLost(db, report());
   const near = addFound(db, profile());
@@ -152,9 +152,10 @@ test("candidates: distance with coordinates, place words without", () => {
   const db2 = openDb(":memory:");
   const lost2 = addLost(db2, report(), { lat: null, lng: null, locationText: "near leavey" });
   const samePlace = addFound(db2, profile(), { lat: null, lng: null, locationText: "leavey library 2nd floor" });
-  addFound(db2, profile(), { lat: null, lng: null, locationText: "doheny library" });
+  // Place words alone never rule an item out (John's live test: "statue" against a place that wasn't one).
+  const otherWords = addFound(db2, profile(), { lat: null, lng: null, locationText: "doheny library" });
   const noPlace = addFound(db2, profile(), { lat: null, lng: null, locationText: null });
-  assert.deepEqual(ids(findCandidates(db2, loadListing(db2, lost2)!)), [samePlace, noPlace].sort((a, b) => a - b));
+  assert.deepEqual(ids(findCandidates(db2, loadListing(db2, lost2)!)), [samePlace, otherWords, noPlace].sort((a, b) => a - b));
 });
 
 test("candidates: a claimant who failed verification can't try the same item again", () => {
