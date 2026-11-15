@@ -14,8 +14,8 @@
 <link rel="stylesheet" href="landing/nav.css">
 <link rel="stylesheet" href="landing/tool.css">
 <link rel="stylesheet" href="landing/pledge.css">
-<!-- Chrome gets the next page ready while the pointer is on its link, so it is already drawn when the move starts. -->
-<script type="speculationrules">{"prerender":[{"where":{"selector_matches":".site-nav-links a, .site-nav-brand, .footer-links a, .page-foot a"},"eagerness":"moderate"}]}</script>
+<!-- Chrome gets the next page ready while the pointer is on its link, so it is already drawn when the move starts. Home is only fetched, not drawn ahead: its hero has to start from the beginning when you arrive. -->
+<script type="speculationrules">{"prerender":[{"where":{"and":[{"selector_matches":".site-nav-links a, .footer-links a, .page-foot a"},{"not":{"href_matches":"/"}}]},"eagerness":"moderate"}],"prefetch":[{"where":{"href_matches":"/"},"eagerness":"moderate"}]}</script>
 </head>
 <body class="pledge">
 
