@@ -6,8 +6,9 @@
 // This script never reads .env. Pass the number as an argument or set TROY_NUMBER in the shell.
 // The output publishes that phone number to anyone who opens the page.
 //
-// Only these are copied: index.html, dashboard.html, panel.html, privacy.html, landing/, and the img/ and
-// assets/ files those pages actually refer to. demo-data/ is made fresh on every build (scripts/build-demo-data.ts):
+// Only these are copied: index.html, dashboard.html, panel.html, privacy.html, simulator.html, landing/, and the
+// img/ and assets/ files those pages actually refer to. The web simulator's one serverless function goes to api/
+// with a package.json beside it (scripts/build-sim.ts): it answers POST /api/sim and is connected to nothing else. demo-data/ is made fresh on every build (scripts/build-demo-data.ts):
 // example rows only, so the dashboard and the panel work with no server. webchat.html and everything else stay behind.
 
 import { createHash } from "node:crypto";
@@ -17,13 +18,14 @@ import { pathToFileURL } from "node:url";
 import QRCode from "qrcode";
 import { smsLink, troyNumber } from "../src/web/landing.ts";
 import { buildDemoData, writeDemoData } from "./build-demo-data.ts";
+import { writeSimFunction } from "./build-sim.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const TEXT_FILE = /\.(?:html|css|js|json|svg)$/;
 // A reference to a file the page uses: landing/x.css, img/x.webp, assets/x.svg
 const LOCAL_REF = /\b(?:landing|img|assets)\/[A-Za-z0-9_.-]+\.[A-Za-z0-9]+/g;
 /** The pages that ship next to the landing page. Nothing else in public/ is ever copied (webchat.html stays home). */
-export const SITE_PAGES = ["dashboard.html", "panel.html", "privacy.html"];
+export const SITE_PAGES = ["dashboard.html", "panel.html", "privacy.html", "simulator.html"];
 
 export type LandingBuild = {
   outDir: string;
@@ -36,7 +38,10 @@ export type LandingBuild = {
   files: string[];
 };
 
-/** vercel.json for a plain static site: clean URLs, a long cache for versioned files, none for the page itself. */
+/**
+ * vercel.json for a plain static site with one function: clean URLs, a long cache for versioned files, none for the
+ * pages themselves, and the simulator function (api/sim.js) with a short time limit and no caching at all.
+ */
 export function vercelConfig(): Record<string, unknown> {
   const year = "public, max-age=31536000, immutable";
   const fresh = "public, max-age=0, must-revalidate";
@@ -44,6 +49,8 @@ export function vercelConfig(): Record<string, unknown> {
     $schema: "https://openapi.vercel.sh/vercel.json",
     cleanUrls: true,
     trailingSlash: false,
+    // The simulator's model call is cut off at 20 seconds in code; this is the platform's ceiling above it.
+    functions: { "api/sim.js": { maxDuration: 30 } },
     headers: [
       {
         source: "/(.*)",
@@ -60,6 +67,8 @@ export function vercelConfig(): Record<string, unknown> {
       // The other pages (served at /dashboard, /panel and /privacy by cleanUrls) and the example data they load.
       ...SITE_PAGES.map((page) => ({ source: `/${page.replace(/\.html$/, "")}`, headers: [{ key: "Cache-Control", value: fresh }] })),
       { source: "/demo-data/(.*)", headers: [{ key: "Cache-Control", value: fresh }] },
+      // Troy's simulator replies are never stored by a browser or the CDN.
+      { source: "/api/(.*)", headers: [{ key: "Cache-Control", value: "no-store, max-age=0" }] },
       // Every page asks for these with ?v=<build>, so a rebuild gets new addresses and the old ones can be kept.
       { source: "/landing/(.*)", headers: [{ key: "Cache-Control", value: year }] },
       { source: "/img/(.*)", headers: [{ key: "Cache-Control", value: year }] },
@@ -80,7 +89,8 @@ const attr = (s: string): string => s.replace(/&/g, "&amp;").replace(/"/g, "&quo
 const unattr = (s: string): string => s.replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, "&");
 
 /**
- * Writes index.html, the three other pages, qr.svg, landing/, img/, assets/, demo-data/ and vercel.json into outDir.
+ * Writes index.html, the other pages, qr.svg, landing/, img/, assets/, demo-data/, api/ (the simulator function),
+ * package.json and vercel.json into outDir.
  * Leaves anything else there alone (for example .vercel/).
  */
 export async function buildLanding(opts: { number: string | undefined; outDir?: string; publicDir?: string }): Promise<LandingBuild> {
@@ -164,8 +174,9 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
   const demoFiles = writeDemoData(join(outDir, "demo-data"), demoData).map((name) => `demo-data/${name}`);
   writeFileSync(join(outDir, "qr.svg"), qr);
   writeFileSync(join(outDir, "vercel.json"), JSON.stringify(vercelConfig(), null, 2) + "\n");
+  const simFiles = writeSimFunction(outDir);
 
-  return { outDir, number, smsLink: link, smsLinks, version, files: ["index.html", ...SITE_PAGES, "qr.svg", "vercel.json", ...demoFiles, ...files] };
+  return { outDir, number, smsLink: link, smsLinks, version, files: ["index.html", ...SITE_PAGES, "qr.svg", "vercel.json", ...simFiles, ...demoFiles, ...files] };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

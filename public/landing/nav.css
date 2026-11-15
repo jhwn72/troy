@@ -74,12 +74,14 @@
 @media (max-width: 1199px) {
   #hero { padding-top: clamp(56px, 5vh + 16px, 76px); }
 }
-/* Phones: only the three links, in one row. */
+/* Phones: only the links, in one row. The type and the gaps scale with the screen so every link fits from 320px up. */
 @media (max-width: 599px) {
   .site-nav { justify-content: center; padding: 0 8px; }
   .site-nav-brand { display: none; }
   .site-nav-links { gap: 0; }
-  .site-nav-links a { padding: 0 11px; font-size: 0.875rem; }
+  .site-nav-links a { padding: 0 clamp(3px, 1vw, 11px); font-size: clamp(10.5px, 3.3vw, 14px); }
+  /* With five links the row spans the screen, so the pill behind it hugs the row instead of reaching past the edges. */
+  .site-nav-links::before { inset: -6px -6px; }
 }
 
 /* ---------- Landing: the links at the bottom of the night footer ---------- */
@@ -116,10 +118,10 @@
   white-space: nowrap;
 }
 .footer-links a:hover { text-decoration: underline; text-underline-offset: 4px; }
-/* Phones: all four links on one row. */
+/* Phones: every link on one row. */
 @media (max-width: 599px) {
   .footer-links { flex-wrap: nowrap; gap: 0; }
-  .footer-links a { padding: 0 8px; font-size: 0.8125rem; }
+  .footer-links a { padding: 0 clamp(4px, 1.4vw, 8px); font-size: clamp(10.5px, 3.3vw, 13px); }
 }
 
 /* ---------- Dashboard, panel, privacy: the header on paper ---------- */
@@ -143,7 +145,7 @@
   .site-head { justify-content: center; padding-top: 4px; }
   .site-head .site-nav-brand { display: none; }
   .site-head .site-nav-links { margin: 0; gap: 0; }
-  .site-head .site-nav-links a { padding: 0 9px; font-size: 0.875rem; }
+  .site-head .site-nav-links a { padding: 0 clamp(4px, 1.4vw, 9px); font-size: clamp(10.5px, 3.3vw, 14px); }
 }
 
 /* ---------- Moving between pages ---------- */

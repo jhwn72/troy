@@ -13,8 +13,8 @@
 <link rel="stylesheet" href="landing/nav.css">
 <link rel="stylesheet" href="landing/tool.css">
 <link rel="stylesheet" href="landing/officium.css">
-<!-- Chrome gets the next page ready while the pointer is on its link, so it is already drawn when the move starts. Home is only fetched, not drawn ahead: its hero has to start from the beginning when you arrive. -->
-<script type="speculationrules">{"prerender":[{"where":{"and":[{"selector_matches":".site-nav-links a, .footer-links a, .page-foot a"},{"not":{"href_matches":"/"}}]},"eagerness":"moderate"}],"prefetch":[{"where":{"href_matches":"/"},"eagerness":"moderate"}]}</script>
+<!-- Chrome gets the next page ready while the pointer is on its link, so it is already drawn when the move starts. Home is only fetched, not drawn ahead: its hero has to start from the beginning when you arrive. The simulator is never drawn ahead. -->
+<script type="speculationrules">{"prerender":[{"where":{"and":[{"selector_matches":".site-nav-links a, .footer-links a, .page-foot a"},{"not":{"href_matches":"/"}},{"not":{"href_matches":"/simulator*"}}]},"eagerness":"moderate"}],"prefetch":[{"where":{"href_matches":"/"},"eagerness":"moderate"}]}</script>
 </head>
 <body class="officium">
 <div class="band">
@@ -26,6 +26,7 @@
       <a href="privacy.html">Privacy</a>
       <a href="dashboard.html" aria-current="page">For staff</a>
       <a href="panel.html">Under the hood</a>
+      <a href="simulator.html">Web Simulator</a>
     </nav>
   </header>
 </div>
@@ -158,7 +159,7 @@
   </section>
   <footer class="page-foot">
     <span>Troy is a hackathon prototype, not an official USC service.</span>
-    <span><a href="./">Home</a> · <a href="privacy.html">Privacy</a> · <a href="panel.html">Under the hood</a></span>
+    <span><a href="./">Home</a> · <a href="privacy.html">Privacy</a> · <a href="panel.html">Under the hood</a> · <a href="simulator.html">Web Simulator</a></span>
   </footer>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>

@@ -156,10 +156,10 @@ test("every page links to the others, with links that work on a plain file serve
   const header = html.slice(html.indexOf('<header class="site-nav">'), html.indexOf('<div id="sky"'));
   assert.ok(html.indexOf('<header class="site-nav">') > 0 && html.indexOf('<header class="site-nav">') < html.indexOf('<div id="sky"'), "the header is the first thing in the page");
   assert.ok(header.includes('<a class="site-nav-brand" href="./">Troy</a>'));
-  assert.deepEqual([...header.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Privacy privacy.html", "For staff dashboard.html", "Under the hood panel.html"]);
+  assert.deepEqual([...header.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Privacy privacy.html", "For staff dashboard.html", "Under the hood panel.html", "Web Simulator simulator.html"]);
   const footer = html.slice(html.indexOf('<footer id="footer">'));
   const footerNav = footer.slice(footer.indexOf('<nav class="footer-links"'));
-  assert.deepEqual([...footerNav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Home ./", "Privacy privacy.html", "For staff dashboard.html", "Under the hood panel.html"]);
+  assert.deepEqual([...footerNav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Home ./", "Privacy privacy.html", "For staff dashboard.html", "Under the hood panel.html", "Web Simulator simulator.html"]);
 
   for (const name of SITE_PAGES) {
     const other = readFileSync(join(PUBLIC, name), "utf8");
@@ -169,6 +169,7 @@ test("every page links to the others, with links that work on a plain file serve
       `Privacy privacy.html${name === "privacy.html" ? " current" : ""}`,
       `For staff dashboard.html${name === "dashboard.html" ? " current" : ""}`,
       `Under the hood panel.html${name === "panel.html" ? " current" : ""}`,
+      `Web Simulator simulator.html${name === "simulator.html" ? " current" : ""}`,
     ], name);
     // Same look as the landing page: its tokens, the shared nav and tool styles, Space Grotesk and Inter.
     for (const sheet of ["tokens", "nav", "tool"]) assert.equal(other.split(`href="landing/${sheet}.css"`).length - 1, 1, `${name}: ${sheet}.css once`);
@@ -352,7 +353,7 @@ test("static build bakes the number into the page, the QR and a Vercel config, a
     assert.equal(qr, await QRCode.toString(built.smsLink, { type: "svg", errorCorrectionLevel: "M", margin: 1, color: { dark: "#1C1917", light: "#FFFFFF" } }));
 
     // Only the four pages, what they use and the example data are copied.
-    assert.deepEqual(readdirSync(out).sort(), [".vercel", "assets", "dashboard.html", "demo-data", "img", "index.html", "landing", "panel.html", "privacy.html", "qr.svg", "vercel.json"]);
+    assert.deepEqual(readdirSync(out).sort(), [".vercel", "api", "assets", "dashboard.html", "demo-data", "img", "index.html", "landing", "package.json", "panel.html", "privacy.html", "qr.svg", "simulator.html", "vercel.json"]);
     assert.deepEqual(readdirSync(join(out, "demo-data")).sort(), ["demo.json", "directory.json", "dps.json", "eval.json", "moderation.json", "panel.json", "reports-repair.json", "reports-usg.json", "settings.json", "staff.json"]);
     const demoData = await buildDemoData();
     for (const [name, text] of Object.entries(demoData)) assert.equal(readFileSync(join(out, "demo-data", name), "utf8"), text, `demo-data/${name} is made by the build`);
@@ -380,7 +381,14 @@ test("static build bakes the number into the page, the QR and a Vercel config, a
     assert.equal(vercelConfig().cleanUrls, true);
     // The pages and the example data are always revalidated; only versioned files are kept for a year.
     const cache = Object.fromEntries((vercelConfig().headers as { source: string; headers: { key: string; value: string }[] }[]).map((h) => [h.source, h.headers.find((x) => x.key === "Cache-Control")?.value]));
-    for (const source of ["/", "/dashboard", "/panel", "/privacy", "/demo-data/(.*)", "/qr.svg"]) assert.equal(cache[source], "public, max-age=0, must-revalidate", source);
+    for (const source of ["/", "/dashboard", "/panel", "/privacy", "/simulator", "/demo-data/(.*)", "/qr.svg"]) assert.equal(cache[source], "public, max-age=0, must-revalidate", source);
+    // The simulator's one function: shipped with its data and a package.json, a short time limit, never cached.
+    assert.equal(cache["/api/(.*)"], "no-store, max-age=0");
+    assert.deepEqual(vercelConfig().functions, { "api/sim.js": { maxDuration: 30 } });
+    assert.deepEqual(readdirSync(join(out, "api")).sort(), ["_handler.js", "_sim-data.js", "sim.js"]);
+    for (const name of ["api/sim.js", "api/_handler.js", "api/_sim-data.js", "package.json"]) assert.ok(built.files.includes(name), name);
+    const simPage = readFileSync(join(out, "simulator.html"), "utf8");
+    assert.ok(simPage.includes(`src="landing/sim.js?v=${built.version}"`) && simPage.includes(`href="landing/sim.css?v=${built.version}"`));
     for (const source of ["/landing/(.*)", "/img/(.*)", "/assets/(.*)"]) assert.equal(cache[source], "public, max-age=31536000, immutable", source);
     assert.ok(existsSync(join(out, ".vercel", "project.json")), "rebuild leaves .vercel alone");
   } finally {
@@ -393,4 +401,29 @@ test("static build fails with a clear message when there is no number", async ()
   await assert.rejects(buildLanding({ number: undefined, outDir: out }), /no phone number/);
   await assert.rejects(buildLanding({ number: "soon", outDir: out }), /no phone number/);
   assert.ok(!existsSync(out), "nothing is written");
+});
+
+test("the simulator page is what John asked for, and non-Apple visitors are sent to it", () => {
+  const sim = readFileSync(join(PUBLIC, "simulator.html"), "utf8");
+  assert.ok(sim.includes("<h1>iMessage Simulator</h1>"));
+  assert.ok(sim.includes('<p class="sim-for">for Android Users</p>'));
+  assert.ok(sim.includes("Testing purposes only, not the real product. Troy is meant to run on iMessage, with support for other platforms coming soon."));
+  assert.ok(sim.includes("Are you sure? This is a simulator, so Troy will forget the conversation after you leave."));
+  assert.ok(/<textarea[^>]*id="sim-text"[^>]*>hey troy<\/textarea>/.test(sim), "the field starts with hey troy typed");
+  for (const sheet of ["phone", "sim"]) assert.ok(sim.includes(`href="landing/${sheet}.css"`), sheet);
+  // No page draws the simulator ahead of a click.
+  for (const name of ["index.html", ...SITE_PAGES]) {
+    const rules = /<script type="speculationrules">(.*?)<\/script>/.exec(readFileSync(join(PUBLIC, name), "utf8"));
+    assert.ok(rules && rules[1]!.includes('{"not":{"href_matches":"/simulator*"}}'), name);
+  }
+  // The page keeps nothing: the conversation is a variable and the one call is same origin.
+  const js = readFileSync(join(PUBLIC, "landing", "sim.js"), "utf8");
+  for (const store of ["localStorage.", "sessionStorage.", "document.cookie", "indexedDB", "history.pushState", "history.replaceState", "sendBeacon"]) assert.ok(!js.includes(store), store);
+  assert.ok(js.includes('fetch("api/sim"') && !/fetch\(\s*["'`]https?:/.test(js));
+  assert.ok(!js.includes("alert(") || js.includes("window.confirm("), "errors are lines in the chat, not browser alerts");
+  assert.ok(!/\balert\(/.test(js));
+  // The Text Troy button for everyone not on an Apple device.
+  const config = readFileSync(join(PUBLIC, "landing", "config.js"), "utf8");
+  assert.ok(config.includes("a.setAttribute('href', 'simulator.html')") && config.includes("'Try the web simulator'"));
+  assert.ok(!config.includes("Android soon"));
 });

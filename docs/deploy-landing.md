@@ -73,6 +73,23 @@ vercel deploy --cwd vercel-landing --prod
 
 The production URL stays the same. To go back to the previous version: `vercel rollback --cwd vercel-landing`.
 
+## The web simulator (one serverless function)
+
+`simulator.html` is the page for visitors who are not on an Apple device. It talks to one function, `POST /api/sim`, which the build writes into `vercel-landing/api/` with a `package.json` beside it (source: `simulator/api/`, made by `scripts/build-sim.ts`). The function calls the Claude API for Troy's wording and is connected to nothing else: no Troy server, no database, nothing stored.
+
+Before the first deploy that includes it, the Vercel project needs one environment variable, set by hand in the project's settings (Production, and Preview if previews should answer):
+
+- `ANTHROPIC_API_KEY`: the key the function uses. Without it the page says the simulator is offline.
+- `TROY_SIM` (optional): set to `off` to switch the simulator off without a redeploy of the pages. The function then answers "busy" and never calls the model.
+
+- `TROY_SIM_SECRET` (optional): signs Troy's lines so the browser cannot hand back lines he never sent. Without it the signing key is derived from `ANTHROPIC_API_KEY` (one way), which is fine.
+
+Limits are in `simulator/api/_handler.js` (`LIMITS`): 25 messages per visitor conversation, 600 characters each, one photo of at most 1 MB, 500 output tokens, a 20 second cut-off, same-origin requests only, and in memory per running instance: 40 model calls per visitor IP and 600 in total per 10 minutes, 20 at once.
+
+These limits slow a casual abuser down; they do not stop a determined one. The Origin check only stops other websites' pages: a script can send any Origin it likes. Counts live in one instance's memory, so they reset on a cold start and are not shared between instances. The real brakes are a monthly spend limit on the API key (set it in the Claude Console before going live) and `TROY_SIM=off`.
+
+Local preview without Vercel: `npm run sim`, then open http://localhost:3220/simulator.html.
+
 ## 4. Take it down after the hackathon
 
 Quick switch, keeps the project (visitors see an error page until it is resumed):

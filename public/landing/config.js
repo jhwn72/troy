@@ -103,20 +103,22 @@ else start();
   } catch (error) { /* leave both lines showing */ }
 })();
 
-// Visitors who aren't on an Apple device can't reach Troy yet (he is iMessage only), so the button
-// says so instead of opening a text that would go nowhere.
+// Visitors who aren't on an Apple device can't text Troy yet (he is iMessage only), so the button takes them to
+// the web simulator instead of opening a text that would go nowhere. Apple visitors are untouched.
+export const SIM_LABEL = 'Try the web simulator';
 (() => {
   const apply = () => {
     if (!document.documentElement.classList.contains('not-apple')) return;
     for (const a of document.querySelectorAll('a[data-sms]')) {
-      a.removeAttribute('href');
-      a.setAttribute('aria-disabled', 'true');
-      a.setAttribute('role', 'link');
-      a.classList.add('is-soon');
-      a.textContent = 'On iMessage now. Android soon';
-      a.title = 'Troy works on iMessage today. Open this page on an iPhone or Mac to text him.';
+      a.setAttribute('href', 'simulator.html');
+      a.removeAttribute('aria-disabled');
+      a.removeAttribute('role');
+      a.classList.remove('is-soon');
+      a.textContent = SIM_LABEL;
+      a.title = 'Troy works on iMessage today. This opens a web simulator of texting him.';
     }
   };
+  // wireSmsLinks (above) sets these links after the page is ready, so this runs after it each time.
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(apply, 0));
   else setTimeout(apply, 0);
   window.addEventListener('load', () => setTimeout(apply, 50));

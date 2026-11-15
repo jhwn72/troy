@@ -146,6 +146,20 @@ function clean(text: string): string {
     .trim();
 }
 
+/**
+ * The patterns behind isEmergency, isCrisis and the whole-message commands, for the web simulator's build
+ * (scripts/build-sim.ts bakes them into its serverless function so the two can never drift). Read only.
+ */
+export const SAFETY_SOURCE = {
+  emergency: EMERGENCY_PATTERNS,
+  crisis: CRISIS_PATTERNS,
+  laughWords: LAUGH_WORDS,
+  laughEmoji: LAUGH_EMOJI,
+  smallCause: SMALL_CAUSE,
+  conditional: CONDITIONAL,
+  commands: COMMANDS,
+} as const;
+
 export function isEmergency(text: string): boolean {
   const t = clean(text);
   return !!t && EMERGENCY_PATTERNS.some((p) => p.test(t));

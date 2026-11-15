@@ -244,7 +244,7 @@
   .signature-name { font-size: 1.75rem; }
   .signature-note { font-size: 0.8125rem; }
   .pledge-end { padding-top: 44px; }
-  .pledge .footer-links a { padding: 0 9px; font-size: 0.875rem; }
+  .pledge .footer-links a { padding: 0 clamp(4px, 1.4vw, 9px); font-size: clamp(10.5px, 3.3vw, 14px); }
 }
 
 /* ---------- Motion: the scroll unrolls once, then the seal is pressed in ---------- */
