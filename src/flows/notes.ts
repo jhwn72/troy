@@ -13,6 +13,8 @@ import { askJson } from "../ai.ts";
 import { SUBSCRIPTION_LABELS } from "../commands.ts";
 import { findPlace } from "../places.ts";
 import { describeSavedLocation, forgetUserLocation, saveUserLocation } from "../location.ts";
+import type { Pools, Voice } from "./reports-shared.ts";
+import { makeVoice, unvoiced } from "./reports-shared.ts";
 
 // ---------- limits and defaults ----------
 
@@ -629,6 +631,224 @@ const RELAY_OFFER = "got it. want me to relay their requests to u instead? they 
 const ASK_QUIET = "what hours should i stay quiet? like 11pm to 8am";
 const ASK_ALERT = `how many min away is too far? anything from ${ALERT_MIN} to ${ALERT_MAX}`;
 
+/** RELAY_OFFER when a "got it" bubble was already sent just before it. */
+const RELAY_OFFER_BARE = RELAY_OFFER.replace(/^got it\. /, "");
+
+/** How a confirmation opens. The setting it confirms follows, exactly as CONTACT_LINE or the line itself has it. */
+const PRE = { done: "done. ", gotIt: "got it. ", ok: "ok. ", and: "and ", unchanged: "ur settings didn't change. contact: " };
+
+const SAY = {
+  whatNeed: "ok. what do u need?",
+  nothingToChange: "ok, nothing to change",
+  nothingChanged: "ok, nothing changed",
+  keptAll: "ok, kept everything",
+  groupBackOn: "group chats are back on. i'll still ask before adding u to one",
+  noGroupChats: "got it. i won't add u to group chats",
+  andNoGroupChats: "and i won't add u to group chats",
+  handoffRelay: "if a handoff comes up i'll pass messages along instead",
+  stillText: 'u can still text me for anything. say "connect me again" to undo',
+  noRelays: ["ok, no relays. i won't connect u with anyone", 'say "relay only" if u change ur mind'],
+  stillRelay: "ok. ur still on relay only, nobody gets ur number",
+  relayOn: "bet. i'll pass their messages along and they won't get ur number",
+  checkDirect: "just checking. u want people to be able to text u directly again? reply yes or no",
+  checkRelay: "just checking. u want me to start relaying messages to u again? reply yes or no",
+  checkGroup: "just checking. ok to add u to group chats again? reply yes or no",
+  notesCleared: "done. ur notes are cleared",
+  sameTime: "those are the same time. try something like 11pm to 8am",
+  alertRange: `it has to be between ${ALERT_MIN} and ${ALERT_MAX} min. what should i set?`,
+  alertRangeTry: `alert distance has to be between ${ALERT_MIN} and ${ALERT_MAX} min. try "within 10 min"`,
+  quietOff: "quiet hours are off. i'll text u whenever something comes up",
+  stillAnswer: "i'll still answer whenever u text me",
+  noAlertsNow: "done. ur not getting any alerts now. u can still text me anytime",
+  noAlertsSame: "that's already how it's set. ur not getting any alerts now. u can still text me anytime",
+  alertsPaused: "heads up, ur alerts are paused. text resume to turn them back on",
+  spotsCleared: "cleared ur usual spots",
+  noLocation: "i don't have a location saved for u",
+  forgotLocation: "done. i forgot ur location",
+  walkFromSpots: "walking times will go off ur usual spots until u share again",
+  noWalkTimes: "i won't show walking times until u share again or tell me where u are",
+  noNotesToClear: "i don't have any notes on u, so there's nothing to clear",
+  finishFirst: 'let\'s finish what we were doing first. then say "forget everything" again',
+  replyYesClear: "reply yes to clear them",
+  nothingToForget: "nothing to forget. i don't have any notes on u",
+  forgetHow: 'not sure what to forget. say "forget that" for the last note, or "forget everything"',
+  noSuchNote: ["couldn't find a note like that", 'say "what do u know about me" to see them, or "forget that" to drop the last one'],
+  unknownSpot: ["i don't know that spot, so i didn't save it", 'try a campus spot, like "i\'m at leavey rn"'],
+  useForWalking: 'i\'ll use that for walking times. say "forget my location" anytime',
+  remembered: "got it. i'll remember that",
+  alreadyGot: "already got that one",
+  notesFull: 'ur notes are full. say "forget that" to drop the last one first',
+  notSureWhat: ["not sure what to change there", 'try "no texts after midnight", "only food within 5 min" or "what do u know about me"'],
+  howQuiet: 'for quiet hours say it like "quiet 11pm to 8am"',
+  howAlert: 'for alert distance say it like "only food within 5 min"',
+  howLoosen: 'nothing changed. to open things back up say it plainly, like "people can text me directly"',
+  tellInWords: 'tell me in words what to change, like "no texts after midnight"',
+};
+
+/** Lines with a value in them (minutes, hours, a list). Code puts the value in; these only hold the words around it. */
+const NT = {
+  alertSet: (minutes: string) => `done. i'll only text u about stuff within a ${minutes} min walk`,
+  quietSet: (start: string, end: string) => `done. no alerts from ${start} to ${end}`,
+  alertsNow: (list: string) => `done. ur alerts now: ${list}`,
+  alertsSame: (list: string) => `that's already how it's set. ur alerts now: ${list}`,
+  spotsSaved: (list: string) => `saved. usual spots: ${list}`,
+  forgot: (note: string) => `done. forgot ${note}`,
+  clearsAll: (count: string) => `that clears all ${count} of ur notes. ur contact settings stay how they are`,
+  atPlace: (place: string) => `got it, ur at ${place}`,
+};
+
+// ---------- wording variants (facts locked, wording varied) ----------
+//
+// Variant 0 of every pool is the line the code writes; the rest say the same thing with the same values.
+// What each contact setting means is said three ways (CONTACT_SAYS), and each way states the same rule: who can
+// text the student, and that nobody gets their number.
+// NOT in any pool, so always word for word:
+// - the read-backs ("here's what i have", "contact: ...", "alerts: ...", "location: ...", "notes: ..."): they are
+//   a list of the student's own settings, label and value, and read the same every time.
+// - the two hints that spell out exact commands ("text STOP", 'text "delete my data"').
+const CONTACT_SAYS: Record<ContactMode, readonly string[]> = {
+  direct: [CONTACT_LINE.direct, "anyone i connect u with can text u directly", "the people i connect u with can text u directly"],
+  relay_only: [CONTACT_LINE.relay_only, "relay only. i pass messages along, and no one gets ur number", "relay only. messages go through me and nobody gets ur number"],
+  no_contact: [CONTACT_LINE.no_contact, "no contact. i won't connect u with anyone", "no contact. i'm not connecting u with anyone"],
+};
+const MODES: ContactMode[] = ["direct", "relay_only", "no_contact"];
+/** One pool per contact setting for a confirmation that opens a given way ("done. ", "got it. ", ...). */
+const contactPools = (name: string, openers: readonly string[]): Pools =>
+  Object.fromEntries(MODES.map((m) => [`${name}_${m}`, CONTACT_SAYS[m].map((line, i) => `${openers[i]}${line}`)]));
+
+export const NOTES_POOLS: Pools = {
+  // contact and group chat settings
+  ...contactPools("contactDone", [PRE.done, "ok, done. ", "all set. "]),
+  ...contactPools("contactGotIt", [PRE.gotIt, "ok. ", "noted. "]),
+  ...contactPools("contactUnchanged", [PRE.unchanged, "ur settings are the same. contact: ", "nothing changed in ur settings. contact: "]),
+  relayOffer: [
+    RELAY_OFFER,
+    "got it. should i relay their requests to u instead? they won't get ur number.",
+    "got it. i can relay their requests to u instead, and they won't get ur number. want that?",
+  ],
+  relayOfferBare: [
+    RELAY_OFFER_BARE,
+    "should i relay their requests to u instead? they won't get ur number.",
+    "i can relay their requests to u instead, and they won't get ur number. want that?",
+  ],
+  noRelays: [
+    SAY.noRelays,
+    ["ok, no relays. i'm not connecting u with anyone", 'if u change ur mind, say "relay only"'],
+    ["ok, no relays either. i won't connect u with anyone", 'u can say "relay only" if u change ur mind'],
+  ],
+  stillRelay: [SAY.stillRelay, "ok. u stay on relay only, nobody gets ur number", "ok, ur still on relay only. nobody gets ur number"],
+  relayOn: [SAY.relayOn, "bet. i'll pass their messages to u and they won't get ur number", "ok. i'll pass their messages along, and they won't get ur number"],
+  stillText: [SAY.stillText, 'u can still text me for anything. to undo it, say "connect me again"', 'u can text me for anything still. say "connect me again" to undo'],
+  noGroupChats: [SAY.noGroupChats, "got it. no group chats for u", "ok. i won't add u to group chats"],
+  andNoGroupChats: [SAY.andNoGroupChats, "and no group chats for u", "and i won't put u in group chats"],
+  handoffRelay: [SAY.handoffRelay, "if a handoff comes up, i'll pass messages along instead", "for a handoff i'll pass messages along instead"],
+  groupBackDone: [`${PRE.done}${SAY.groupBackOn}`, "done. group chats are on again. i'll still ask before adding u to one", "ok, done. group chats are back on, and i'll still ask before adding u to one"],
+  groupBackOk: [`${PRE.ok}${SAY.groupBackOn}`, "ok. group chats are on again. i'll still ask before adding u to one", "ok, group chats are back on. i'll still ask before adding u to one"],
+  groupBackAnd: [`${PRE.and}${SAY.groupBackOn}`, "and group chats are on again. i'll still ask before adding u to one", "and group chats are back on too. i'll still ask before adding u to one"],
+  checkDirect: [
+    SAY.checkDirect,
+    "just checking. should people be able to text u directly again? reply yes or no",
+    "just making sure. u want people to be able to text u directly again? reply yes or no",
+  ],
+  checkRelay: [
+    SAY.checkRelay,
+    "just checking. should i start relaying messages to u again? reply yes or no",
+    "just making sure. u want me to start relaying messages to u again? reply yes or no",
+  ],
+  checkGroup: [
+    SAY.checkGroup,
+    "just checking. is it ok to add u to group chats again? reply yes or no",
+    "just making sure. ok to add u to group chats again? reply yes or no",
+  ],
+  howLoosen: [
+    SAY.howLoosen,
+    'nothing changed. to open things back up, say it plainly, like "people can text me directly"',
+    'nothing changed. if u want to open things back up, say it plainly, like "people can text me directly"',
+  ],
+
+  // quiet hours and alert distance
+  askQuiet: [ASK_QUIET, "what hours do u want me quiet? like 11pm to 8am", "which hours should i stay quiet? like 11pm to 8am"],
+  askAlert: [ASK_ALERT, `how many min away is too far for u? anything from ${ALERT_MIN} to ${ALERT_MAX}`, `how far is too far, in min? anything from ${ALERT_MIN} to ${ALERT_MAX}`],
+  sameTime: [SAY.sameTime, "those two are the same time. try something like 11pm to 8am", "that's the same time twice. try something like 11pm to 8am"],
+  alertRange: [SAY.alertRange, `it's gotta be between ${ALERT_MIN} and ${ALERT_MAX} min. what should i set?`, `needs to be between ${ALERT_MIN} and ${ALERT_MAX} min. what should i set?`],
+  alertRangeTry: [
+    SAY.alertRangeTry,
+    `alert distance needs to be between ${ALERT_MIN} and ${ALERT_MAX} min. try "within 10 min"`,
+    `alert distance can be anything between ${ALERT_MIN} and ${ALERT_MAX} min. try "within 10 min"`,
+  ],
+  alertSet: (minutes) => [NT.alertSet(minutes), `done. u'll only hear about stuff within a ${minutes} min walk`, `ok, done. i'll only text u about stuff within a ${minutes} min walk`],
+  quietOff: [SAY.quietOff, "quiet hours are off now. i'll text u whenever something comes up", "ok, quiet hours are off. i'll text u whenever something comes up"],
+  quietSet: (start, end) => [NT.quietSet(start, end), `done. i'll hold alerts from ${start} to ${end}`, `ok, done. no alerts from ${start} to ${end}`],
+  stillAnswer: [SAY.stillAnswer, "i'll still answer anytime u text me", "if u text me i'll still answer"],
+  howQuiet: [SAY.howQuiet, 'for quiet hours, say something like "quiet 11pm to 8am"', 'to set quiet hours say it like "quiet 11pm to 8am"'],
+  howAlert: [SAY.howAlert, 'for alert distance, say something like "only food within 5 min"', 'to set alert distance say it like "only food within 5 min"'],
+
+  // alerts and spots
+  alertsNow: (list) => [NT.alertsNow(list), `ok, done. ur alerts now: ${list}`, `done. ur alerts are now: ${list}`],
+  alertsSame: (list) => [NT.alertsSame(list), `it's already set that way. ur alerts now: ${list}`, `that's how it's set already. ur alerts now: ${list}`],
+  noAlertsNow: [SAY.noAlertsNow, "done. no alerts for u now. u can still text me anytime", "ok, done. ur not getting any alerts now, but u can still text me anytime"],
+  noAlertsSame: [
+    SAY.noAlertsSame,
+    "it's already set that way. ur not getting any alerts now. u can still text me anytime",
+    "that's how it's set already. ur not getting any alerts now, but u can still text me anytime",
+  ],
+  alertsPaused: [SAY.alertsPaused, "heads up, ur alerts are paused rn. text resume to turn them back on", "one thing, ur alerts are paused. text resume to turn them back on"],
+  spotsSaved: (list) => [NT.spotsSaved(list), `saved. ur usual spots: ${list}`, `got it, saved. usual spots: ${list}`],
+  spotsCleared: [SAY.spotsCleared, "ur usual spots are cleared", "ok, cleared ur usual spots"],
+
+  // location
+  atPlace: (place) => [NT.atPlace(place), `ok, ur at ${place}`, `got it. ur at ${place}`],
+  useForWalking: [SAY.useForWalking, 'i\'ll use it for walking times. say "forget my location" anytime', 'walking times will use that. say "forget my location" anytime'],
+  unknownSpot: [
+    SAY.unknownSpot,
+    ["i don't know that spot, so it's not saved", 'try a campus spot, something like "i\'m at leavey rn"'],
+    ["that spot's not one i know, so i didn't save it", 'a campus spot works, like "i\'m at leavey rn"'],
+  ],
+  noLocation: [SAY.noLocation, "i don't have a location saved for u rn", "there's no location saved for u"],
+  forgotLocation: [SAY.forgotLocation, "done. ur location's forgotten", "ok, done. i forgot ur location"],
+  walkFromSpots: [SAY.walkFromSpots, "walking times will use ur usual spots until u share again", "until u share again, walking times go off ur usual spots"],
+  noWalkTimes: [SAY.noWalkTimes, "i can't show walking times until u share again or tell me where u are", "no walking times until u share again or tell me where u are"],
+
+  // notes
+  remembered: [SAY.remembered, "got it. i'll remember", "noted. i'll remember that"],
+  alreadyGot: [SAY.alreadyGot, "i already have that one", "got that one already"],
+  notesFull: [SAY.notesFull, 'ur notes are full. to make room, say "forget that" to drop the last one first', 'ur notes are full rn. say "forget that" to drop the last one first'],
+  forgot: (note) => [NT.forgot(note), `ok, done. forgot ${note}`, `done. i forgot ${note}`],
+  clearsAll: (count) => [
+    NT.clearsAll(count),
+    `that clears all ${count} of ur notes. ur contact settings stay the way they are`,
+    `that wipes all ${count} of ur notes. ur contact settings stay how they are`,
+  ],
+  replyYesClear: [SAY.replyYesClear, "reply yes and i'll clear them", "reply yes if u want them cleared"],
+  notesCleared: [SAY.notesCleared, "done. ur notes are all cleared", "ok, done. ur notes are cleared"],
+  keptAll: [SAY.keptAll, "ok, i kept everything", "ok, everything's still there"],
+  noNotesToClear: [SAY.noNotesToClear, "i don't have any notes on u, so nothing to clear", "there's nothing to clear. i don't have any notes on u"],
+  nothingToForget: [SAY.nothingToForget, "nothing to forget, i don't have any notes on u", "there's nothing to forget. i don't have any notes on u"],
+  noSuchNote: [
+    SAY.noSuchNote,
+    ["i couldn't find a note like that", 'say "what do u know about me" to see them all, or "forget that" to drop the last one'],
+    ["couldn't find a note like that one", 'u can say "what do u know about me" to see them, or "forget that" to drop the last one'],
+  ],
+  finishFirst: [
+    SAY.finishFirst,
+    'let\'s finish what we were doing first, then say "forget everything" again',
+    'let\'s wrap up what we were doing first. then say "forget everything" again',
+  ],
+
+  // small replies
+  whatNeed: [SAY.whatNeed, "ok, what do u need?", "ok. what's up?"],
+  nothingToChange: [SAY.nothingToChange, "ok, there's nothing to change", "ok, nothing needs changing"],
+  nothingChanged: [SAY.nothingChanged, "ok, i didn't change anything", "ok, left it how it was"],
+  notSureWhat: [
+    SAY.notSureWhat,
+    ["not sure what u want changed there", 'try something like "no texts after midnight", "only food within 5 min" or "what do u know about me"'],
+    ["i'm not sure what to change there", 'u can try "no texts after midnight", "only food within 5 min" or "what do u know about me"'],
+  ],
+  tellInWords: [SAY.tellInWords, 'tell me in words what u want changed, like "no texts after midnight"', 'i need it in words. tell me what to change, like "no texts after midnight"'],
+};
+
+export const NOTES_VOICE: Voice = makeVoice("notes", NOTES_POOLS);
+
 const topicList = (subs: string[]) => subs.map((s) => SUBSCRIPTION_LABELS[s] ?? s).join(", ");
 const quietLine = (u: User) => (u.quietHours ? `${formatClock(u.quietHours.start)} to ${formatClock(u.quietHours.end)}` : "off");
 
@@ -708,10 +928,11 @@ async function passAlong(ctx: FlowContext, text: string): Promise<void> {
   // Loaded here, not at the top: the registry imports this file.
   const { getFlow } = await import("./index.ts");
   const other = ctx.intent.flow !== "notes" ? getFlow(ctx.intent.flow) : null;
-  if (other) return other.handle(next);
+  // Another flow speaks in its own words, so it gets the plain context back.
+  if (other) return other.handle(unvoiced(next));
   const smalltalk = getFlow("smalltalk");
-  if (smalltalk) return smalltalk.handle({ ...next, intent: { flow: "smalltalk", action: "chat", details: {}, source: ctx.intent.source } });
-  await ctx.say("ok. what do u need?");
+  if (smalltalk) return smalltalk.handle({ ...unvoiced(next), intent: { flow: "smalltalk", action: "chat", details: {}, source: ctx.intent.source } });
+  await ctx.say(SAY.whatNeed);
 }
 
 async function applyLoosen(ctx: FlowContext, data: Record<string, unknown>): Promise<void> {
@@ -729,15 +950,15 @@ async function applyLoosen(ctx: FlowContext, data: Record<string, unknown>): Pro
   }
   ctx.setState(null);
   if (!Object.keys(fields).length) {
-    await ctx.say("ok, nothing to change");
+    await ctx.say(SAY.nothingToChange);
     return;
   }
   updateUser(ctx.db, before.id, fields);
   addNote(ctx.db, before.id, "rule", String(data.text ?? ""), undo);
   const after = fresh(ctx);
   const out: string[] = [];
-  if (fields.contactMode) out.push(`done. ${CONTACT_LINE[after.contactMode]}`);
-  if (fields.groupChatsAllowed) out.push(`${out.length ? "and " : "done. "}group chats are back on. i'll still ask before adding u to one`);
+  if (fields.contactMode) out.push(`${PRE.done}${CONTACT_LINE[after.contactMode]}`);
+  if (fields.groupChatsAllowed) out.push(`${out.length ? PRE.and : PRE.done}${SAY.groupBackOn}`);
   await ctx.say(...out);
 }
 
@@ -767,9 +988,9 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
       if (cancel && /^(?:forget it)\b/.test(flat)) return false;
       if (no) {
         if (fresh(ctx).contactMode === "relay_only") updateUser(ctx.db, ctx.user.id, { contactMode: "no_contact" });
-        await ctx.say("ok, no relays. i won't connect u with anyone", 'say "relay only" if u change ur mind');
-      } else if (cancel) await ctx.say("ok. ur still on relay only, nobody gets ur number");
-      else await ctx.say("bet. i'll pass their messages along and they won't get ur number");
+        await ctx.say(...SAY.noRelays);
+      } else if (cancel) await ctx.say(SAY.stillRelay);
+      else await ctx.say(SAY.relayOn);
       return true;
     }
     case "confirm_forget_all": {
@@ -778,8 +999,8 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
       if (yes && !cancel) {
         clearNotes(ctx.db, ctx.user.id);
         const u = fresh(ctx);
-        await ctx.say("done. ur notes are cleared", `ur settings didn't change. contact: ${CONTACT_LINE[u.contactMode]}`);
-      } else await ctx.say("ok, kept everything");
+        await ctx.say(SAY.notesCleared, `${PRE.unchanged}${CONTACT_LINE[u.contactMode]}`);
+      } else await ctx.say(SAY.keptAll);
       return true;
     }
     case "confirm_loosen": {
@@ -787,7 +1008,7 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
       if (yes && !cancel) await applyLoosen(ctx, state.data);
       else {
         ctx.setState(null);
-        await ctx.say("ok, nothing changed");
+        await ctx.say(SAY.nothingChanged);
       }
       return true;
     }
@@ -795,13 +1016,13 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
       if (r) return true;
       if (cancel || no) {
         ctx.setState(null);
-        await ctx.say("ok, nothing changed");
+        await ctx.say(SAY.nothingChanged);
         return true;
       }
       const op = parseQuietHours(text, { bare: true });
       if (!op || "error" in op) {
         if (op && "error" in op && op.error === "same") {
-          await ctx.say("those are the same time. try something like 11pm to 8am");
+          await ctx.say(SAY.sameTime);
           return true;
         }
         return false;
@@ -814,14 +1035,14 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
       if (r) return true;
       if (cancel || no) {
         ctx.setState(null);
-        await ctx.say("ok, nothing changed");
+        await ctx.say(SAY.nothingChanged);
         return true;
       }
       const m = new RegExp(`^(?:like |about |around |within |maybe )?${NUM}(?: ?${MIN})?(?: walk)?$`).exec(flat);
       const op = m ? checkedMinutes(toNumber(m[1]!)) : parseAlertMinutes(text);
       if (!op || ("error" in op && op.error === "missing")) return false;
       if ("error" in op) {
-        await ctx.say(`it has to be between ${ALERT_MIN} and ${ALERT_MAX} min. what should i set?`);
+        await ctx.say(SAY.alertRange);
         return true;
       }
       ctx.setState(null);
@@ -836,19 +1057,19 @@ async function handleStep(ctx: FlowContext, state: FlowState, text: string): Pro
 // ---------- applying changes ----------
 
 function applyAlert(ctx: FlowContext, op: AlertOp): string[] {
-  if ("error" in op) return [`alert distance has to be between ${ALERT_MIN} and ${ALERT_MAX} min. try "within 10 min"`];
+  if ("error" in op) return [SAY.alertRangeTry];
   updateUser(ctx.db, ctx.user.id, { alertMinutes: op.minutes });
-  return [`done. i'll only text u about stuff within a ${op.minutes} min walk`];
+  return [NT.alertSet(String(op.minutes))];
 }
 
 function applyQuiet(ctx: FlowContext, op: QuietOp): string[] {
-  if ("error" in op) return ["those are the same time. try something like 11pm to 8am"];
+  if ("error" in op) return [SAY.sameTime];
   if ("off" in op) {
     updateUser(ctx.db, ctx.user.id, { quietHours: null });
-    return ["quiet hours are off. i'll text u whenever something comes up"];
+    return [SAY.quietOff];
   }
   updateUser(ctx.db, ctx.user.id, { quietHours: JSON.stringify({ start: op.set.start, end: op.set.end }) });
-  return [`done. no alerts from ${formatClock(op.set.start)} to ${formatClock(op.set.end)}`, "i'll still answer whenever u text me"];
+  return [NT.quietSet(formatClock(op.set.start), formatClock(op.set.end)), SAY.stillAnswer];
 }
 
 function applySubs(ctx: FlowContext, op: SubsOp): string[] {
@@ -860,9 +1081,8 @@ function applySubs(ctx: FlowContext, op: SubsOp): string[] {
   const next = [...known, ...[...set].filter((k) => !(TOPICS as readonly string[]).includes(k))];
   const same = next.length === u.subscriptions.length && next.every((k) => u.subscriptions.includes(k));
   if (!same) updateUser(ctx.db, u.id, { subscriptions: JSON.stringify(next) });
-  const line = next.length ? `ur alerts now: ${topicList(next)}` : "ur not getting any alerts now. u can still text me anytime";
-  const out = [same ? `that's already how it's set. ${line}` : `done. ${line}`];
-  if (op.add.length && u.paused) out.push("heads up, ur alerts are paused. text resume to turn them back on");
+  const out = [next.length ? (same ? NT.alertsSame(topicList(next)) : NT.alertsNow(topicList(next))) : same ? SAY.noAlertsSame : SAY.noAlertsNow];
+  if (op.add.length && u.paused) out.push(SAY.alertsPaused);
   return out;
 }
 
@@ -876,13 +1096,13 @@ function applySpots(ctx: FlowContext, op: SpotsOp): string[] {
   else next = u.usualSpots.filter((x) => !op.remove.some((s) => key(x) === key(s) || key(x).includes(key(s))));
   next = next.slice(0, MAX_SPOTS);
   updateUser(ctx.db, u.id, { usualSpots: JSON.stringify(next) });
-  return [next.length ? `saved. usual spots: ${next.map((s) => s.toLowerCase()).join(", ")}` : "cleared ur usual spots"];
+  return [next.length ? NT.spotsSaved(next.map((s) => s.toLowerCase()).join(", ")) : SAY.spotsCleared];
 }
 
 async function forgetNote(ctx: FlowContext, note: NoteRow): Promise<void> {
   const reverted = removeNote(ctx.db, ctx.user.id, note);
   const u = fresh(ctx);
-  const out = [`done. forgot ${quote(note.text)}`];
+  const out = [NT.forgot(quote(note.text))];
   const back: string[] = [];
   if (reverted.contactMode !== undefined) back.push(`contact is back to: ${CONTACT_LINE[u.contactMode]}`);
   if (reverted.groupChatsAllowed !== undefined) back.push(`group chats: ${u.groupChatsAllowed ? "ok again" : "off again"}`);
@@ -914,9 +1134,9 @@ async function handleCommand(ctx: FlowContext, p: Parsed, text: string): Promise
     case "forget_location": {
       const had = describeSavedLocation(ctx.db, u.id, clock());
       forgetUserLocation(ctx.db, u.id);
-      if (!had) await ctx.say("i don't have a location saved for u");
-      else if (u.usualSpots.length) await ctx.say("done. i forgot ur location", "walking times will go off ur usual spots until u share again");
-      else await ctx.say("done. i forgot ur location", "i won't show walking times until u share again or tell me where u are");
+      if (!had) await ctx.say(SAY.noLocation);
+      else if (u.usualSpots.length) await ctx.say(SAY.forgotLocation, SAY.walkFromSpots);
+      else await ctx.say(SAY.forgotLocation, SAY.noWalkTimes);
       return;
     }
     case "forget_me":
@@ -924,28 +1144,28 @@ async function handleCommand(ctx: FlowContext, p: Parsed, text: string): Promise
       return;
     case "forget_all": {
       if (!notes.length) {
-        await ctx.say("i don't have any notes on u, so there's nothing to clear");
+        await ctx.say(SAY.noNotesToClear);
         return;
       }
       if (!canAsk(ctx)) {
-        await ctx.say('let\'s finish what we were doing first. then say "forget everything" again');
+        await ctx.say(SAY.finishFirst);
         return;
       }
-      const ids = await ctx.say(`that clears all ${notes.length} of ur notes. ur contact settings stay how they are`, "reply yes to clear them");
+      const ids = await ctx.say(NT.clearsAll(String(notes.length)), SAY.replyYesClear);
       setStep(ctx, "confirm_forget_all", { askId: ids[ids.length - 1] ?? null });
       return;
     }
     case "forget_last": {
       const last = notes[notes.length - 1];
-      if (!last) await ctx.say("nothing to forget. i don't have any notes on u");
+      if (!last) await ctx.say(SAY.nothingToForget);
       else await forgetNote(ctx, last);
       return;
     }
     case "forget_one": {
       const note = findNote(notes, p.forgetWhat ?? "");
       if (note) await forgetNote(ctx, note);
-      else if (!notes.length) await ctx.say("nothing to forget. i don't have any notes on u");
-      else await ctx.say("couldn't find a note like that", 'say "what do u know about me" to see them, or "forget that" to drop the last one');
+      else if (!notes.length) await ctx.say(SAY.nothingToForget);
+      else await ctx.say(...SAY.noSuchNote);
       return;
     }
     case "settings": {
@@ -962,10 +1182,10 @@ async function handleCommand(ctx: FlowContext, p: Parsed, text: string): Promise
 async function handleAtNow(ctx: FlowContext, where: string): Promise<void> {
   const place = findPlace(ctx.db, where);
   if (!place) {
-    await ctx.say("i don't know that spot, so i didn't save it", 'try a campus spot, like "i\'m at leavey rn"');
+    await ctx.say(...SAY.unknownSpot);
   } else {
     saveUserLocation(ctx.db, ctx.user.id, { lat: place.lat, lng: place.lng }, "asked", clock());
-    await ctx.say(`got it, ur at ${place.name.toLowerCase()}`, 'i\'ll use that for walking times. say "forget my location" anytime');
+    await ctx.say(NT.atPlace(place.name.toLowerCase()), SAY.useForWalking);
   }
   if (ctx.state?.flow === "notes") ctx.setState(null);
 }
@@ -979,7 +1199,13 @@ async function handleRequest(ctx: FlowContext, text: string): Promise<void> {
   if (p.at) return handleAtNow(ctx, p.at);
   if (!hasChange(p) && !p.preference) {
     if (action === "recall") return handleCommand(ctx, { ...p, command: "recall" }, text);
-    if (action === "forget") return handleCommand(ctx, { ...p, command: "forget_last" }, text);
+    // A "forget" label from the model alone deletes nothing and puts no setting back: forgetting a note can undo a
+    // contact rule, and that only happens on the student's own words ("forget that"), read by parse() above.
+    if (action === "forget") {
+      await ctx.say(SAY.forgetHow);
+      if (ctx.state?.flow === "notes") ctx.setState(null);
+      return;
+    }
   }
 
   // The model double-checks privacy only when keywords saw a rule or the text could be hiding one.
@@ -1032,14 +1258,14 @@ async function handleRequest(ctx: FlowContext, text: string): Promise<void> {
     const groupOff = fields.groupChatsAllowed === 0;
     const groupOn = fields.groupChatsAllowed === 1;
     if (fields.contactMode === "relay_only" && before.contactMode === "direct" && asking) {
-      if (groupOff) bubbles.push("got it. i won't add u to group chats");
-      question = { text: groupOff ? RELAY_OFFER.replace(/^got it\. /, "") : RELAY_OFFER, step: "relay_offer" };
+      if (groupOff) bubbles.push(SAY.noGroupChats);
+      question = { text: groupOff ? RELAY_OFFER_BARE : RELAY_OFFER, step: "relay_offer" };
     } else if (fields.contactMode) {
-      bubbles.push(`got it. ${CONTACT_LINE[after.contactMode]}`);
-      if (fields.contactMode === "no_contact") bubbles.push('u can still text me for anything. say "connect me again" to undo');
-      if (groupOff) bubbles.push("and i won't add u to group chats");
-    } else if (groupOff) bubbles.push("got it. i won't add u to group chats", "if a handoff comes up i'll pass messages along instead");
-    if (groupOn) bubbles.push(`${fields.contactMode ? "and " : "ok. "}group chats are back on. i'll still ask before adding u to one`);
+      bubbles.push(`${PRE.gotIt}${CONTACT_LINE[after.contactMode]}`);
+      if (fields.contactMode === "no_contact") bubbles.push(SAY.stillText);
+      if (groupOff) bubbles.push(SAY.andNoGroupChats);
+    } else if (groupOff) bubbles.push(SAY.noGroupChats, SAY.handoffRelay);
+    if (groupOn) bubbles.push(`${fields.contactMode ? PRE.and : PRE.ok}${SAY.groupBackOn}`);
   } else if (touched && !Object.keys(pending).length) {
     bubbles.push(`that's already how i have it. contact: ${CONTACT_LINE[before.contactMode]}. group chats: ${before.groupChatsAllowed ? "ok" : "off"}`);
   }
@@ -1060,19 +1286,19 @@ async function handleRequest(ctx: FlowContext, text: string): Promise<void> {
     else if (action === "set_alert_distance") question = { text: ASK_ALERT, step: "ask_alert" };
     else if (p.preference || action === "add_note") {
       const saved = addNote(ctx.db, before.id, "preference", text);
-      bubbles.push(saved === "saved" ? "got it. i'll remember that" : saved === "duplicate" ? "already got that one" : 'ur notes are full. say "forget that" to drop the last one first');
+      bubbles.push(saved === "saved" ? SAY.remembered : saved === "duplicate" ? SAY.alreadyGot : SAY.notesFull);
     } else {
-      bubbles.push("not sure what to change there", 'try "no texts after midnight", "only food within 5 min" or "what do u know about me"');
+      bubbles.push(...SAY.notSureWhat);
     }
   }
 
   if (Object.keys(pending).length) {
     const q =
       pending.contact === "direct"
-        ? "just checking. u want people to be able to text u directly again? reply yes or no"
+        ? SAY.checkDirect
         : pending.contact === "relay_only"
-          ? "just checking. u want me to start relaying messages to u again? reply yes or no"
-          : "just checking. ok to add u to group chats again? reply yes or no";
+          ? SAY.checkRelay
+          : SAY.checkGroup;
     question = { text: q, step: "confirm_loosen", data: { ...pending, text: cleanNote(text) } };
   }
 
@@ -1080,10 +1306,10 @@ async function handleRequest(ctx: FlowContext, text: string): Promise<void> {
     // Another flow's conversation is open, so say how to ask instead of opening a step of our own.
     bubbles.push(
       question.step === "ask_quiet"
-        ? 'for quiet hours say it like "quiet 11pm to 8am"'
+        ? SAY.howQuiet
         : question.step === "ask_alert"
-          ? 'for alert distance say it like "only food within 5 min"'
-          : 'nothing changed. to open things back up say it plainly, like "people can text me directly"',
+          ? SAY.howAlert
+          : SAY.howLoosen,
     );
     question = null;
   }
@@ -1096,7 +1322,9 @@ async function handleRequest(ctx: FlowContext, text: string): Promise<void> {
 
 export const notes: FlowHandler = {
   name: "notes",
-  async handle(ctx) {
+  async handle(plain) {
+    // Everything this flow says goes out through NOTES_VOICE: facts as written, wording from the pools.
+    const ctx = NOTES_VOICE.wrap(plain);
     ensureTable(ctx.db);
     const state = ctx.state?.flow === "notes" ? ctx.state : null;
     const tap = !!(ctx.event.reaction || ctx.event.pollVote);
@@ -1109,7 +1337,7 @@ export const notes: FlowHandler = {
       return;
     }
     if (!text) {
-      await ctx.say('tell me in words what to change, like "no texts after midnight"');
+      await ctx.say(SAY.tellInWords);
       return;
     }
     await handleRequest(ctx, text);

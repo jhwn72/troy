@@ -10,9 +10,11 @@ import { openDb, getOrCreateUser, updateUser, getFlowState, getUserById } from "
 import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
-import { CLAIM_TTL_MS, COPY, HOLD_TTL_MS, claimantBlocked, completeHandoff, lostFound, parseWhen } from "../src/flows/lostfound/handler.ts";
+import { CLAIM_TTL_MS, COPY, HOLD_TTL_MS, LF_POOLS, LF_VOICE, claimantBlocked, completeHandoff, lostFound, parseWhen } from "../src/flows/lostfound/handler.ts";
 import { repair } from "../src/flows/repair.ts";
 import { RELAY_COPY } from "../src/relay.ts";
+import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
+import type { VariantPicker } from "../src/flows/reports-shared.ts";
 import { pendingFor } from "../src/pending.ts";
 import { THRESHOLDS } from "../src/flows/lostfound/verify.ts";
 import { activeRelayFor } from "../src/relay.ts";
@@ -71,7 +73,14 @@ beforeEach(() => {
   });
 });
 
-type Sent = { chatId: string; text: string; effect?: string };
+type Sent = { chatId: string; text: string; effect?: string; raw: string };
+
+/**
+ * Facts locked, wording varied: every line Troy sends may be any variant from the exported pools. The fake
+ * adapter records each bubble read back to its first wording (values such as codes and summaries kept exactly as
+ * sent), so the assertions below hold for whichever variant went out. `raw` keeps the words as they were sent.
+ */
+const canon = (text: string): string => LF_VOICE.canonical(text);
 
 function world(opts: { caps?: Partial<AdapterCapabilities>; groupChat?: string | null } = {}) {
   const db = openDb(":memory:");
@@ -93,7 +102,7 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; groupChat?: string |
     provider: "webchat",
     capabilities: () => ({ tapbacks: true, typing: true, readReceipts: true, edits: false, effects: true, polls: false, groupChats: true, contactCard: true, liveLocation: false, ...opts.caps }),
     async sendMessage(chatId, text, o) {
-      sent.push({ chatId, text, effect: o?.effect });
+      sent.push({ chatId, text: canon(text), effect: o?.effect, raw: text });
       return { messageId: `out-${++n}` };
     },
     async sendImage(chatId, path, caption) {
@@ -142,7 +151,8 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; groupChat?: string |
       return texts().slice(before);
     };
     const tap = async (text: string, type: TapbackType) => {
-      const target = db.prepare("SELECT providerMessageId AS id FROM messages WHERE chatId = ? AND direction = 'out' AND text = ? ORDER BY id DESC LIMIT 1").get(chatId, text) as { id: string };
+      const out = db.prepare("SELECT providerMessageId AS id, text FROM messages WHERE chatId = ? AND direction = 'out' ORDER BY id DESC").all(chatId) as { id: string; text: string }[];
+      const target = out.find((r) => canon(r.text) === text)!;
       await pipeline.handleEvent(event({ reaction: { targetMessageId: target.id, type, removed: false } }));
     };
     return { id: u.id, handle, chatId, say, tap, texts, state: () => getFlowState(db, u.id), sent: () => sent.filter((s) => s.chatId === chatId) };
@@ -286,7 +296,7 @@ test("the dashboard can complete a dps handoff", async () => {
   const notified: { userId: number; bubbles: string[] }[] = [];
   const ok = await completeHandoff({ db: w.db, notify: async (userId, bubbles) => void notified.push({ userId, bubbles }) }, handoff(w.db).id);
   assert.equal(ok, true);
-  assert.deepEqual(notified, [{ userId: w.owner.id, bubbles: ["love that", COPY.askThanks] }]);
+  assert.deepEqual(notified.map((n) => ({ userId: n.userId, bubbles: n.bubbles.map(canon) })), [{ userId: w.owner.id, bubbles: ["love that", COPY.askThanks] }]);
   assert.ok(handoff(w.db).completedAt);
   assert.equal(foundListing(w.db).status, "returned");
   assert.equal(w.owner.state()?.step, "thanks_note");
@@ -1278,4 +1288,146 @@ test("parseWhen reads rough times and gives null for anything else", () => {
   assert.equal(parseWhen("this morning", now), new Date(2026, 10, 14, 9).getTime());
   assert.ok(parseWhen("on tuesday", now)! < now);
   assert.equal(parseWhen("idk", now), null);
+});
+
+// ---------- facts locked, wording varied ----------
+
+/** A picker for tests: plain rotation per person and pool, and a record of everything each choice was made from. */
+function recordingPicker() {
+  const calls: { userId: number; key: string; variants: string[] }[] = [];
+  const turn = new Map<string, number>();
+  const pick: VariantPicker = (_db, userId, key, variants) => {
+    calls.push({ userId, key, variants: [...variants] });
+    const n = (turn.get(`${userId}:${key}`) ?? 0) + 1;
+    turn.set(`${userId}:${key}`, n);
+    return variants[n % variants.length]!;
+  };
+  return { calls, pick };
+}
+
+test("wording pools: 3 to 5 variants each, same values and bubble count in every variant, lowercase, no dashes, no emoji", () => {
+  assert.deepEqual(poolProblems(LF_POOLS), []);
+  // Stressful flow: no emoji in any variant.
+  for (const def of Object.values(LF_POOLS)) {
+    const variants = typeof def === "function" ? def(...Array.from({ length: def.length }, () => "x")) : def.flat();
+    for (const v of variants) assert.ok(!/\p{Extended_Pictographic}/u.test(v), v);
+  }
+  // Nothing after a miss says how close the description was or which part was off.
+  const afterMiss = ["retry", "cantConfirmDescription", "cantConfirm", "askProof", "dpsInPerson", "askingHolder", "cantConnect", "reportStaysOpen", "nothingYet", "stillWaiting", "checkingHolder"];
+  for (const key of afterMiss) {
+    for (const v of (LF_POOLS[key] as (string | string[])[]).flat()) {
+      assert.ok(!/close|almost|nearly|not quite|partly|part of|some of|warm|color|colour|sticker|brand|name|size|wrong/i.test(v), `${key}: "${v}" hints at what was off`);
+    }
+  }
+});
+
+test("tier 1 lines have no variants: the dangerous-item line, the contact warning, the group chat opener and the confetti line", () => {
+  for (const line of [COPY.dangerous, COPY.consent, COPY.consentHow, COPY.groupFirst, COPY.win, ...RELAY_COPY.start]) {
+    assert.deepEqual(LF_VOICE.variantsOf(line), [line]);
+    const picker = recordingPicker();
+    setVariantPicker(picker.pick);
+    try {
+      const db = openDb(":memory:");
+      for (let i = 0; i < 6; i++) assert.equal(LF_VOICE.line(db, 1, line), line);
+      assert.equal(picker.calls.length, 0, "the picker is never even asked");
+    } finally {
+      setVariantPicker(null);
+    }
+  }
+});
+
+test("the pickup code, the summary and the dps address are the same in every variant", async () => {
+  const picker = recordingPicker();
+  setVariantPicker(picker.pick);
+  try {
+    const w = world();
+    await toHandoffChoice(w);
+    await w.finder.say("2");
+    const code = handoff(w.db).pickupCode!;
+    assert.match(code, CODE);
+    const all = [...w.finder.sent(), ...w.owner.sent()];
+    // The wording really did vary, and every varied line is one of its pool's variants.
+    assert.ok(all.some((b) => b.raw !== b.text));
+    for (const b of all) assert.ok(LF_VOICE.variantsOf(b.text).includes(b.raw), b.raw);
+    // Exactly one bubble to each of them carries the code, and it is the code on the handoff, whatever the wording.
+    for (const who of [w.finder, w.owner]) assert.deepEqual(who.sent().filter((b) => CODE.test(b.raw)).map((b) => b.raw.match(CODE)![0]), [code]);
+    assert.ok(w.owner.sent().some((b) => b.raw === `dps lost and found is at ${DPS_ADDRESS}`), "directory text is never reworded");
+    assert.ok(w.finder.sent().some((b) => b.raw.includes("white airpods case")));
+    for (const v of LF_VOICE.variantsOf(`ur pickup code is ${code}`)) assert.ok(v.includes(code));
+  } finally {
+    setVariantPicker(null);
+  }
+});
+
+test("what a claimant is told is one of the allowed variants, and which one never depends on the match score or the description score", async () => {
+  // The same person sends the same texts. Only the hidden numbers change: how well the report matched, and how
+  // far off each description was (always a miss).
+  const below = THRESHOLDS.descriptionPass - 1;
+  const probes: { rank: number; scores: [number, number] }[] = [
+    { rank: 95, scores: [0, 0] },
+    { rank: 95, scores: [below, below] },
+    { rank: 55, scores: [10, below] },
+    { rank: 55, scores: [below, 3] },
+    { rank: 81, scores: [40, 60] },
+  ];
+  const runs: { raw: string[]; text: string[]; calls: { key: string; variants: string[] }[] }[] = [];
+  for (const probe of probes) {
+    const picker = recordingPicker();
+    setVariantPicker(picker.pick);
+    try {
+      const w = world();
+      const scores = [...probe.scores];
+      model.rank = () => probe.rank;
+      model.describe = () => scores.shift() ?? 0;
+      await w.finder.say("found these at leavey", [PHOTO]);
+      const scammer = w.person("+12135550104", "Sam Scammer", "sam.scammer@usc.edu");
+      await scammer.say(REPORT);
+      await scammer.say("a cat sticker on the front");
+      await scammer.say("it has a blue stripe");
+      await scammer.say("no");
+      assert.deepEqual(checks(w.db).map((c) => [c.result, c.score]), [["fail", probe.scores[0]], ["fail", probe.scores[1]]], "the scores really were different");
+      runs.push({
+        raw: scammer.sent().map((b) => b.raw),
+        text: scammer.texts(),
+        calls: picker.calls.filter((c) => c.userId === scammer.id).map((c) => ({ key: c.key, variants: c.variants })),
+      });
+      assertNoLeak(scammer.sent().map((b) => b.raw));
+    } finally {
+      setVariantPicker(null);
+    }
+  }
+  const first = runs[0]!;
+  assert.deepEqual(first.text, [...FIRST, ...COPY.retry, COPY.cantConfirmDescription, COPY.askProof, COPY.askingHolder]);
+  // One of the allowed variants, every time, and the wording did move off the first one somewhere.
+  first.raw.forEach((raw, i) => assert.ok(LF_VOICE.variantsOf(first.text[i]!).includes(raw), raw));
+  assert.ok(first.raw.some((raw, i) => raw !== first.text[i]));
+  for (const run of runs.slice(1)) {
+    // Word for word the same bubbles in the same order, whatever the scores were.
+    assert.deepEqual(run.raw, first.raw);
+    // And the reason why: every choice was made from the same pool names and the same variant lists.
+    // The picker is handed the person and the pool's name. No score is ever part of what it sees.
+    assert.deepEqual(run.calls, first.calls);
+  }
+  for (const c of first.calls) {
+    assert.match(c.key, /^lost_found\.[a-zA-Z]+$/);
+    assert.ok(!/\d/.test(c.key), "no number rides along in the key");
+  }
+});
+
+test("with the real picker a claimant's lines still come only from the pools, across repeated probes", async () => {
+  const w = world();
+  model.rank = (d) => (/dinosaur|hinge|crack|initials/i.test(d) ? 95 : 60);
+  await w.finder.say("found these at leavey", [PHOTO]);
+  const scammer = w.person("+12135550104", "Sam Scammer", "sam.scammer@usc.edu");
+  for (const guess of ["cat sticker", "dinosaur", "hinge", "crack"]) {
+    assert.deepEqual(await scammer.say(`${REPORT}, ${guess}`), FIRST);
+    await scammer.say("nvm");
+  }
+  for (const b of scammer.sent()) assert.ok(LF_VOICE.variantsOf(b.text).includes(b.raw), b.raw);
+  // Each opener went out four times, and every time as one of its pool's own wordings.
+  for (const line of FIRST) {
+    const seen = scammer.sent().filter((b) => b.text === line).map((b) => b.raw);
+    assert.equal(seen.length, 4);
+    assert.ok(seen.every((raw) => LF_VOICE.variantsOf(line).includes(raw)));
+  }
 });

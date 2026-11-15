@@ -275,8 +275,11 @@ export function createBluebubblesAdapter(
     return { lat: c[0], lng: c[1], at: t < 1e12 ? t * 1000 : t };
   }
 
-  const adapter: MessagingAdapter = {
+  const adapter: MessagingAdapter & { helperConnected(): boolean } = {
     provider: "bluebubbles",
+
+    /** Not part of MessagingAdapter: the server asks this before it runs the background location refresh. */
+    helperConnected: () => helper.isConnected(),
 
     // Before the first real call the Private API status is unknown and reported as on (it is on per
     // docs/bluebubbles-status.md). Each method still checks for real and falls back when it's off.
@@ -472,8 +475,10 @@ export function createBluebubblesAdapter(
       return allowed() ? found : null;
     },
 
-    // The Find My "Requested Location" bubble plus an "ask to share" request, through the helper. 1:1 chats only.
-    // False when the helper isn't there; the caller then asks in text (+ > Location > Share My Location).
+    // A Find My location request through the helper, with no chat bubble (the bubble has no Share button).
+    // The student gets it in the Find My app under People. True when it was delivered or one is already pending
+    // ("error 7" counts, see locationRequestDelivered). False when the helper isn't there or it could not be
+    // sent; the caller then explains how to share by hand (+ > Location > Share). 1:1 chats only.
     async requestLocation(chatId) {
       if (!sendAllowed(db, chatId, handleFromChatId(chatId))) {
         console.log("send refused");

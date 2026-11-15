@@ -819,23 +819,37 @@ test("app bubbles never become text: the Requested Location echo, a request, a s
 
 test("requestLocation goes through the helper for an allowed chat only, and is false without it", async () => {
   const { adapter, commands, state, db } = await setupWithHelper();
-  state.answer = () => ({ ok: true, requested: "x", invite: "ok", bubbleGuid: "BUB-1" });
+  state.answer = () => ({ ok: true, requested: "x", invite: "ok" });
   assert.equal(await adapter.requestLocation(ALLOWED_CHAT), true);
-  assert.deepEqual(commands(), [{ cmd: "location-request", chatGuid: ALLOWED_CHAT, args: {} }]);
+  // no chat bubble: the request lives in the Find My app
+  assert.deepEqual(commands(), [{ cmd: "location-request", chatGuid: ALLOWED_CHAT, args: { bubble: false } }]);
   assert.equal(await adapter.requestLocation(STRANGER_CHAT), false);
   setSetting(db, "troy_enabled", "false");
   assert.equal(await adapter.requestLocation(ALLOWED_CHAT), false);
   assert.equal(commands().length, 1);
   assert.deepEqual(logs, ["send refused", "send refused"]);
   setSetting(db, "troy_enabled", "true");
-  state.answer = () => ({ ok: true, requested: "x", invite: "error: nope", bubbleGuid: "" });
+  state.answer = () => ({ ok: true, requested: "x", invite: "error: nope" });
   assert.equal(await adapter.requestLocation(ALLOWED_CHAT), false);
+  // "error 7": delivered, or one is already waiting on their phone. Both count as sent.
+  state.answer = () => ({ ok: true, requested: "x", invite: "error: The operation couldn’t be completed. (FMLSession.ErrorDomain error 7.)" });
+  assert.equal(await adapter.requestLocation(ALLOWED_CHAT), true);
+  assert.equal(await adapter.requestLocation(ALLOWED_CHAT), true);
   state.connected = false;
   assert.equal(await adapter.requestLocation(ALLOWED_CHAT), false);
   // no helper configured at all
   const plain = setup();
   assert.equal(await plain.adapter.requestLocation(ALLOWED_CHAT), false);
   assert.equal(calls.length, 0);
+});
+
+test("helperConnected tells the server whether the background location refresh can run", async () => {
+  const on = await setupWithHelper();
+  const connected = (a: unknown) => (a as { helperConnected(): boolean }).helperConnected();
+  assert.equal(connected(on.adapter), true);
+  on.state.connected = false;
+  assert.equal(connected(on.adapter), false);
+  assert.equal(connected(setup().adapter), false);
 });
 
 test("onAllowed and onDisallowed keep the helper's list in step, and never for a stranger", async () => {

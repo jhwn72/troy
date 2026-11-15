@@ -10,7 +10,7 @@ delete process.env.TROY_HELPER_TOKEN;
 
 const { openDb, setSetting } = await import("../src/db/index.ts");
 const { allowChat } = await import("../src/adapters/gate.ts");
-const { createHelper, decodeFindMyShare, decodePollVote, decodePollPayload, decodeFindMyPayload } = await import("../src/adapters/helper.ts");
+const { createHelper, decodeFindMyShare, decodePollVote, decodePollPayload, decodeFindMyPayload, locationRequestDelivered } = await import("../src/adapters/helper.ts");
 type HelperClientLike = import("../src/adapters/helper.ts").HelperClientLike;
 
 const ENV_CHAT = "any;-;+13105550001";
@@ -163,7 +163,7 @@ test("an allowed chat is registered on first use, then the commands go out in th
     answer: (c) => {
       if (c.cmd === "send-poll") return { ok: true, guid: "POLL-1", optionIdentifiers: ["ID-A", "ID-B"] };
       if (c.cmd === "get-payload") return { ok: true, payloadBase64: "AAAA" };
-      if (c.cmd === "location-request") return { ok: true, requested: "x", invite: "no answer from Find My within 10s", bubbleGuid: "BUB-1" };
+      if (c.cmd === "location-request") return { ok: true, requested: "x", invite: "ok" };
       if (c.cmd === "location-get") return { ok: true, handle: "x", sharingWithMe: true, location: { latitude: 34.02, longitude: -118.28, timestamp: 1_794_688_935 } };
       return { ok: true };
     },
@@ -176,7 +176,7 @@ test("an allowed chat is registered on first use, then the commands go out in th
     { cmd: "allow-chat", chatGuid: OPTED_CHAT },
     { cmd: "send-poll", chatGuid: OPTED_CHAT, args: { options: ["usc student", "hackathon judge"], creatorHandle: "troy@example.com" } },
     { cmd: "get-payload", chatGuid: OPTED_CHAT, args: { messageGuid: "MSG-7" } },
-    { cmd: "location-request", chatGuid: OPTED_CHAT, args: {} },
+    { cmd: "location-request", chatGuid: OPTED_CHAT, args: { bubble: false } }, // never the chat bubble: it has no Share button
     { cmd: "location-get", chatGuid: OPTED_CHAT, args: {} },
   ]);
   assert.deepEqual(logs, []);
@@ -263,4 +263,69 @@ test("decoders: poll votes and Find My shares", () => {
   assert.equal(decodeFindMyShare(findMyPayload({ initialLocation: { latitude: 0, longitude: 0 } })), null);
   assert.equal(decodeFindMyShare(findMyPayload({ initialLocation: { latitude: 134, longitude: 2 } })), null);
   assert.equal(decodeFindMyShare("not a payload"), null);
+});
+
+// ---------- location requests (live testing, Nov 14) ----------
+
+test("location request: error 7 means delivered or already pending, other errors and no answer do not", async () => {
+  const { helper, state, calls } = setup();
+  const ask = async (answer: any) => {
+    state.answer = (c) => (c.cmd === "location-request" ? answer : { ok: true });
+    return helper.requestLocation(OPTED_CHAT);
+  };
+  assert.equal(await ask({ ok: true, requested: "x", invite: "ok" }), true);
+  assert.equal(await ask({ ok: true, requested: "x", invite: "completed with value 0" }), true);
+  // delivered, even though the invite field says error
+  assert.equal(await ask({ ok: true, requested: "x", invite: "error: The operation couldn’t be completed. (FMLSession.ErrorDomain error 7.)" }), true);
+  // a second request while one is pending
+  assert.equal(await ask({ ok: true, requested: "x", invite: "error: FMLSession.ErrorDomain error 7" }), true);
+  // error 7 in a failed answer still counts
+  assert.equal(await ask({ ok: false, error: "FMLSession.ErrorDomain error 7" }), true);
+  // real failures
+  assert.equal(await ask({ ok: true, requested: "x", invite: "error: FMLSession.ErrorDomain error 70" }), false);
+  assert.equal(await ask({ ok: true, requested: "x", invite: "error: FMLSession.ErrorDomain error 3" }), false);
+  assert.equal(await ask({ ok: true, requested: "x", invite: "no answer from Find My within 10s" }), false);
+  assert.equal(await ask({ ok: false, error: "chat not allowed" }), false);
+  assert.equal(await ask({ ok: true }), false);
+  assert.equal(await ask(null), false);
+  // every one of them asked for no bubble
+  const requests = calls.filter((c) => c.cmd === "location-request");
+  assert.equal(requests.length, 11);
+  assert.ok(requests.every((c) => c.args?.bubble === false));
+  assert.equal(locationRequestDelivered("error 7"), false); // only an answer object counts
+});
+
+test("location request: Find My is opened first, and the send lock is checked again after that wait", async () => {
+  const { db, helper, client, calls } = setup({ answer: (c) => (c.cmd === "location-request" ? { ok: true, invite: "ok" } : { ok: true }) });
+  const order: string[] = [];
+  let duringRefresh: () => void = () => {};
+  client.refreshFindMy = async () => {
+    order.push("find my opened");
+    duringRefresh();
+  };
+  const realRequest = client.request.bind(client);
+  client.request = async (cmd, chatGuid, args, timeoutMs) => {
+    order.push(cmd);
+    return realRequest(cmd, chatGuid, args, timeoutMs);
+  };
+  assert.equal(await helper.requestLocation(OPTED_CHAT), true);
+  assert.deepEqual(order, ["find my opened", "location-request"]);
+
+  // a chat that isn't allowed never opens Find My
+  order.length = 0;
+  assert.equal(await helper.requestLocation(STRANGER_CHAT), false);
+  assert.deepEqual(order, []);
+
+  // the kill switch flips while Find My is opening: no request goes out
+  duringRefresh = () => setSetting(db, "troy_enabled", "false");
+  assert.equal(await helper.requestLocation(OPTED_CHAT), false);
+  assert.deepEqual(order, ["find my opened"]);
+  assert.equal(calls.filter((c) => c.cmd === "location-request").length, 1);
+
+  // Find My failing to open doesn't stop the request
+  setSetting(db, "troy_enabled", "true");
+  duringRefresh = () => {
+    throw new Error("open failed");
+  };
+  assert.equal(await helper.requestLocation(OPTED_CHAT), true);
 });

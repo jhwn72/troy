@@ -17,10 +17,13 @@ import { startFoodTimers } from "./flows/food.ts";
 import { completeHandoff } from "./flows/lostfound/handler.ts";
 import { createLandingRoutes } from "./web/landing.ts";
 import { createWebRoutes } from "./web/api.ts";
+import { createLocationRefresher, ensureLocationColumns } from "./location.ts";
 
 const db = getDb();
 // Go-live is fixed the first time Troy ever starts (and kept after that), never by the first incoming text.
 getGoLiveAt(db);
+// The "forget my location" columns, for a database file made before they existed.
+ensureLocationColumns(db);
 // Labeled example data for demos. Adds only what is missing.
 if (process.env.SEED_EXAMPLES === "true") {
   seed(db);
@@ -68,6 +71,17 @@ const sweepTimer = setInterval(async () => {
 }, 30_000);
 sweepTimer.unref();
 
+// Saved locations stay current while someone shares through Find My: every 45 seconds, a few students at a time.
+// Real phones: only with the patched helper connected (it is what reads Find My). The simulator always can.
+// Nobody who said "forget my location" is looked up, and nothing here logs a place or a handle.
+const helperConnected = () => (adapter as (MessagingAdapter & { helperConnected?: () => boolean }) | null)?.helperConnected?.() === true;
+const locationRefresh = createLocationRefresher({
+  db,
+  getAdapter: () => adapter,
+  ready: () => config.provider === "webchat" || (config.provider === "bluebubbles" && helperConnected()),
+});
+if (config.provider === "webchat" || config.provider === "bluebubbles") locationRefresh.start();
+
 app.route("/", createLandingRoutes());
 app.route("/", createWebRoutes({ db, getAdapter: () => adapter!, notify, completeHandoff: (handoffId) => completeHandoff({ db, notify: (userId, bubbles) => notify(userId, bubbles, { owed: true }) }, handoffId) }));
 app.use("/*", serveStatic({ root: join(import.meta.dirname, "..", "public") }));
@@ -100,6 +114,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     stopFoodTimers();
     clearInterval(sweepTimer);
+    locationRefresh.stop();
     // BlueBubbles mode with a helper token: closes the helper listener. Nothing to do otherwise.
     try {
       created.stop?.();

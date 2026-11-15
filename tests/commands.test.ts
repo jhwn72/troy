@@ -180,3 +180,12 @@ test("self-harm texts get the crisis reply with 988, 911 and DPS, and no emoji",
   assert.ok(!EMOJI.test(all));
   assert.equal(all, all.toLowerCase());
 });
+
+test("forget my location: the reply says plainly that reading stops until they share again", () => {
+  assert.equal(matchCommand("Forget my location.")?.kind, "forget_location");
+  assert.equal(TEMPLATES.forgetLocation.length, 1);
+  const reply = TEMPLATES.forgetLocation[0];
+  assert.match(reply, /erased ur saved location/);
+  assert.match(reply, /won't read it again until u share it with me again/);
+  assert.equal(reply, reply.toLowerCase());
+});

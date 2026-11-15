@@ -13,8 +13,8 @@ import { askJson } from "../ai.ts";
 import { DPS } from "../commands.ts";
 import { findPlace } from "../places.ts";
 import type { Place } from "../places.ts";
-import { CANCEL, CANCELLED, contentWords, directoryRows, follow, insertReport, isFresh, noEmoji, openReports, othersPhrase, passToOtherFlow, rowForTopic, similarText, userNotes } from "./reports-shared.ts";
-import type { ReportRow } from "./reports-shared.ts";
+import { CANCEL, CANCELLED, CANCELLED_POOL, contentWords, directoryRows, follow, insertReport, isFresh, makeVoice, noEmoji, openReports, othersPhrase, passToOtherFlow, rowForTopic, similarText, userNotes } from "./reports-shared.ts";
+import type { Pools, ReportRow, Voice } from "./reports-shared.ts";
 
 type RouteKey = "fms" | "housing";
 
@@ -25,6 +25,55 @@ const ASK_WHERE = "which building and floor?";
 const ASK_WHAT_AND_WHERE = "what's broken, and which building and floor?";
 /** Fixed copy. No emoji: this is a stressful moment. */
 export const DANGER_LINE = `that sounds dangerous. please call dps at ${DPS.upcNonEmergency} now and stay clear of it. if anyone's in danger, call 911.`;
+
+const SAY = {
+  alreadyReported: "u already reported that one and it's still open",
+  whenItMoves: "i'll text u when it moves",
+  notReported: "ok, i didn't report that one. text me the building whenever u want it sent",
+};
+
+/** Lines with a value in them (the office, how many others). Code puts the value in; these only hold the words around it. */
+const RT = {
+  joined: (others: string, office: string) => `${others} already reported that to ${office}, so i added u to it`,
+  reported: (office: string) => `reported to ${office} ✅ i'll text u when it moves.`,
+  reportedPlain: (office: string) => `reported to ${office}. i'll text u when it moves.`,
+};
+
+// ---------- wording variants (facts locked, wording varied) ----------
+//
+// Variant 0 of every pool is the line the code writes; the rest say the same thing with the same values.
+// NOT in any pool, so always word for word: DANGER_LINE (the dangerous-thing line with the dps number) and
+// the demo note (the honest "this is mocked" disclosure, which has to read the same every time).
+export const REPAIR_POOLS: Pools = {
+  askWhere: [ASK_WHERE, "what building and floor?", "which building is it in, and what floor?"],
+  askWhatAndWhere: [ASK_WHAT_AND_WHERE, "what's broken, and what building and floor?", "what broke, and which building and floor?"],
+  alreadyReported: [SAY.alreadyReported, "u reported that one already and it's still open", "that one's already reported by u, and it's still open"],
+  whenItMoves: [SAY.whenItMoves, "i'll text u once it moves", "when it moves, i'll text u"],
+  joined: (others, office) => [
+    RT.joined(others, office),
+    `${others} already reported that to ${office}, so i put u on it too`,
+    `${others} reported that to ${office} already, so i added u to it`,
+  ],
+  // "on it 👀" only where the line already carries an emoji. The plain pool is for dangerous reports and "no emoji" notes.
+  reported: (office) => [
+    RT.reported(office),
+    `on it 👀 reported to ${office}. i'll text u when it moves.`,
+    `it's reported to ${office} ✅ i'll text u when it moves.`,
+  ],
+  reportedPlain: (office) => [
+    RT.reportedPlain(office),
+    `it's reported to ${office}. i'll text u when it moves.`,
+    `reported to ${office}, and i'll text u when it moves.`,
+  ],
+  notReported: [
+    SAY.notReported,
+    "ok, i held off on reporting that one. text me the building whenever u want it sent",
+    "ok, that one's not reported. whenever u want it sent, text me the building",
+  ],
+  cancelled: CANCELLED_POOL,
+};
+
+export const REPAIR_VOICE: Voice = makeVoice("repair", REPAIR_POOLS);
 
 const DANGER = /\bgas\b.{0,20}\bsmell|\bsmell(?:s|ing)?\b.{0,20}\bgas\b|\bgas leak|carbon monoxide|exposed wir|live wire|bare wire|loose wires?|\bsparks?\b|\bsparking\b|\bflood(?:ed|ing|s)?\b|burning smell|smells? like (?:burning|smoke)|\bsmoking\b|ceiling (?:is |just )?(?:collaps|caving|falling)|electrocut|got shocked/i;
 const NOT_A_SPOT = /^(?:thanks|thank u|thank you|thx|ty|tysm|ok|okay|k|kk|lol|lmao|cool|nice|bet|idk|i don'?t know|not sure|no idea|what|huh|\?+)(?:\s+\w+){0,2}[.!?]*$/i;
@@ -195,10 +244,10 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
     const { result, others } = follow(ctx.db, dup, ctx.user.id);
     if (draft.photoUrl) ctx.db.prepare("UPDATE reports SET photoUrl = ? WHERE id = ? AND photoUrl IS NULL").run(draft.photoUrl, dup.id);
     if (result === "already") {
-      await ctx.say(...lead, "u already reported that one and it's still open", "i'll text u when it moves");
+      await ctx.say(...lead, SAY.alreadyReported, SAY.whenItMoves);
       return;
     }
-    await ctx.say(...lead, `${othersPhrase(others)} already reported that to ${route.key}, so i added u to it`, "i'll text u when it moves", mockNote(route.key));
+    await ctx.say(...lead, RT.joined(othersPhrase(others), route.key), SAY.whenItMoves, mockNote(route.key));
     return;
   }
 
@@ -211,7 +260,7 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
     photoUrl: draft.photoUrl,
     routedTo: route.name,
   });
-  const confirm = plain ? `reported to ${route.key}. i'll text u when it moves.` : `reported to ${route.key} ✅ i'll text u when it moves.`;
+  const confirm = plain ? RT.reportedPlain(route.key) : RT.reported(route.key);
   await ctx.say(...lead, confirm, mockNote(route.key));
 }
 
@@ -255,7 +304,9 @@ async function start(ctx: FlowContext): Promise<void> {
     dangerous: DANGER.test(`${text} ${photo.description ?? ""}`),
   };
   const place = findPlace(ctx.db, text) ?? (photo.location ? findPlace(ctx.db, photo.location) : null);
-  if (place) {
+  // `unconfirmed`: only the chat model read this as a repair (no keyword agreed, no photo). Nothing goes to staff
+  // on that alone: the question below is asked even when a building was named, and their answer files it.
+  if (place && ctx.intent.details.unconfirmed !== true) {
     await file(ctx, draft, place, `${text} ${photo.location ?? ""}`);
     return;
   }
@@ -280,7 +331,7 @@ async function answer(ctx: FlowContext, data: Record<string, unknown>): Promise<
   // "thanks" or "lol ok" is not a building. Nothing gets filed on a shrug.
   if (!ctx.event.images.length && NOT_A_SPOT.test(text) && !findPlace(ctx.db, text)) {
     ctx.setState(null);
-    await ctx.say("ok, i didn't report that one. text me the building whenever u want it sent");
+    await ctx.say(SAY.notReported);
     return;
   }
 
@@ -303,7 +354,9 @@ async function answer(ctx: FlowContext, data: Record<string, unknown>): Promise<
 
 export const repair: FlowHandler = {
   name: "repair",
-  async handle(ctx) {
+  async handle(plain) {
+    // Everything this flow says goes out through REPAIR_VOICE: facts as written, wording from the pools.
+    const ctx = REPAIR_VOICE.wrap(plain);
     // Tapbacks and poll votes mean nothing here.
     if (ctx.event.reaction || ctx.event.pollVote) return;
     const state = ctx.state?.flow === "repair" ? ctx.state : null;

@@ -26,6 +26,8 @@ export interface HelperClientLike {
   allowChat(chatGuid: string): Promise<any>;
   removeChat(chatGuid: string): Promise<any>;
   request(cmd: HelperCommand, chatGuid: string, args: Record<string, unknown>, timeoutMs?: number): Promise<any>;
+  /** Opens Find My hidden on the Mac so its data is fresh before a location request. Fakes can leave it out. */
+  refreshFindMy?(): Promise<void>;
 }
 
 export interface Helper {
@@ -42,7 +44,11 @@ export interface Helper {
   sendPoll(chatGuid: string, options: string[], creatorHandle: string): Promise<{ guid: string; optionIdentifiers: string[] } | null>;
   /** A message's balloon payload as base64, or null. */
   getPayload(chatGuid: string, messageGuid: string): Promise<string | null>;
-  /** Find My "ask to share" plus the "Requested Location" bubble in the chat. */
+  /**
+   * A Find My "ask to share" request with no chat bubble (the bubble has no Share button and only confuses people).
+   * The other phone gets it inside the Find My app, under People, with no notification.
+   * True when it was delivered or one is already pending.
+   */
   requestLocation(chatGuid: string): Promise<boolean>;
   /** The other person's latest Find My fix while they are sharing, else null. */
   getLocation(chatGuid: string): Promise<{ lat: number; lng: number; at: number } | null>;
@@ -73,6 +79,21 @@ export function decodeFindMyShare(payloadBase64: string): { lat: number; lng: nu
   if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null;
   return { lat, lng };
+}
+
+/**
+ * Did a location-request reach the other phone? Live testing (Nov 14): "error ... error 7" in the answer means
+ * the request was delivered or one is already pending, so it counts. "ok" and "completed with value N" count.
+ * Any other error, or no answer from Find My in time, does not: Troy then explains the + menu instead.
+ */
+export function locationRequestDelivered(r: unknown): boolean {
+  if (!r || typeof r !== "object") return false;
+  const a = r as { ok?: unknown; invite?: unknown; error?: unknown };
+  const said = [a.invite, a.error].filter((s): s is string => typeof s === "string").join(" ").toLowerCase();
+  if (/\berror 7\b/.test(said)) return true;
+  if (a.ok !== true || typeof a.invite !== "string") return false;
+  const invite = a.invite.trim().toLowerCase();
+  return invite === "ok" || invite.startsWith("completed");
 }
 
 /** What everything gets when there is no helper: nothing works, nothing throws, nothing is sent. */
@@ -150,14 +171,14 @@ export function createHelper(opts: { db: DatabaseSync; client?: HelperClientLike
   }
 
   /** One helper request for a chat: lock, connection, registration, lock again, then the request. Null on any failure. */
-  async function call(cmd: HelperCommand, chatGuid: string, args: Record<string, unknown>, timeoutMs: number): Promise<any | null> {
+  async function call(cmd: HelperCommand, chatGuid: string, args: Record<string, unknown>, timeoutMs: number, opts: { anyAnswer?: boolean } = {}): Promise<any | null> {
     if (locked(chatGuid) || !c.connected) return null;
     if (removed.has(chatGuid)) return null;
     if (!registered.has(chatGuid) && !(await allowChat(chatGuid))) return null;
     if (locked(chatGuid) || !c.connected) return null;
     try {
       const r = await c.request(cmd, chatGuid, args, timeoutMs);
-      return r?.ok === true ? r : null;
+      return r?.ok === true || (opts.anyAnswer && r && typeof r === "object") ? r : null;
     } catch {
       console.log("helper call failed"); // no details: an error could carry a chat guid
       return null;
@@ -251,10 +272,17 @@ export function createHelper(opts: { db: DatabaseSync; client?: HelperClientLike
     },
 
     async requestLocation(chatGuid) {
-      // The reply waits up to 10 s for Find My's answer to the invite. The bubble is what the student sees,
-      // so the request counts as made when the bubble went out, whatever the invite said.
-      const r = await call("location-request", chatGuid, {}, 20_000);
-      return !!r && typeof r.bubbleGuid === "string" && r.bubbleGuid.length > 0;
+      if (locked(chatGuid) || !c.connected || removed.has(chatGuid)) return false;
+      // Fresh Find My data first (a stale cache made requests do nothing). Takes about 3 seconds, so the lock
+      // is checked again inside call() right before the request goes out.
+      try {
+        await c.refreshFindMy?.();
+      } catch {
+        /* the request is still worth trying */
+      }
+      // No bubble. The answer waits up to 10 s for Find My, and "error 7" in it still means delivered or pending.
+      const r = await call("location-request", chatGuid, { bubble: false }, 30_000, { anyAnswer: true });
+      return locationRequestDelivered(r);
     },
 
     async getLocation(chatGuid) {

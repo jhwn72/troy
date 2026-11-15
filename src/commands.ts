@@ -174,7 +174,8 @@ export const TEMPLATES = {
     `to reach a real person at usc dps call ${DPS.upcNonEmergency}. for an emergency call 911 or ${DPS.upcEmergency}`,
   ],
   deleteData: ["done. i deleted ur messages, notes, profile and saved location", "text hey troy if u ever want back in"],
-  forgetLocation: ["done, i erased ur saved location. share it again anytime if u want walking times"],
+  // Says plainly that reading stops too (users.locationOptOut), not only that the saved fix is gone.
+  forgetLocation: ["done, i erased ur saved location and i won't read it again until u share it with me again"],
   /** A location share with no words. */
   locationSaved: "got it, thx",
   settings(user: User): string[] {

@@ -296,8 +296,11 @@ test("location step: when the provider can send a request, Troy says so instead 
   await t.text("judge");
   const ask = await t.text("1");
   assert.match(ask[1], /i keep the last location u share/);
-  assert.equal(ask[2], "sent u a location request, tap it to share");
+  // The request has no bubble to tap: it is inside the Find My app, under People.
+  assert.equal(ask[2], "i sent u a location request. open find my, then people, and accept it");
+  assert.equal(ask[3], "or just tell me ur usual spots, or reply skip");
   assert.ok(!ask.join(" ").includes("tap the +"));
+  assert.ok(!/[→>\u2014]/.test(ask.join(" ")), "no arrows or em dashes");
 });
 
 test("location step: a share is saved as the last known location and ends onboarding", async () => {
@@ -461,4 +464,31 @@ test("JUDGE works straight after STOP then START wiped the onboarding state", as
   assert.ok(!reply.join(" ").includes("usc email\n"));
   assert.equal(t.user().verifiedVia, "judge_skip");
   assert.equal(getFlowState(t.db, t.user().id)?.step, "subscriptions");
+});
+
+test("location step: 'done' before the fix has arrived says it can take a minute and keeps the step open", async () => {
+  const t = setup({ canRequestLocation: true });
+  await t.text("hey troy");
+  await t.text("judge");
+  await t.text("skip");
+  const wait = await t.text("done");
+  assert.deepEqual(wait, [
+    "i'm not seeing it yet. it can take a min after u accept, so text done again in a sec",
+    "or tap the + in this chat, then Location, then Share. or tell me ur usual spots, or reply skip",
+  ]);
+  assert.equal(getFlowState(t.db, t.user().id)?.step, "location");
+  assert.equal(t.saved.size, 0);
+});
+
+test("location step: without a request Troy explains the + menu, with the same two closing lines", async () => {
+  const t = setup({ canRequestLocation: false });
+  await t.text("hey troy");
+  await t.text("judge");
+  const ask = await t.text("skip");
+  assert.deepEqual(ask.slice(1), [
+    "last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it",
+    "tap the + in this chat, then Location, then Share",
+    "or just tell me ur usual spots, or reply skip",
+  ]);
+  assert.ok(!ask.join(" ").includes("find my"));
 });

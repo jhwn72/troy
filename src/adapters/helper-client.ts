@@ -1,8 +1,11 @@
 // Vendored from bluebubbles/scripts/helper-client.ts (the BlueBubbles setup session's folder, which is not
-// committed to this repo), copied 2026-11-14. The logic is the same. Changes here: imports grouped at the top,
-// an optional onConnect callback (fired on the helper's hello), an error listener on the server (so a taken port
-// can't crash Troy), and the "config missing" notice uses console.log.
-// If the original changes, copy it again and keep those four things.
+// committed to this repo), copied 2026-11-14 and brought up to date the same evening (requestLocation).
+// The logic is the same. Changes here: imports grouped at the top, an optional onConnect callback (fired on the
+// helper's hello), an error listener on the server (so a taken port can't crash Troy), the "config missing"
+// notice uses console.log, and requestLocation is split in two (refreshFindMy, then the request) so the wrapper
+// can check the send lock between the 3 second wait and the request. It also checks the allowlist before
+// opening Find My, and skips the reopen when Find My was opened in the last minute.
+// If the original changes, copy it again and keep those things.
 //
 // Persistent connection to the patched BlueBubbles helper (inside Messages).
 // The helper connects OUT to 127.0.0.1:45699 (Messages is sandboxed) and stays connected,
@@ -10,6 +13,7 @@
 // that wrapper holds the send lock. Only one process can own port 45699.
 // The helper also enforces its own chat allowlist.
 
+import { execFile } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { inflateRawSync } from "node:zlib";
 
@@ -24,6 +28,7 @@ export class HelperClient {
   private pending = new Map<number, Pending>();
   private waiters: Array<() => void> = [];
   private opts: { token: string; chatAllowlist: string[]; port: number; host: string; onConnect?: () => void };
+  private findMyOpenedAt = 0;
 
   constructor(opts: { token: string; chatAllowlist: string[]; port?: number; host?: string; onConnect?: () => void }) {
     if (!opts.token || opts.token.length < 16) throw new Error("HelperClient needs TROY_HELPER_TOKEN");
@@ -103,6 +108,28 @@ export class HelperClient {
         resolve();
       });
     });
+  }
+
+  /**
+   * Opens the Find My app hidden in the background so the Mac's Find My data is fresh (a stale cache made
+   * requests silently do nothing during testing), then gives it 3 seconds. At most once a minute.
+   */
+  async refreshFindMy(): Promise<void> {
+    if (Date.now() - this.findMyOpenedAt < 60_000) return;
+    this.findMyOpenedAt = Date.now();
+    await new Promise<void>((resolve) => execFile("/usr/bin/open", ["-g", "-j", "-b", "com.apple.findmy"], () => resolve()));
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+
+  /**
+   * Send a Find My location request the reliable way: fresh Find My data first, then the request without the
+   * chat bubble (the bubble can't show a Share button). The other phone gets it in Find My, under People.
+   * Returns the helper's reply; invite "error ... error 7" can still mean the request was delivered.
+   */
+  async requestLocation(chatGuid: string): Promise<any> {
+    if (!this.opts.chatAllowlist.includes(chatGuid)) throw new Error("BLOCKED: chat not in allowlist");
+    await this.refreshFindMy();
+    return this.request("location-request", chatGuid, { bubble: false }, 30_000);
   }
 
   /** Add an opted-in student's 1:1 chat to BOTH this client's allowlist and the helper's saved allowlist. */

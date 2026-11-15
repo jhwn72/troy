@@ -10,6 +10,7 @@ import type { FlowContext, User } from "./types.ts";
 import { saveMessage, updateUser } from "./db/index.ts";
 import { TEMPLATES, SUBSCRIPTION_LABELS } from "./commands.ts";
 import { sendVerificationEmail } from "./email.ts";
+import { locationOptedOut, noteLocationRequestedByUser } from "./location.ts";
 
 export const SUBSCRIPTIONS = ["free_food", "free_stuff", "events", "class_help"] as const;
 const OPTION_LABELS = SUBSCRIPTIONS.map((s) => SUBSCRIPTION_LABELS[s]);
@@ -27,7 +28,8 @@ export const JUDGE_OPTIONS = ["usc student", "hackathon judge"];
 const JUDGE_CONFIRM = "ur in as a judge. this skip is demo only, the real campus version wouldn't have it";
 const STUDENT_REASK = "bet. what's ur usc email?";
 const LOCATION_KEPT = "last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it";
-const LOCATION_REQUESTED = "sent u a location request, tap it to share";
+// The request has no bubble in the chat: it shows up inside the Find My app, under People, with no notification.
+const LOCATION_REQUESTED = "i sent u a location request. open find my, then people, and accept it";
 const LOCATION_HOW = "tap the + in this chat, then Location, then Share";
 const LOCATION_OR = "or just tell me ur usual spots, or reply skip";
 
@@ -242,7 +244,7 @@ async function handleSubscriptions(ctx: FlowContext, data: Data): Promise<void> 
   ctx.setState({ flow: "onboarding", step: "location", data: {} });
   const confirm = subs.length ? `bet, i'll text u about ${subs.map((s) => SUBSCRIPTION_LABELS[s]).join(", ")}` : "no alerts then. u can always text me first";
   await ctx.say(confirm, LOCATION_KEPT);
-  // The Find My "Requested Location" bubble when the provider can send one, else how to share by hand.
+  // A Find My request when the provider could send one (they accept it in the Find My app), else how to share by hand.
   const requested = await ctx.adapter.requestLocation(ctx.event.chatId).catch(() => false);
   await ctx.say(requested ? LOCATION_REQUESTED : LOCATION_HOW, LOCATION_OR);
 }
@@ -304,11 +306,17 @@ async function handleLocation(ctx: FlowContext, data: Data, extras: OnboardingEx
     return true;
   }
   if (!w || /^(done|shared|sharing|sent|ok|okay|did it|there|yes|yeah|yep|sure)$/.test(w)) {
-    const live = await ctx.adapter.getLiveLocation(ctx.user.handle).catch(() => null);
+    // After "forget my location" a plain "ok" is not a share: nothing is looked up and the opt-out stays.
+    const live = locationOptedOut(ctx.db, ctx.user.id) ? null : await ctx.adapter.getLiveLocation(ctx.user.handle).catch(() => null);
     if (live && Number.isFinite(live.lat) && Number.isFinite(live.lng)) {
       await extras.saveLocation?.(ctx.user.id, { lat: live.lat, lng: live.lng });
       await finish(ctx, "got it, i can see where u are now");
-    } else await ctx.say("i'm not seeing it yet. tap the +, then Location, then Share. or tell me ur usual spots, or reply skip");
+    } else {
+      // After "forget my location" nothing is read on their word alone: the background refresh now watches for
+      // a fix taken after this moment (src/location.ts). For everyone else this does nothing.
+      noteLocationRequestedByUser(ctx.db, ctx.user.id);
+      await ctx.say("i'm not seeing it yet. it can take a min after u accept, so text done again in a sec", "or tap the + in this chat, then Location, then Share. or tell me ur usual spots, or reply skip");
+    }
     return true;
   }
   const spots = parseSpots(ctx.db, event.text);

@@ -32,7 +32,7 @@ export function createNotifier(deps: NotifierDeps): { notify: Notify; flush: () 
     if (!adapter || !user || user.stopped) return false;
     const sent = await adapter.sendMessage(user.chatId, text).catch(() => null);
     if (!sent) return false;
-    saveMessage(db, { userId: user.id, chatId: user.chatId, direction: "out", providerMessageId: sent.messageId, text });
+    saveMessage(db, { userId: user.id, chatId: user.chatId, direction: "out", providerMessageId: sent.messageId, text, notice: true });
     return true;
   }
 

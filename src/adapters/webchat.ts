@@ -19,7 +19,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const BOOT = randomUUID();
 const TAPBACKS: TapbackType[] = ["love", "like", "dislike", "laugh", "emphasize", "question"];
 
-export type TranscriptKind = "message" | "image" | "contact" | "tapback" | "typing" | "read" | "edit" | "location" | "poll" | "poll_vote" | "location_request";
+export type TranscriptKind = "message" | "image" | "contact" | "tapback" | "typing" | "read" | "edit" | "location" | "poll" | "poll_vote";
 
 /** One thing that happened in a chat. Edits and tapbacks point at an earlier entry through targetId. */
 export interface TranscriptEntry {
@@ -42,7 +42,7 @@ export interface TranscriptEntry {
   options?: string[];
   /** kind "poll_vote": which option, on the poll in targetId. */
   optionIndex?: number;
-  /** kind "location": true for a Find My share (the Share button), not set for a dropped pin. */
+  /** kind "location": true for a share bubble (+ > Location > Share), not set for a dropped pin. */
   shared?: boolean;
 }
 
@@ -51,6 +51,8 @@ interface Phone {
   /** Simulates a chat that already had messages before go-live (can never opt in by phrase). */
   hasOldHistory: boolean;
   location: { lat: number; lng: number; at: number } | null;
+  /** A Find My location request from Troy that this phone has not accepted yet (lives in Find My, not in the chat). */
+  findMyRequestAt: number | null;
 }
 
 export interface WebchatAdapter extends MessagingAdapter {
@@ -72,7 +74,7 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
 
   function phone(handle: Handle): Phone {
     let p = phones.get(handle);
-    if (!p) phones.set(handle, (p = { handle, hasOldHistory: false, location: null }));
+    if (!p) phones.set(handle, (p = { handle, hasOldHistory: false, location: null, findMyRequestAt: null }));
     return p;
   }
 
@@ -165,11 +167,15 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
       return { optionMessageIds: options.map(() => poll.id), mode: "native" as const };
     },
 
-    // The "Requested Location" bubble with a Share button (POST /webchat/share). 1:1 chats only, like the real one.
+    // Like the real provider: a Find My request with no bubble in the chat. It waits on the simulated phone
+    // (the "Find My request" control) until the phone accepts it (POST /webchat/findmy/accept). A second
+    // request while one is waiting counts as sent too, the way "error 7" does. 1:1 chats only.
     async requestLocation(chatId): Promise<boolean> {
       if (!canSend(chatId)) return false;
-      if (isGroupId(chatId)) return false;
-      add(chatId, "troy", "location_request");
+      const h = handleOf(chatId);
+      if (isGroupId(chatId) || !h) return false;
+      const p = phone(h);
+      if (p.findMyRequestAt === null) p.findMyRequestAt = Date.now();
       return true;
     },
 
@@ -323,8 +329,8 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
     return c.json({ ok: true, accepted: true });
   });
 
-  // The simulated phone taps Share (on a "Requested Location" bubble, or on its own): a Find My share bubble
-  // in its 1:1 chat. Troy gets one event with the location and no text, and the phone keeps sharing after.
+  // The simulated phone shares from the chat (+ > Location > Share): a share bubble in its 1:1 chat.
+  // Troy gets one event with the location and no text, and the phone keeps sharing after.
   routes.post("/webchat/share", async (c) => {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const handle = normalizeHandle(body?.handle);
@@ -335,15 +341,34 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
     const chatId = oneToOne(handle);
     // Gate first: a chat that hasn't opted in changes nothing, not even the simulated phone's sharing state.
     if (!(await gate(handle, chatId, ""))) return c.json({ ok: true, accepted: false });
-    const request = transcripts.get(chatId)?.find((e) => e.id === body.requestId && e.kind === "location_request");
     const location = { lat, lng };
-    phone(handle).location = { ...location, at: Date.now() };
-    const entry = add(chatId, handle, "location", { location, shared: true, targetId: request?.id });
+    const p = phone(handle);
+    p.location = { ...location, at: Date.now() };
+    p.findMyRequestAt = null; // sharing answers a waiting request too
+    const entry = add(chatId, handle, "location", { location, shared: true });
     dispatch({ provider: "webchat", userHandle: handle, chatId, isGroup: false, messageId: entry.id, text: "", images: [], location, receivedAt: entry.at });
     return c.json({ ok: true, accepted: true, messageId: entry.id });
   });
 
-  // Simulates the student tapping "Share My Location" in the chat (Find My). Send lat: null to stop sharing.
+  // The simulated phone accepts Troy's request inside Find My. Like the real thing: sharing starts, nothing
+  // shows up in the chat and Troy gets no event. He finds out when he next looks (the background refresh,
+  // or "done" at the onboarding step).
+  routes.post("/webchat/findmy/accept", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const handle = normalizeHandle(body?.handle);
+    if (!body || !handle) return bad("handle must be a phone number or email");
+    const lat = body.lat;
+    const lng = body.lng;
+    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad("lat and lng must be numbers");
+    const p = phones.get(handle);
+    if (!p || p.findMyRequestAt === null) return bad("no Find My request to accept");
+    p.findMyRequestAt = null;
+    p.location = { lat, lng, at: Date.now() };
+    return c.json({ ok: true, sharing: true });
+  });
+
+  // Find My on the simulated phone, with no chat bubble: start sharing, move (each call is a new fix with a new
+  // time, which is what the background refresh looks for), or stop with lat: null.
   routes.post("/webchat/location", async (c) => {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const handle = normalizeHandle(body?.handle);
@@ -385,6 +410,8 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
         handle,
         hasOldHistory: p?.hasOldHistory ?? false,
         sharingLocation: !!p?.location,
+        /** True while a Find My request from Troy waits on this phone. */
+        findMyRequest: (p?.findMyRequestAt ?? null) !== null,
         // Lets the page hide the judge button once it has nothing left to skip.
         verified: !!(db.prepare("SELECT verifiedAt FROM users WHERE handle = ?").get(handle) as { verifiedAt: number | null } | undefined)?.verifiedAt,
       },
@@ -399,6 +426,7 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
         chatId: oneToOne(p.handle),
         hasOldHistory: p.hasOldHistory,
         sharingLocation: !!p.location,
+        findMyRequest: p.findMyRequestAt !== null,
         groups: chatsFor(p.handle).filter(isGroupId),
       })),
     }),

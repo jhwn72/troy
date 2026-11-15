@@ -199,15 +199,47 @@ test("WEBCHAT_POLLS=tap gives the tap-to-pick fallback shape", async () => {
   }
 });
 
-test("requestLocation shows a Requested Location bubble, and Share emits one location event", async () => {
+test("requestLocation puts no bubble in the chat: the request waits in Find My until the phone accepts it", async () => {
+  const { events, adapter, post, routes } = setup();
+  const phoneState = async () => ((await (await routes.request(`/webchat/transcript?handle=${encodeURIComponent(A)}`)).json()) as { phone: Record<string, unknown> }).phone;
+  await post("/webchat/send", { handle: A, text: "hey troy" });
+  const before = adapter.transcript(chat(A)).length;
+  // nothing to accept yet
+  assert.equal((await post("/webchat/findmy/accept", { handle: A, lat: 34.02176, lng: -118.28283 })).ok, false);
+
+  assert.equal(await adapter.requestLocation(chat(A)), true);
+  assert.equal(adapter.transcript(chat(A)).length, before, "no Requested Location bubble");
+  assert.equal((await phoneState()).findMyRequest, true);
+  assert.equal(await adapter.requestLocation(chat(A)), true); // a second one while it waits still counts as sent
+  assert.equal(await adapter.getLiveLocation(A), null);
+
+  assert.equal((await post("/webchat/findmy/accept", { handle: A, lat: "34", lng: -118 })).ok, false);
+  const t = Date.now();
+  const res = await post("/webchat/findmy/accept", { handle: A, lat: 34.02176, lng: -118.28283 });
+  assert.deepEqual(res, { ok: true, sharing: true });
+  // like the real thing: sharing starts, with no chat bubble and no event for Troy
+  assert.equal(events.length, 1);
+  assert.equal(adapter.transcript(chat(A)).length, before);
+  const state = await phoneState();
+  assert.deepEqual([state.findMyRequest, state.sharingLocation], [false, true]);
+  const live = (await adapter.getLiveLocation(A))!;
+  assert.deepEqual([live.lat, live.lng], [34.02176, -118.28283]);
+  assert.ok(live.at >= t);
+  assert.equal((await post("/webchat/findmy/accept", { handle: A, lat: 34.02176, lng: -118.28283 })).ok, false); // already accepted
+
+  // moving is a new fix with a newer time
+  await new Promise((r) => setTimeout(r, 5));
+  await post("/webchat/location", { handle: A, lat: 34.02562, lng: -118.28512 });
+  const moved = (await adapter.getLiveLocation(A))!;
+  assert.equal(moved.lat, 34.02562);
+  assert.ok(moved.at > live.at);
+});
+
+test("sharing from the chat (+ > Location > Share) emits one location event and a share bubble", async () => {
   const { events, adapter, post } = setup();
   await post("/webchat/send", { handle: A, text: "hey troy" });
-  assert.equal(await adapter.requestLocation(chat(A)), true);
-  const request = adapter.transcript(chat(A)).at(-1)!;
-  assert.equal(request.kind, "location_request");
-  assert.equal(request.from, "troy");
-
-  const res = await post("/webchat/share", { handle: A, requestId: request.id, lat: 34.02176, lng: -118.28283 });
+  await adapter.requestLocation(chat(A));
+  const res = await post("/webchat/share", { handle: A, lat: 34.02176, lng: -118.28283 });
   assert.equal(res.accepted, true);
   const e = events.at(-1)!;
   assert.deepEqual(e.location, { lat: 34.02176, lng: -118.28283 });
@@ -215,9 +247,10 @@ test("requestLocation shows a Requested Location bubble, and Share emits one loc
   assert.deepEqual(e.images, []);
   assert.equal(e.chatId, chat(A));
   const shared = adapter.transcript(chat(A)).at(-1)!;
-  assert.deepEqual([shared.kind, shared.shared, shared.targetId, shared.from], ["location", true, request.id, A]);
-  // the simulated phone is now sharing, so the live lookup works too
+  assert.deepEqual([shared.kind, shared.shared, shared.from], ["location", true, A]);
+  // the simulated phone is now sharing, so the live lookup works too, and the waiting request is answered
   assert.equal((await adapter.getLiveLocation(A))?.lat, 34.02176);
+  assert.equal((await post("/webchat/findmy/accept", { handle: A, lat: 34.02176, lng: -118.28283 })).ok, false);
 
   assert.equal((await post("/webchat/share", { handle: A, lat: "34", lng: -118 })).ok, false);
   assert.equal((await post("/webchat/share", { handle: A, lat: 134, lng: -118 })).ok, false);
@@ -225,9 +258,10 @@ test("requestLocation shows a Requested Location bubble, and Share emits one loc
 
 test("the send lock and the gate hold for location requests and shares", async () => {
   const { db, events, adapter, post } = setup();
-  // a chat that never opted in: no bubble, and a share is dropped without changing the phone's state
+  // a chat that never opted in: no request, and a share is dropped without changing the phone's state
   assert.equal(await adapter.requestLocation(chat(B)), false);
   assert.equal(adapter.transcript(chat(B)).length, 0);
+  assert.equal((await post("/webchat/findmy/accept", { handle: B, lat: 34.02, lng: -118.28 })).ok, false);
   assert.equal((await post("/webchat/share", { handle: B, lat: 34.02, lng: -118.28 })).accepted, false);
   assert.equal(events.length, 0);
   assert.equal(adapter.transcript(chat(B)).length, 0);
@@ -239,9 +273,22 @@ test("the send lock and the gate hold for location requests and shares", async (
   assert.equal(await adapter.requestLocation(group!), false); // 1:1 only, like the real one
   setSetting(db, "troy_enabled", "false");
   assert.equal(await adapter.requestLocation(chat(A)), false);
+  assert.equal((await post("/webchat/findmy/accept", { handle: A, lat: 34.02, lng: -118.28 })).ok, false);
   assert.equal((await post("/webchat/share", { handle: A, lat: 34.02, lng: -118.28 })).accepted, false);
   assert.equal(events.length, 2);
-  assert.ok(!adapter.transcript(chat(A)).some((e) => e.kind === "location_request" || e.kind === "location"));
+  assert.ok(!adapter.transcript(chat(A)).some((e) => e.kind === "location"));
+  // with Troy off the live lookup gives nothing, sharing or not
+  assert.equal(await adapter.getLiveLocation(A), null);
+});
+
+test("the simulator page has the Find My request control and no Share button on a chat bubble", async () => {
+  const { routes } = setup();
+  const html = await (await routes.request("/webchat")).text();
+  assert.match(html, /Find My request/);
+  assert.match(html, /\/webchat\/findmy\/accept/);
+  assert.ok(!html.includes("location_request"));
+  assert.ok(!html.includes("Requested Location"));
+  assert.ok(!html.includes("\u2014"), "no em dashes");
 });
 
 test("onAllowed and onDisallowed are no-ops in the simulator", async () => {

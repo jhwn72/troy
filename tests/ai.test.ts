@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import type { FlowState } from "../src/types.ts";
 import { config } from "../src/config.ts";
 import { askJson, composeReply, detectIntent, extractJson, fallbackIntent, setModelCall } from "../src/ai.ts";
-import { countEmoji, limitEmoji, lowercase, polishBubbles, splitBubbles } from "../src/voice.ts";
+import { countEmoji, isDistress, limitEmoji, lowercase, pickVariant, polishBubbles, splitBubbles, youToU } from "../src/voice.ts";
+import { openDb } from "../src/db/index.ts";
 
 // No test may reach the network.
 config.anthropicKey = "";
@@ -143,7 +144,7 @@ test("composeReply returns the fallback when a fact is missing", async () => {
 test("composeReply keeps facts exact and enforces the voice", async () => {
   setModelCall(async () => '{"bubbles":["On it 👀🔥 Your code is K7Q2","Pickup is at Leavey Library — about 6 min away 🎉🎉","Fight on","extra bubble"]}');
   const got = await composeReply(reply);
-  assert.deepEqual(got, ["on it 👀 your code is K7Q2", "pickup is at Leavey Library, about 6 min away 🎉", "fight on"]);
+  assert.deepEqual(got, ["on it 👀 ur code is K7Q2", "pickup is at Leavey Library, about 6 min away 🎉", "fight on"]);
   setModelCall(async () => '{"bubbles":["So sorry 😢 your code is K7Q2, Leavey Library, 6 min"]}');
   const calm = await composeReply({ ...reply, goal: "tell them the wallet verification failed" });
   assert.equal(countEmoji(calm.join("")), 0);
@@ -161,4 +162,52 @@ test("voice helpers enforce lowercase and the emoji limit", () => {
   const split = polishBubbles(`${"This is a sentence that goes on for a while. ".repeat(5)}`);
   assert.ok(split && split.every((b) => b.length <= 160 && b === b.toLowerCase()));
   assert.equal(polishBubbles(["a", "b", "c", "d", "e"]), null);
+});
+
+test("youToU swaps whole words only and leaves links, emails and protected values alone", () => {
+  assert.equal(youToU("you said your bag is where you're sitting"), "u said ur bag is where ur sitting");
+  assert.equal(youToU("is that yours? do it yourself"), "is that urs? do it urself");
+  assert.equal(youToU("youth night on youtube, bayou"), "youth night on youtube, bayou");
+  assert.equal(youToU("email you@usc.edu or see https://usc.edu/you/your-page"), "email you@usc.edu or see https://usc.edu/you/your-page");
+  assert.equal(youToU("you should try Thank You Coffee", ["Thank You Coffee"]), "u should try Thank You Coffee");
+  assert.equal(youToU("u already said ur fine"), "u already said ur fine");
+});
+
+test("composeReply writes u and ur but a fact that says you still counts and stays exact", async () => {
+  const input = { goal: "tell them where the note is", facts: { shop: "Thank You Coffee", line: "see you at 6" }, notes: [], fallback: ["it's at Thank You Coffee. see you at 6"] };
+  setModelCall(async () => '{"bubbles":["You left your note at Thank You Coffee","they said see you at 6"]}');
+  assert.deepEqual(await composeReply(input), ["u left ur note at Thank You Coffee", "they said see you at 6"]);
+  // The model already wrote the fact the way troy texts: still present, so no fallback.
+  setModelCall(async () => '{"bubbles":["ur note is at Thank You Coffee","see u at 6"]}');
+  assert.deepEqual(await composeReply(input), ["ur note is at Thank You Coffee", "see u at 6"]);
+  // A fact that is really missing still falls back.
+  setModelCall(async () => '{"bubbles":["ur note is at the coffee place","see u at 6"]}');
+  assert.deepEqual(await composeReply(input), input.fallback);
+});
+
+test("isDistress reads an upset message and not a casual one", () => {
+  for (const t of ["im so stressed about my econ midterm tmrw", "i think i failed my final", "cant sleep, freaking out", "my grandma passed away"]) assert.equal(isDistress(t), true, t);
+  for (const t of ["whats the best dining hall", "i hate my roommate lol", "that's fire", "hey"]) assert.equal(isDistress(t), false, t);
+});
+
+test("pickVariant rotates per user and key and never repeats the last line", () => {
+  const db = openDb(":memory:");
+  const lines = ["a", "b", "c", "d"];
+  const seen: string[] = [];
+  for (let i = 0; i < 12; i++) seen.push(pickVariant(db, 7, "food:claimed", lines));
+  for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1]);
+  // A full pass uses every line before any comes back.
+  assert.deepEqual([...new Set(seen.slice(0, 4))].sort(), lines);
+  // Keys and users rotate on their own.
+  const other = pickVariant(db, 7, "repair:thanks", lines);
+  assert.notEqual(pickVariant(db, 7, "repair:thanks", lines), other);
+  const first = [1, 2, 3, 4].map((id) => pickVariant(db, id, "hello", lines));
+  assert.ok(new Set(first).size > 1, "different people start on different lines");
+  // The place is stored under the documented key.
+  assert.ok(db.prepare("SELECT value FROM settings WHERE key = 'var:7:food:claimed'").get());
+  // Edge cases: one line, no lines, and a list that got shorter since last time.
+  assert.equal(pickVariant(db, 7, "solo", ["only"]), "only");
+  assert.equal(pickVariant(db, 7, "none", []), "");
+  db.prepare("INSERT INTO settings (key, value) VALUES ('var:7:short', '9')").run();
+  assert.ok(["a", "b"].includes(pickVariant(db, 7, "short", ["a", "b"])));
 });

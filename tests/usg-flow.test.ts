@@ -6,8 +6,18 @@ import { seed } from "../src/db/seed.ts";
 import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
-import { usg, ASK_NAME, isConcern, parseChoice, topicFromWords, EXPLAIN_NAME } from "../src/flows/usg.ts";
+import { usg, ASK_NAME, isConcern, parseChoice, topicFromWords, EXPLAIN_NAME, USG_POOLS, USG_VOICE } from "../src/flows/usg.ts";
 import { sentenceBubbles } from "../src/flows/reports-shared.ts";
+import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
+import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
+
+
+/**
+ * Facts locked, wording varied: any line Troy sends may be any variant from the exported pools. The fake adapter
+ * records each bubble read back to its first wording, with every name, number and link kept exactly as sent, so
+ * the assertions below hold for whichever variant went out. `raw` keeps the words as they were sent.
+ */
+const canon = (text: string): string => USG_VOICE.canonical(text);
 
 /**
  * What was said, whatever bubbles it arrived in. The pipeline splits long bubbles at a comma or a space
@@ -47,13 +57,13 @@ registerFlow(repair);
 function setup() {
   const db = openDb(":memory:");
   seed(db);
-  const sent: { chatId: string; text: string }[] = [];
+  const sent: { chatId: string; text: string; raw: string }[] = [];
   let n = 0;
   const adapter: MessagingAdapter = {
     provider: "webchat",
     capabilities: () => ({ tapbacks: true, typing: true, readReceipts: true, edits: false, effects: true, polls: false, groupChats: false, contactCard: true, liveLocation: false }),
     async sendMessage(chatId, text) {
-      sent.push({ chatId, text });
+      sent.push({ chatId, text: canon(text), raw: text });
       return { messageId: `out-${++n}` };
     },
     sendImage: async () => null,
@@ -86,7 +96,7 @@ function setup() {
   const mine = () => reports().filter((r) => !r.isExample);
   const dir = (name: string) => db.prepare("SELECT name, details, url, isExample FROM directory WHERE name = ?").get(name) as unknown as Dir;
   const allUrls = () => (db.prepare("SELECT url FROM directory WHERE url IS NOT NULL").all() as { url: string }[]).map((r) => r.url);
-  return { db, student, reports, mine, dir, allUrls };
+  return { db, student, reports, mine, dir, allUrls, sent };
 }
 
 test("'how does my club get funding' answers with the stored RSO funding details and url, nothing invented", async () => {
@@ -336,4 +346,66 @@ test("code helpers: concern or question, choice, topic", () => {
   assert.equal(topicFromWords("the lax shuttle is always full"), "transportation");
   assert.equal(topicFromWords("how do rsos get funding"), "club funding");
   assert.equal(topicFromWords("hello there"), "other");
+});
+
+// ---------- facts locked, wording varied ----------
+
+/** Always the last variant of a pool, so every pooled line goes out in words other than its first wording. */
+const lastVariant: VariantPicker = (_db, _userId, _key, variants) => variants[variants.length - 1]!;
+const numbersIn = (t: string): string => (t.match(/\d+/g) ?? []).join(",");
+/** Every bubble is one of its line's own variants, and carries exactly the numbers its first wording carries. */
+function assertSameFacts(voice: Voice, sent: { text: string; raw: string }[]): void {
+  for (const b of sent) {
+    assert.ok(voice.variantsOf(b.text).includes(b.raw), `not a known variant: ${b.raw}`);
+    assert.equal(numbersIn(b.raw), numbersIn(b.text), b.raw);
+  }
+}
+
+test("usg wording pools are well formed, and directory text has no variants", () => {
+  assert.deepEqual(poolProblems(USG_POOLS), []);
+  const t = setup();
+  const row = t.dir("USG RSO funding");
+  for (const line of [...sentenceBubbles(row.details!), row.url!]) assert.deepEqual(USG_VOICE.variantsOf(line), [line]);
+  // Every wording of a best guess still says it is a guess and to double check, and keeps the name and the link.
+  for (const v of USG_VOICE.variantsOf("not 100% sure, but my best guess is the Dining Committee covers that. i'd double check: https://example.edu/x")) {
+    assert.match(v, /not 100% sure/);
+    assert.match(v, /best guess/);
+    assert.match(v, /double check: https:\/\/example\.edu\/x$/);
+    assert.match(v, /\bDining Committee\b/);
+  }
+});
+
+test("usg: with other wording on every line, the committee, the anonymous choice and stored text are exactly the same", async () => {
+  setVariantPicker(lastVariant);
+  try {
+    const t = setup();
+    const a = t.student("+13235550001");
+    assert.deepEqual(await a.text("why does the village dining hall close so early"), [ASK_NAME]);
+    const done = await a.text("anonymous");
+    assert.match(done[0], /^sent to the .+\. i'll text u when they pick it up\.$/);
+    assert.equal(done[1], "sent anonymously, ur name isn't on it");
+    const report = t.mine()[0];
+    assert.equal(report.anonymous, 1);
+    const row = t.dir("USG RSO funding");
+    const funding = await a.text("how does my club get funding");
+    assert.equal(said(funding), said([...sentenceBubbles(row.details!), row.url!]));
+    assertSameFacts(USG_VOICE, t.sent);
+    const raw = t.sent.map((s) => s.raw);
+    assert.ok(t.sent.filter((s) => s.raw !== s.text).length >= 3, "the wording really did change");
+    // The committee's name is the directory's, in every wording. Stored program text went out untouched.
+    assert.ok(raw.some((r) => r.includes(report.routedTo) && /pick it up/.test(r)));
+    assert.ok(said(raw).includes(said([...sentenceBubbles(row.details!), row.url!])));
+  } finally {
+    setVariantPicker(null);
+  }
+});
+
+test("poolProblems catches a variant that drops a value, adds an emoji, shouts, or has too few wordings", () => {
+  assert.deepEqual(poolProblems({ ok: ["one way", "another way", "a third way"], code: (c) => [`ur code is ${c}`, `code: ${c}`, `here it is, ${c}`] }), []);
+  assert.match(poolProblems({ code: (c) => [`ur code is ${c}`, "ur code is on its way", `code: ${c}`] }).join("\n"), /different values|every value/);
+  assert.match(poolProblems({ sad: ["all gone, sorry", "all gone, sorry 😔", "none left, sorry"] }).join("\n"), /adds an emoji/);
+  assert.match(poolProblems({ loud: ["got it", "Got it", "ok got it"] }).join("\n"), /capitals/);
+  assert.match(poolProblems({ few: ["only one", "only two"] }).join("\n"), /want 3 to 5/);
+  assert.match(poolProblems({ a: ["same words", "x one", "x two"], b: ["other words", "same words", "y two"] }).join("\n"), /also in/);
+  assert.match(poolProblems({ two: [["a b", "c d"], ["only one bubble"], ["e f", "g h"]] }).join("\n"), /bubbles/);
 });

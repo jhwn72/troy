@@ -11,8 +11,8 @@
 
 import type { FlowContext, FlowHandler } from "../types.ts";
 import { askJson, composeReply } from "../ai.ts";
-import { CANCEL, CANCELLED, directoryRows, follow, insertReport, isFresh, openReports, othersPhrase, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, userNotes } from "./reports-shared.ts";
-import type { DirectoryRow } from "./reports-shared.ts";
+import { CANCEL, CANCELLED, CANCELLED_POOL, directoryRows, follow, insertReport, isFresh, makeVoice, openReports, othersPhrase, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, userNotes } from "./reports-shared.ts";
+import type { DirectoryRow, Pools, Voice } from "./reports-shared.ts";
 
 export const TOPICS = ["dining", "safety", "housing", "academics", "transportation", "club funding", "other"] as const;
 export type Topic = (typeof TOPICS)[number];
@@ -75,10 +75,10 @@ export function isConcern(text: string, action: string): boolean {
  * data, or one with no stored text at all, gets the "i'd check with usg" line.
  */
 export function programBubbles(row: DirectoryRow): string[] {
-  const bubbles = row.details ? sentenceBubbles(row.details) : [`usg runs this one: ${row.name}`];
+  const bubbles = row.details ? sentenceBubbles(row.details) : [UT.runsThis(row.name)];
   if ((row.isExample || !row.details) && !bubbles.join(" ").toLowerCase().includes("check with usg")) bubbles.push(CHECK_WITH_USG);
   if (row.url) bubbles.push(row.url);
-  else if (row.contactMethod) bubbles.push(`u can reach them at ${row.contactMethod}`);
+  else if (row.contactMethod) bubbles.push(UT.reachAt(row.contactMethod));
   return bubbles;
 }
 
@@ -110,9 +110,9 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
   if (dup) {
     ctx.setState(null);
     const { result, others } = follow(ctx.db, dup, ctx.user.id);
-    if (result === "already") await ctx.say(...lead, "u already sent that one and it's still open", "i'll text u when they pick it up");
+    if (result === "already") await ctx.say(...lead, SAY.alreadySent, SAY.whenPickedUp);
     // Followers are never shown by name on the dashboard (only a count), so there is nothing to ask here.
-    else await ctx.say(...lead, `${othersPhrase(others)} already sent that to the ${p.routedTo}, so i added u to it`, "i'll text u when they pick it up");
+    else await ctx.say(...lead, UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp);
     return;
   }
   ctx.setState({ flow: "usg", step: "ask_name", data: { ...p } });
@@ -122,9 +122,9 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
 async function send(ctx: FlowContext, p: Pending, anonymous: boolean, note?: string): Promise<void> {
   ctx.setState(null);
   insertReport(ctx.db, { userId: ctx.user.id, kind: "usg_concern", anonymous, category: p.topic, description: p.description, routedTo: p.routedTo });
-  const bubbles = [`sent to the ${p.routedTo}. i'll text u when they pick it up.`];
+  const bubbles = [UT.sent(p.routedTo)];
   if (note) bubbles.push(note);
-  else if (anonymous) bubbles.push("sent anonymously, ur name isn't on it");
+  else if (anonymous) bubbles.push(SAY.sentAnon);
   await ctx.say(...bubbles);
 }
 
@@ -153,6 +153,96 @@ export function asksAboutName(text: string): boolean {
 
 export const EXPLAIN_NAME = ["with ur name, the committee sees ur first name next to it", "anonymous means no name at all. which one?"];
 
+const SAY = {
+  alreadySent: "u already sent that one and it's still open",
+  whenPickedUp: "i'll text u when they pick it up",
+  sentAnon: "sent anonymously, ur name isn't on it",
+  sentWithoutName: "wasn't sure which u meant, so i sent it without ur name",
+  askWhat: "what's the question or concern?",
+  offerSend: "want me to send them ur question?",
+  unsure: "honestly not sure on that one, and i don't wanna make something up",
+  doubleCheck: "i'd double check with usg",
+  heldOff: "ok, i held off on sending that one. tell me again whenever u want it sent",
+  allGood: "all good",
+};
+
+/** Lines with a value in them (a committee, a link, how many others). Code puts the value in; these only hold the words around it. */
+const UT = {
+  runsThis: (name: string) => `usg runs this one: ${name}`,
+  reachAt: (contact: string) => `u can reach them at ${contact}`,
+  joined: (others: string, committee: string) => `${others} already sent that to the ${committee}, so i added u to it`,
+  sent: (committee: string) => `sent to the ${committee}. i'll text u when they pick it up.`,
+  guessCommittee: (name: string) => `not 100% sure, but my best guess is the ${name} covers that. i'd double check`,
+  guessCommitteeUrl: (name: string, url: string) => `not 100% sure, but my best guess is the ${name} covers that. i'd double check: ${url}`,
+  guessOffice: (name: string) => `not 100% sure, but my best guess is ${name} handles that. i'd double check with them`,
+  doubleCheckUrl: (url: string) => `i'd double check with usg: ${url}`,
+};
+
+// ---------- wording variants (facts locked, wording varied) ----------
+//
+// Variant 0 of every pool is the line the code writes; the rest say the same thing with the same values.
+// NOT in any pool, so always word for word: everything read from the directory (a program's stored text, its
+// link, a committee's or office's contact). Names, links and counts in the lines below are put in by code.
+// Every "best guess" variant still says it is a guess and to double check.
+export const USG_POOLS: Pools = {
+  askName: [ASK_NAME, "should i send it with ur name or anonymously?", "do u want ur name on it, or should i send it anonymously?"],
+  explainName: [
+    EXPLAIN_NAME,
+    ["if u use ur name, the committee sees ur first name next to it", "anonymous means there's no name on it at all. which one?"],
+    ["with ur name on it, the committee sees ur first name next to it", "anonymous means no name at all. which do u want?"],
+  ],
+  askWhat: [SAY.askWhat, "what's ur question or concern?", "what do u want to ask or raise?"],
+  alreadySent: [SAY.alreadySent, "u sent that one already and it's still open", "that one's already sent by u, and it's still open"],
+  whenPickedUp: [SAY.whenPickedUp, "i'll text u once they pick it up", "when they pick it up, i'll text u"],
+  joined: (others, committee) => [
+    UT.joined(others, committee),
+    `${others} already sent that to the ${committee}, so i put u on it too`,
+    `${others} sent that to the ${committee} already, so i added u to it`,
+  ],
+  sent: (committee) => [
+    UT.sent(committee),
+    `it's sent to the ${committee}. i'll text u when they pick it up.`,
+    `sent to the ${committee}, and i'll text u when they pick it up.`,
+  ],
+  sentAnon: [SAY.sentAnon, "it went anonymously, ur name isn't on it", "sent it anonymously. ur name isn't on it"],
+  sentWithoutName: [
+    SAY.sentWithoutName,
+    "i wasn't sure which u meant, so i sent it without ur name",
+    "couldn't tell which u meant, so i sent it without ur name",
+  ],
+  heldOff: [
+    SAY.heldOff,
+    "ok, i didn't send that one. tell me again whenever u want it sent",
+    "ok, holding off on that one. whenever u want it sent, tell me again",
+  ],
+  allGood: [SAY.allGood, "no worries", "all good, no worries"],
+  cancelled: CANCELLED_POOL,
+  offerSend: [SAY.offerSend, "want me to send ur question to them?", "should i send them ur question?"],
+  guessCommittee: (name) => [
+    UT.guessCommittee(name),
+    `i'm not 100% sure, but my best guess is the ${name} covers that. i'd double check`,
+    `not 100% sure on this, but my best guess is that the ${name} covers it. i'd double check`,
+  ],
+  guessCommitteeUrl: (name, url) => [
+    UT.guessCommitteeUrl(name, url),
+    `i'm not 100% sure, but my best guess is the ${name} covers that. i'd double check: ${url}`,
+    `not 100% sure on this, but my best guess is that the ${name} covers it. i'd double check: ${url}`,
+  ],
+  guessOffice: (name) => [
+    UT.guessOffice(name),
+    `i'm not 100% sure, but my best guess is ${name} handles that. i'd double check with them`,
+    `not 100% sure on this, but my best guess is that ${name} handles it. i'd double check with them`,
+  ],
+  unsure: [SAY.unsure, "honestly i'm not sure on that one, and i don't wanna make something up", "not sure on that one tbh, and i don't wanna make something up"],
+  doubleCheck: [SAY.doubleCheck, "i'd double check that with usg", "double check with usg on that"],
+  doubleCheckUrl: (url) => [UT.doubleCheckUrl(url), `i'd double check that with usg: ${url}`, `double check with usg on that: ${url}`],
+  checkWithUsg: [CHECK_WITH_USG, "i'd check with usg on that", "i'd check with usg to be sure"],
+  runsThis: (name) => [UT.runsThis(name), `this one's run by usg: ${name}`, `usg runs that: ${name}`],
+  reachAt: (contact) => [UT.reachAt(contact), `u can reach them here: ${contact}`, `to reach them: ${contact}`],
+};
+
+export const USG_VOICE: Voice = makeVoice("usg", USG_POOLS);
+
 const YES = /^(?:yes|yea|yeah|yep|yup|ya|sure|ok|okay|k|pls|please|do it|send it|go ahead|go for it|bet|ye)\b/i;
 const NO = /^(?:no|nah|nope|i'?m good|im good|all good|not rn|no need)\b/i;
 
@@ -162,7 +252,7 @@ async function start(ctx: FlowContext): Promise<void> {
   const text = ctx.event.text.trim().replace(/\s+/g, " ");
   if (!text) {
     ctx.setState(null);
-    await ctx.say("what's the question or concern?");
+    await ctx.say(SAY.askWhat);
     return;
   }
   const concern = isConcern(text, ctx.intent.action);
@@ -189,17 +279,17 @@ async function start(ctx: FlowContext): Promise<void> {
   const fit = rowMentioned(others, text) ?? (topic !== "other" ? committee : null);
   if (fit?.kind === "usg_committee") {
     ctx.setState({ flow: "usg", step: "offer_send", data: { description: text.slice(0, 300), topic, routedTo: fit.name } });
-    await ctx.say(`not 100% sure, but my best guess is the ${fit.name} covers that. i'd double check${fit.url ? `: ${fit.url}` : ""}`, "want me to send them ur question?");
+    await ctx.say(fit.url ? UT.guessCommitteeUrl(fit.name, fit.url) : UT.guessCommittee(fit.name), SAY.offerSend);
     return;
   }
   ctx.setState(null);
   if (fit) {
     const reach = fit.url ?? fit.contactMethod;
-    await ctx.say(`not 100% sure, but my best guess is ${fit.name} handles that. i'd double check with them`, ...(reach ? [reach] : []));
+    await ctx.say(UT.guessOffice(fit.name), ...(reach ? [reach] : []));
     return;
   }
   const general = rowForTopic(directoryRows(ctx.db, "usg_committee"), "other");
-  const unsure = "honestly not sure on that one, and i don't wanna make something up";
+  const unsure = SAY.unsure;
   const guess = await composeReply({
     goal:
       `a student asked: ${JSON.stringify(text.slice(0, 300))}. give your honest best guess in one short bubble. ` +
@@ -208,7 +298,7 @@ async function start(ctx: FlowContext): Promise<void> {
     notes: userNotes(ctx.db, ctx.user.id),
     fallback: [unsure],
   });
-  await ctx.say(guess[0] ?? unsure, general?.url ? `i'd double check with usg: ${general.url}` : "i'd double check with usg");
+  await ctx.say(guess[0] ?? unsure, general?.url ? UT.doubleCheckUrl(general.url) : SAY.doubleCheck);
 }
 
 // ---------- handler ----------
@@ -221,7 +311,9 @@ function looksLikeNewAsk(ctx: FlowContext, text: string): boolean {
 
 export const usg: FlowHandler = {
   name: "usg",
-  async handle(ctx) {
+  async handle(plain) {
+    // Everything this flow says goes out through USG_VOICE: facts as written, wording from the pools.
+    const ctx = USG_VOICE.wrap(plain);
     // Tapbacks and poll votes mean nothing here.
     if (ctx.event.reaction || ctx.event.pollVote) return;
     const state = ctx.state?.flow === "usg" ? ctx.state : null;
@@ -255,13 +347,13 @@ export const usg: FlowHandler = {
       if (await passToOtherFlow(ctx, "usg")) return;
       if (YES.test(text)) {
         // They want it sent but didn't pick. Asked once already, so take the choice that shares less.
-        await send(ctx, pending, true, "wasn't sure which u meant, so i sent it without ur name");
+        await send(ctx, pending, true, SAY.sentWithoutName);
         return;
       }
       ctx.setState(null);
       if (NO.test(text)) await ctx.say(CANCELLED);
       else if (looksLikeNewAsk(ctx, text)) await start({ ...ctx, state: null });
-      else await ctx.say("ok, i held off on sending that one. tell me again whenever u want it sent");
+      else await ctx.say(SAY.heldOff);
       return;
     }
 
@@ -272,7 +364,7 @@ export const usg: FlowHandler = {
       }
       if (await passToOtherFlow(ctx, "usg")) return;
       ctx.setState(null);
-      if (NO.test(text)) await ctx.say("all good");
+      if (NO.test(text)) await ctx.say(SAY.allGood);
       else await start({ ...ctx, state: null });
       return;
     }

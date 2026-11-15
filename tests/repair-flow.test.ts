@@ -7,7 +7,17 @@ import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
 import { DPS } from "../src/commands.ts";
-import { repair, DANGER_LINE, thingOf } from "../src/flows/repair.ts";
+import { repair, DANGER_LINE, REPAIR_POOLS, REPAIR_VOICE, thingOf } from "../src/flows/repair.ts";
+import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
+import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
+
+
+/**
+ * Facts locked, wording varied: any line Troy sends may be any variant from the exported pools. The fake adapter
+ * records each bubble read back to its first wording, with every name, number and link kept exactly as sent, so
+ * the assertions below hold for whichever variant went out. `raw` keeps the words as they were sent.
+ */
+const canon = (text: string): string => REPAIR_VOICE.canonical(text);
 
 const FMS = "Facilities Management Services (FMS)";
 const HOUSING = "USC Housing maintenance";
@@ -38,13 +48,13 @@ registerFlow(food);
 function setup() {
   const db = openDb(":memory:");
   seed(db);
-  const sent: { chatId: string; text: string }[] = [];
+  const sent: { chatId: string; text: string; raw: string }[] = [];
   let n = 0;
   const adapter: MessagingAdapter = {
     provider: "webchat",
     capabilities: () => ({ tapbacks: true, typing: true, readReceipts: true, edits: false, effects: true, polls: false, groupChats: false, contactCard: true, liveLocation: false }),
     async sendMessage(chatId, text) {
-      sent.push({ chatId, text });
+      sent.push({ chatId, text: canon(text), raw: text });
       return { messageId: `out-${++n}` };
     },
     sendImage: async () => null,
@@ -281,5 +291,51 @@ test("with a model, one photo call fills category, description and the place", a
     assert.equal(row.routedTo, FMS);
   } finally {
     model = null;
+  }
+});
+
+// ---------- facts locked, wording varied ----------
+
+/** Always the last variant of a pool, so every pooled line goes out in words other than its first wording. */
+const lastVariant: VariantPicker = (_db, _userId, _key, variants) => variants[variants.length - 1]!;
+const numbersIn = (t: string): string => (t.match(/\d+/g) ?? []).join(",");
+/** Every bubble is one of its line's own variants, and carries exactly the numbers its first wording carries. */
+function assertSameFacts(voice: Voice, sent: { text: string; raw: string }[]): void {
+  for (const b of sent) {
+    assert.ok(voice.variantsOf(b.text).includes(b.raw), `not a known variant: ${b.raw}`);
+    assert.equal(numbersIn(b.raw), numbersIn(b.text), b.raw);
+  }
+}
+
+test("repair wording pools are well formed, and the danger line and the demo note have no variants", () => {
+  assert.deepEqual(poolProblems(REPAIR_POOLS), []);
+  const demo = "demo note: it's logged on troy's staff dashboard for fms. the link into their real work order system is mocked, so nothing was filed there";
+  for (const line of [DANGER_LINE, demo]) assert.deepEqual(REPAIR_VOICE.variantsOf(line), [line]);
+  // Every wording of the confirmation names the same office.
+  for (const v of REPAIR_VOICE.variantsOf(CONFIRM_FMS)) assert.match(v, /\bfms\b/);
+});
+
+test("repair: with other wording on every line, the office, the count of others and the danger line are exactly the same", async () => {
+  setVariantPicker(lastVariant);
+  try {
+    const t = setup();
+    const a = t.student("+13105550001");
+    const b = t.student("+13105550002");
+    assert.equal((await a.text("the light is broken in taper hall 2nd floor"))[0], CONFIRM_FMS);
+    const joined = await b.text("broken light at taper hall 2nd floor");
+    assert.equal(joined[0], "1 other person already reported that to fms, so i added u to it");
+    const danger = await a.text("the outlet is broken and there are exposed wires in olin hall");
+    assert.equal(danger[0], DANGER_LINE);
+    assertSameFacts(REPAIR_VOICE, t.sent);
+    assert.ok(t.sent.filter((s) => s.raw !== s.text).length >= 3, "the wording really did change");
+    const raw = t.sent.map((s) => s.raw);
+    assert.ok(raw.includes(DANGER_LINE), "the danger line went out word for word");
+    assert.ok(raw.some((r) => /^1 other person .*\bfms\b/.test(r)));
+    // A dangerous report is a stressful moment: no emoji in any wording of what follows.
+    const after = raw.slice(raw.indexOf(DANGER_LINE));
+    for (const r of after) assert.ok(!/\p{Extended_Pictographic}/u.test(r), r);
+    assert.equal(t.mine().length, 2);
+  } finally {
+    setVariantPicker(null);
   }
 });

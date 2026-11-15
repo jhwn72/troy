@@ -7,11 +7,13 @@ import type { DatabaseSync } from "node:sqlite";
 import type { FlowContext, FlowHandler, FlowState, MessagingAdapter, User } from "../types.ts";
 import { getFlowState, getUserById, rowToUser, saveMessage, setFlowState } from "../db/index.ts";
 import { findPlace, normalizePlaceText, walkingMinutes } from "../places.ts";
-import { getUserLocation, saveUserLocation } from "../location.ts";
+import { getUserLocation, saveUserLocation, shouldReadLiveLocation } from "../location.ts";
 import { canAlert } from "../quiet.ts";
 import { RELAY_COPY, activeRelayFor, endRelayByContext, startRelay as realStartRelay } from "../relay.ts";
 import { registerPendingHooks } from "../pending.ts";
 import { countServings as realCountServings } from "./lostfound/vision.ts";
+import type { Pools, Voice } from "./reports-shared.ts";
+import { makeVoice, unvoiced } from "./reports-shared.ts";
 
 // ---------- settings ----------
 
@@ -85,7 +87,151 @@ export const FOOD_COPY = {
   holdExpired: "ur hold ran out so i put it back. reply 'me' if u still want one",
   checkUsg: "i'd check with usg",
   unsure: "not sure i got that. text me what the food is and where, or 'me' to claim one",
+  postLater: "no worries, text me again when ur ready to post it",
+  confirmCountAgain: "is that count right? reply yes or the real number",
+  postedNobody: "posted. nobody's close by rn, but it's up if anyone asks",
+  postedHow: "text me how many are left anytime, or 'we're out' when it's done",
+  gotItHow: "text 'got it' once u have it",
+  askLeft: "how many are left? just the number",
+  thriftUnsure: "not sure on that one. i'd check with usg",
+  claimFirst: "claim one first and i can connect u",
+  movedOn: "looks like they moved on, nvm",
+  saidYes: "they said yes",
 };
+
+/** Lines with a value in them (a count, a place, a hold time). Code puts the value in; these only hold the words around it. */
+const FT = {
+  looksLike: (what: string) => `looks like ${what}, right?`,
+  posted: (told: string, people: string) => `posted. i texted ${told} ${people} nearby`,
+  yours: (minutes: string) => `it's yours, grab it in the next ${minutes} min`,
+  talkTo: (who: string) => `lmk if u want to talk to ${who}`,
+  ranOut: (what: string, where: string) => `heads up, the ${what} at ${where} just ran out. sorry`,
+  updated: (count: string) => `updated, ${count}`,
+  updatedHeld: (holds: string, isAre: string, rest: string) => `updated. ${holds} of those ${isAre} already claimed, so ${rest} for everyone else`,
+  lastOneAt: (where: string) => `last one at ${where}`,
+  allGoneAt: (where: string) => `all gone at ${where} 😔`,
+  theOne: (name: string) => `${name} is the one for that`,
+  wantsToTalk: (what: string) => `someone who claimed ur ${what} wants to talk`,
+  walk: (a: string, minutes: string, where: string) => `it's about ${a} ${minutes} min walk from ${where}`,
+};
+
+// ---------- wording variants (facts locked, wording varied) ----------
+//
+// Variant 0 of every pool is the line the code writes; the rest say the same thing with the same values.
+// NOT in any pool, so always word for word:
+// - the alert's first bubble ("yo ... is giving away free ... at ..., about N left") and countLine: that bubble
+//   is edited in place as the count changes and found again by its text, so it has one wording.
+// - FOOD_COPY.banned (the posting ban and its HUMAN line), relay copy, and anything read from the directory.
+export const FOOD_POOLS: Pools = {
+  // posting
+  notVerified: [FOOD_COPY.notVerified, "u gotta verify ur usc email before u can post", "need u to verify ur usc email first, then u can post"],
+  askCount: [FOOD_COPY.askCount, "how many is it?", "how many do u have?", "what's the count?"],
+  askCountAgain: [FOOD_COPY.askCountAgain, "i just need a number, like 6", "a number is all i need, like 6"],
+  looksLike: (what) => [FT.looksLike(what), `i'm counting ${what}, right?`, `so that's ${what}, right?`],
+  confirmCountAgain: [FOOD_COPY.confirmCountAgain, "is that the right count? reply yes or the real number", "did i get the count right? reply yes or the real number"],
+  askSpot: [FOOD_COPY.askSpot, "where is it?", "where can people find it?"],
+  askSpotAgain: [FOOD_COPY.askSpotAgain, "what building or spot? like leavey or tcc", "which spot is it at? like leavey or tcc"],
+  askClub: [FOOD_COPY.askClub, "who's it from? give me a club or org name, or reply skip", "which club or org is it from? or reply skip"],
+  postLater: [FOOD_COPY.postLater, "no worries. text me again when ur ready to post it", "all good, just text me again when ur ready to post it"],
+  dropped: [FOOD_COPY.dropped, "no worries, i dropped it", "all good, dropped it"],
+  posted: (told, people) => [FT.posted(told, people), `it's up. i texted ${told} ${people} nearby`, `posted, and i texted ${told} ${people} nearby`],
+  postedNobody: [FOOD_COPY.postedNobody, "posted. nobody's nearby rn, but it's up if anyone asks", "it's up. nobody's close by rn, but it's there if anyone asks"],
+  postedHow: [
+    FOOD_COPY.postedHow,
+    "u can text me how many are left anytime, or 'we're out' when it's done",
+    "text me the number left whenever, or 'we're out' when it's done",
+  ],
+
+  // the poster's count
+  askLeft: [FOOD_COPY.askLeft, "how many are left? just a number", "how many left? just the number"],
+  updated: (count) => [FT.updated(count), `ok updated, ${count}`, `updated it, ${count}`],
+  updatedHeld: (holds, isAre, rest) => [
+    FT.updatedHeld(holds, isAre, rest),
+    `updated. ${holds} of those ${isAre} claimed already, so ${rest} for everyone else`,
+    `got it. ${holds} of those ${isAre} already claimed, so that's ${rest} for everyone else`,
+  ],
+  closed: [FOOD_COPY.closed, "got it, closed it out. thanks for sharing with everyone", "ok, it's closed out. thanks for sharing"],
+  notYourCount: [
+    FOOD_COPY.notYourCount,
+    "only the person who posted it can change the count. if nothing was there, text 'that was fake'",
+    "the count can only be changed by whoever posted it. if nothing was there, text 'that was fake'",
+  ],
+  noDropToUpdate: [FOOD_COPY.noDropToUpdate, "u don't have a post up rn. to post one, send a photo and what it is", "nothing of urs is up rn. send a photo and what it is to post one"],
+
+  // the alert's other bubbles
+  walk: (a, minutes, where) => [FT.walk(a, minutes, where), `about ${a} ${minutes} min walk from ${where}`, `that's about ${a} ${minutes} min walk from ${where}`],
+  reactHow: [FOOD_COPY.reactHow, "react to this if u want one", "want one? react"],
+  claimHow: [FOOD_COPY.claimHow, "reply 'me' and one's urs", "want one? reply 'me'"],
+  lastOneAt: (where) => [FT.lastOneAt(where), `only one left at ${where}`, `down to the last one at ${where}`],
+  allGoneAt: (where) => [FT.allGoneAt(where), `it's all gone at ${where} 😔`, `none left at ${where} 😔`],
+  ranOut: (what, where) => [FT.ranOut(what, where), `heads up, the ${what} at ${where} just ran out, sorry`, `sorry, heads up: the ${what} at ${where} just ran out`],
+  nothingLive: [FOOD_COPY.nothingLive, "nothing going on rn. i'll text u when something pops up", "nothing's up rn, but i'll text u when something pops up"],
+
+  // claims
+  yours: (minutes) => [FT.yours(minutes), `it's yours. u have ${minutes} min to grab it`, `one's yours, grab it within ${minutes} min`],
+  gotItHow: [FOOD_COPY.gotItHow, "text 'got it' when u have it", "once u have it, text 'got it'"],
+  talkTo: (who) => [FT.talkTo(who), `lmk if u need to talk to ${who}`, `if u want to talk to ${who}, just say so`],
+  gone: [FOOD_COPY.gone, "sorry, all gone", "it's all gone, sorry"],
+  released: [FOOD_COPY.released, "ok, let it go", "ok, it's back for someone else"],
+  alreadyHeld: [FOOD_COPY.alreadyHeld, "u've already got one held, go grab it", "one's already held for u, go grab it"],
+  alreadyGot: [FOOD_COPY.alreadyGot, "u already picked one up from this drop", "u got one from this drop already"],
+  pickedUp: [FOOD_COPY.pickedUp, "enjoy 🙌", "nice, enjoy it 🙌", "got it. enjoy 🙌"],
+  nothingHeld: [FOOD_COPY.nothingHeld, "u aren't holding anything rn", "nothing's held for u rn"],
+  tooManyGrabs: [
+    FOOD_COPY.tooManyGrabs,
+    "u've grabbed and dropped that one a few times, so i'm leaving it for everyone else",
+    "u grabbed and dropped that one a few times, so i'm leaving it for the others",
+  ],
+  holdExpired: [FOOD_COPY.holdExpired, "ur hold ran out, so i put it back. reply 'me' if u still want one", "ur hold timed out so it went back. reply 'me' if u still want one"],
+  unsure: [
+    FOOD_COPY.unsure,
+    "not sure i got that. text me what the food is and where, or 'me' if u want to claim one",
+    "didn't catch that. text me what the food is and where, or 'me' to claim one",
+  ],
+
+  // reports
+  reportThanks: [
+    FOOD_COPY.reportThanks,
+    ["thanks for flagging it", "someone on the team will take a look"],
+    ["appreciate u flagging that", "a person on the team will look into it"],
+  ],
+  nothingToReport: [FOOD_COPY.nothingToReport, "which post? i don't see a recent one i sent u", "which post do u mean? i don't see a recent one i sent u"],
+
+  // thrift (the program's name, details and link come from the directory and are never reworded)
+  theOne: (name) => [FT.theOne(name), `${name} is who u want for that`, `that'd be ${name}`],
+  thriftUnsure: [FOOD_COPY.thriftUnsure, "not sure on that one, i'd check with usg", "i'm not sure on that one. i'd check with usg"],
+  checkUsg: [FOOD_COPY.checkUsg, "i'd ask usg", "usg is who i'd check with"],
+
+  // talking to the poster
+  claimFirst: [FOOD_COPY.claimFirst, "claim one first, then i can connect u", "u gotta claim one first, then i can connect u"],
+  relayOffer: [
+    FOOD_COPY.relayOffer,
+    "i can connect u two through me, with no numbers shared. want me to ask them?",
+    "i can put u two in touch through me, no numbers shared. should i ask them?",
+  ],
+  relayAsking: [
+    FOOD_COPY.relayAsking,
+    ["asking them rn", "if they say yes, i'll connect u right here"],
+    ["ok, asking them now", "i'll connect u right here if they say yes"],
+  ],
+  wantsToTalk: (what) => [FT.wantsToTalk(what), `someone who claimed ur ${what} would like to talk`, `one of the people who claimed ur ${what} wants to talk`],
+  relayAskPoster: [
+    FOOD_COPY.relayAskPoster,
+    "ok if i connect u two through me? no numbers get shared. yes or no",
+    "can i connect u two through me? no numbers shared. yes or no",
+  ],
+  relayNotAvailable: [FOOD_COPY.relayNotAvailable, "sorry, they're not taking messages rn", "they aren't taking messages rn, sorry"],
+  relayBusy: [FOOD_COPY.relayBusy, "they're in the middle of something rn. try again in a few", "they're busy with something. try again in a few"],
+  relayDeclinedPoster: [FOOD_COPY.relayDeclinedPoster, "no worries, i'll tell them", "all good, i'll let them know"],
+  relayDeclined: [FOOD_COPY.relayDeclined, "sorry, they passed on chatting", "they'd rather not chat, sorry"],
+  relayFailed: [FOOD_COPY.relayFailed, "sorry, couldn't set that up rn", "i couldn't set that up rn, sorry"],
+  relayNvm: [FOOD_COPY.relayNvm, "ok, all good", "no worries"],
+  relayOver: [FOOD_COPY.relayOver, "that drop ended, so i closed the chat with them", "that drop is done, so i closed the chat with them"],
+  movedOn: [FOOD_COPY.movedOn, "looks like they've moved on, nvm", "nvm, looks like they moved on"],
+  saidYes: [FOOD_COPY.saidYes, "they're in", "they said yes to chatting"],
+};
+
+export const FOOD_VOICE: Voice = makeVoice("food", FOOD_POOLS);
 
 /** The line the count bubble ends with. */
 export function countLine(left: number, live = true): string {
@@ -419,7 +565,7 @@ export type WalkFrom = { kind: "fresh" } | { kind: "stale" } | { kind: "spot"; n
 export function walkLine(minutes: number, from: WalkFrom = { kind: "fresh" }): string {
   const an = minutes === 8 || minutes === 11 || minutes === 18 || (minutes >= 80 && minutes <= 89);
   const where = from.kind === "stale" ? "where u last shared" : from.kind === "spot" && from.name ? from.name : "u";
-  return `it's about ${an ? "an" : "a"} ${minutes} min walk from ${where}`;
+  return FT.walk(an ? "an" : "a", String(minutes), where);
 }
 
 /** How the count reaches people: a silent edit, and a new text only when the edit didn't happen. */
@@ -447,8 +593,9 @@ function directOut(db: DatabaseSync, adapter: MessagingAdapter): Out {
     text: async (user, text) => {
       const fresh = getUserById(db, user.id);
       if (!fresh || fresh.stopped) return;
-      const sent = await adapter.sendMessage(fresh.chatId, text).catch(() => null);
-      if (sent) saveMessage(db, { userId: fresh.id, chatId: fresh.chatId, direction: "out", providerMessageId: sent.messageId, text });
+      const worded = FOOD_VOICE.line(db, fresh.id, text);
+      const sent = await adapter.sendMessage(fresh.chatId, worded).catch(() => null);
+      if (sent) saveMessage(db, { userId: fresh.id, chatId: fresh.chatId, direction: "out", providerMessageId: sent.messageId, text: worded, notice: true });
     },
   };
 }
@@ -483,7 +630,7 @@ async function pushCount(db: DatabaseSync, out: Out, dropId: number, before: { l
       if (has) return;
       const first = db.prepare("INSERT OR IGNORE INTO food_milestones (foodDropId, userId, kind) VALUES (?, ?, ?)").run(dropId, user.id, kind);
       if (!first.changes) return;
-      await out.text(user, left === 1 ? `last one at ${drop.locationText}` : `all gone at ${drop.locationText} 😔`);
+      await out.text(user, left === 1 ? FT.lastOneAt(drop.locationText) : FT.allGoneAt(drop.locationText));
     }),
   );
 }
@@ -498,7 +645,8 @@ const snapshot = (d: Drop) => ({ left: d.servingsLeft, live: d.status === "live"
  * else their first usual spot. Only ever used for this user's own walking time.
  */
 async function whereIs(db: DatabaseSync, adapter: MessagingAdapter, user: User, now: number): Promise<{ lat: number; lng: number; from: WalkFrom } | null> {
-  const live = await adapter.getLiveLocation(user.handle).catch(() => null);
+  // Never look someone up after "forget my location" or STOP until they share again themselves.
+  const live = shouldReadLiveLocation(db, user.id) ? await adapter.getLiveLocation(user.handle).catch(() => null) : null;
   if (live && Number.isFinite(live.lat) && Number.isFinite(live.lng)) {
     const at = Number.isFinite(live.at) ? Math.min(live.at, now) : now;
     const saved = getUserLocation(db, user, now);
@@ -559,7 +707,7 @@ async function advance(ctx: FlowContext, draft: Draft): Promise<void> {
   }
   if (draft.needConfirm) {
     const label = draft.unit ?? draft.what ?? "";
-    const ids = await ctx.say(`looks like ${draft.count}${label ? ` ${label}` : ""}, right?`);
+    const ids = await ctx.say(FT.looksLike(`${draft.count}${label ? ` ${label}` : ""}`));
     saveDraft(ctx, "post_confirm", { ...draft, confirmId: ids[0] ?? null });
     return;
   }
@@ -618,7 +766,7 @@ async function retryOrDrop(ctx: FlowContext, draft: Draft, step: string, again: 
   }
   if (draft.asks >= 1) {
     ctx.setState(null);
-    await ctx.say("no worries, text me again when ur ready to post it");
+    await ctx.say(FOOD_COPY.postLater);
     return;
   }
   saveDraft(ctx, step, { ...draft, asks: draft.asks + 1 });
@@ -648,7 +796,7 @@ async function handlePostStep(ctx: FlowContext, state: FlowState, tapAnswer: "ye
     else if (tapAnswer === "no" || NO.test(w) || /^(?:no|nah|nope)\b/.test(w)) {
       draft.count = null;
     } else if (!(tapAnswer === "yes" || YES.test(w) || /^(?:yes|yea|yeah|yep|yup|correct|right)\b/.test(w) || hold)) {
-      return retryOrDrop(ctx, draft, "post_confirm", "is that count right? reply yes or the real number");
+      return retryOrDrop(ctx, draft, "post_confirm", FOOD_COPY.confirmCountAgain);
     }
     draft.needConfirm = false;
     draft.asks = 0;
@@ -729,8 +877,8 @@ async function publish(ctx: FlowContext, draft: Draft): Promise<void> {
 
   const told = Object.keys(claimable).length;
   await ctx.say(
-    told ? `posted. i texted ${told} ${told === 1 ? "person" : "people"} nearby` : "posted. nobody's close by rn, but it's up if anyone asks",
-    "text me how many are left anytime, or 'we're out' when it's done",
+    told ? FT.posted(String(told), told === 1 ? "person" : "people") : FOOD_COPY.postedNobody,
+    FOOD_COPY.postedHow,
   );
 }
 
@@ -776,7 +924,7 @@ async function doClaim(ctx: FlowContext, drop: Drop, viaTap: boolean): Promise<v
   if (res.result !== "claimed") return;
   // A tapback can arrive while they are mid conversation in another flow. That conversation keeps its place.
   if (!ctx.state || ctx.state.flow === "food") ctx.setState({ flow: "food", step: "claimed", data: { dropId: drop.id, claimId: res.claimId } });
-  await ctx.say(`it's yours, grab it in the next ${res.hold} min`, "text 'got it' once u have it", `lmk if u want to talk to ${drop.clubName ?? "whoever posted it"}`);
+  await ctx.say(FT.yours(String(res.hold)), FOOD_COPY.gotItHow, FT.talkTo(drop.clubName ?? "whoever posted it"));
   await pushCount(ctx.db, flowOut(ctx), drop.id, before, [ctx.user.id]);
 }
 
@@ -831,7 +979,7 @@ async function posterUpdate(ctx: FlowContext, drop: Drop): Promise<void> {
   let n: number | null = OUT.test(w) ? 0 : /\blast one\b/.test(w) ? 1 : /\b(?:a few|couple)\b/.test(w) ? null : parseNumber(ctx.event.text);
   if (n === null && typeof ctx.intent.details.count === "number") n = ctx.intent.details.count;
   if (n === null || n < 0) {
-    await ctx.say("how many are left? just the number");
+    await ctx.say(FOOD_COPY.askLeft);
     return;
   }
 
@@ -847,7 +995,7 @@ async function posterUpdate(ctx: FlowContext, drop: Drop): Promise<void> {
     for (const c of held) {
       const s = getFlowState(db, c.userId);
       if (s?.flow === "food" && s.data.dropId === drop.id) ctx.setStateFor(c.userId, null);
-      await ctx.sayTo(c.userId, `heads up, the ${drop.description} at ${drop.locationText} just ran out. sorry`);
+      await ctx.sayTo(c.userId, FT.ranOut(drop.description, drop.locationText));
     }
     await pushCount(db, flowOut(ctx), drop.id, before, held.map((c) => c.userId));
     return;
@@ -859,8 +1007,8 @@ async function posterUpdate(ctx: FlowContext, drop: Drop): Promise<void> {
   const holds = (db.prepare("SELECT COUNT(*) AS c FROM claims WHERE foodDropId = ? AND status = 'held'").get(drop.id) as { c: number }).c;
   const left = Math.max(0, onTable - holds);
   db.prepare("UPDATE food_drops SET servingsLeft = ?, servingsTotal = MAX(servingsTotal, ?) WHERE id = ? AND status = 'live'").run(left, onTable, drop.id);
-  if (!holds) await ctx.say(`updated, ${countLine(left)}`);
-  else await ctx.say(`updated. ${holds} of those ${holds === 1 ? "is" : "are"} already claimed, so ${left > 0 ? countLine(left) : "none left"} for everyone else`);
+  if (!holds) await ctx.say(FT.updated(countLine(left)));
+  else await ctx.say(FT.updatedHeld(String(holds), holds === 1 ? "is" : "are", left > 0 ? countLine(left) : "none left"));
   await pushCount(db, flowOut(ctx), drop.id, before);
 }
 
@@ -941,10 +1089,10 @@ async function thrift(ctx: FlowContext): Promise<void> {
     .prepare("SELECT name, details, url, contactMethod, isExample FROM directory WHERE kind = 'usg_program' AND (lower(name) LIKE '%thrift%' OR lower(topics) LIKE '%thrift%') ORDER BY id LIMIT 1")
     .get() as { name: string; details: string | null; url: string | null; contactMethod: string | null; isExample: number } | undefined;
   if (!row) {
-    await ctx.say(`not sure on that one. ${FOOD_COPY.checkUsg}`);
+    await ctx.say(FOOD_COPY.thriftUnsure);
     return;
   }
-  const bubbles: string[] = [`${row.name.replace(/^USG\b/, "usg")} is the one for that`];
+  const bubbles: string[] = [FT.theOne(row.name.replace(/^USG\b/, "usg"))];
   if (row.details) bubbles.push(row.details);
   else if (!row.url) bubbles.push(FOOD_COPY.checkUsg);
   if (row.url) bubbles.push(row.url);
@@ -957,7 +1105,7 @@ async function thrift(ctx: FlowContext): Promise<void> {
 async function offerRelay(ctx: FlowContext, drop: Drop): Promise<void> {
   const mine = ctx.db.prepare("SELECT 1 FROM claims WHERE foodDropId = ? AND userId = ? AND status IN ('held','picked_up') LIMIT 1").get(drop.id, ctx.user.id);
   if (!mine) {
-    await ctx.say("claim one first and i can connect u");
+    await ctx.say(FOOD_COPY.claimFirst);
     return;
   }
   ctx.setState({ flow: "food", step: "relay_offer", data: { dropId: drop.id } });
@@ -979,8 +1127,10 @@ async function askPoster(ctx: FlowContext, drop: Drop): Promise<void> {
     await ctx.say(FOOD_COPY.relayBusy);
     return;
   }
-  const ids = await ctx.sayTo(poster.id, `someone who claimed ur ${drop.description} wants to talk`, FOOD_COPY.relayAskPoster);
-  const sent = ctx.db.prepare("SELECT 1 FROM messages WHERE userId = ? AND direction = 'out' AND text = ? AND createdAt >= ? LIMIT 1").get(poster.id, FOOD_COPY.relayAskPoster, Date.now() - 60_000);
+  // Worded here so the check below looks for the words that were actually sent. (A bubble object goes out untouched.)
+  const askLine = FOOD_VOICE.line(ctx.db, poster.id, FOOD_COPY.relayAskPoster);
+  const ids = await ctx.sayTo(poster.id, FT.wantsToTalk(drop.description), { text: askLine });
+  const sent = ctx.db.prepare("SELECT 1 FROM messages WHERE userId = ? AND direction = 'out' AND text = ? AND createdAt >= ? LIMIT 1").get(poster.id, askLine, Date.now() - 60_000);
   if (!ids.some((id) => id !== null) && !sent) {
     ctx.setState(back);
     await ctx.say(FOOD_COPY.relayNotAvailable);
@@ -1008,7 +1158,7 @@ async function answerRelayAsk(ctx: FlowContext, state: FlowState, yes: boolean):
   }
   // The claimer has to still be waiting on this exact ask, or their yes is stale.
   if (!claimer || claimer.stopped || !waiting) {
-    await ctx.say("looks like they moved on, nvm");
+    await ctx.say(FOOD_COPY.movedOn);
     return;
   }
   try {
@@ -1021,7 +1171,7 @@ async function answerRelayAsk(ctx: FlowContext, state: FlowState, yes: boolean):
     return;
   }
   await ctx.say(...RELAY_COPY.start);
-  await ctx.sayTo(claimerId, "they said yes", ...RELAY_COPY.start);
+  await ctx.sayTo(claimerId, FOOD_COPY.saidYes, ...RELAY_COPY.start);
 }
 
 // ---------- handing a message to another flow ----------
@@ -1040,7 +1190,8 @@ async function passOn(ctx: FlowContext, clear: boolean): Promise<void> {
     return;
   }
   const intent = named ? ctx.intent : { flow: "smalltalk" as const, action: "chat", details: {}, source: ctx.intent.source };
-  await target.handle({ ...ctx, intent, state: ctx.state && ctx.state.flow !== "food" ? ctx.state : null });
+  // The other flow speaks in its own words, so it gets the plain context back.
+  await target.handle({ ...unvoiced(ctx), intent, state: ctx.state && ctx.state.flow !== "food" ? ctx.state : null });
 }
 
 // ---------- the handler ----------
@@ -1089,7 +1240,9 @@ async function handleCancel(ctx: FlowContext, state: FlowState): Promise<void> {
 
 export const food: FlowHandler = {
   name: "food",
-  async handle(ctx) {
+  async handle(plain) {
+    // Everything this flow says goes out through FOOD_VOICE: facts as written, wording from the pools.
+    const ctx = FOOD_VOICE.wrap(plain);
     ensureTables(ctx.db);
     const now = deps.now();
     const state = freshState(ctx, now);

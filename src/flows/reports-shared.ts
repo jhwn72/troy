@@ -2,7 +2,8 @@
 // "is this the same report" checks. Everything here is plain code, no model calls.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { FlowContext, FlowName } from "../types.ts";
+import type { Bubble, FlowContext, FlowName } from "../types.ts";
+import { pickVariant } from "../voice.ts";
 
 type Row = Record<string, unknown>;
 
@@ -196,6 +197,8 @@ export function othersPhrase(n: number): string {
 export const CANCEL = /^\s*(?:nvm|nvmd|never ?mind|cancel|forget it|forget that|drop it|no thanks|no thx|nah nvm|scratch that)\b/i;
 
 export const CANCELLED = "all good, dropped it";
+/** The variants of CANCELLED, shared by the flows that use it. */
+export const CANCELLED_POOL: readonly string[] = [CANCELLED, "no worries, dropped it", "all good, i dropped it", "ok, dropped it"];
 
 /** An open question older than this is forgotten, so a text hours later is read as a new message. */
 export const STATE_TTL_MS = 30 * 60 * 1000;
@@ -225,7 +228,8 @@ export async function passToOtherFlow(ctx: FlowContext, self: FlowName): Promise
   const other = getFlow(wanted);
   if (!other || other.name === self) return false;
   ctx.setState(null);
-  await other.handle({ ...ctx, state: null });
+  // The other flow speaks in its own words, so it gets the plain context back.
+  await other.handle({ ...unvoiced(ctx), state: null });
   return true;
 }
 
@@ -243,5 +247,220 @@ export function sentenceBubbles(stored: string, max = 220): string[] {
     }
   }
   if (cur) out.push(cur);
+  return out;
+}
+
+// ---------- wording variants: facts locked, wording varied ----------
+//
+// Every flow keeps writing its fixed lines exactly as before (the canonical wording, with every code, count,
+// place and name put in by code). On the way out, a line that is the canonical form of a pool is swapped for
+// one of that pool's hand-written variants, with the same values carried over untouched. Lines that are in no
+// pool (emergency and danger lines, the contact-sharing warning, the confetti line, anyone's quoted words,
+// directory text) go out word for word.
+//
+// SECURITY: the variant is chosen from (user, pool name) and the picker's own rotation, nothing else. No
+// score, match or verification result is ever passed in, so wording can't be read as a signal.
+
+/**
+ * A pool is the variants of one line. Variant 0 is the canonical wording the flow code writes.
+ * - A list: each variant is one bubble, or a list of bubbles (every variant has the same number of bubbles).
+ * - A function of the line's values (all strings): returns the one-bubble variants with the values put in.
+ *   No logic inside, only wording, so the same values always land in every variant.
+ */
+export type PoolDef = readonly (string | readonly string[])[] | ((...slots: string[]) => readonly string[]);
+export type Pools = Record<string, PoolDef>;
+export type VariantPicker = (db: DatabaseSync, userId: number, key: string, variants: string[]) => string;
+
+let picker: VariantPicker | null = null;
+
+/** Tests swap the picker (to pin a variant, or to record exactly what a choice was made from). Null puts the real one back. */
+export function setVariantPicker(fn: VariantPicker | null): void {
+  picker = fn;
+}
+
+const MARK = "\u0001";
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A regex that matches a template with its value marks, capturing each value (a repeated value must repeat). */
+function templateRe(template: string): RegExp {
+  const seen = new Set<string>();
+  const body = template
+    .split(new RegExp(`(${MARK}\\d+${MARK})`))
+    .map((part) => {
+      const m = part.match(new RegExp(`^${MARK}(\\d+)${MARK}$`));
+      if (!m) return escapeRe(part);
+      if (seen.has(m[1]!)) return `\\k<s${m[1]}>`;
+      seen.add(m[1]!);
+      return `(?<s${m[1]}>.+?)`;
+    })
+    .join("");
+  return new RegExp(`^${body}$`, "s");
+}
+
+interface Hit {
+  key: string;
+  /** Which bubble of the pool's variants this line is. */
+  j: number;
+  /** Every variant as bubbles, with this line's own values put in. */
+  variants: string[][];
+}
+
+export interface Voice {
+  readonly ns: string;
+  readonly pools: Pools;
+  /** One line for one person: a variant when the line is a pool's canonical wording, else the line itself. */
+  line(db: DatabaseSync, userId: number, text: string): string;
+  /** A whole reply. Bubbles of the same pool stay on the same variant. Bubble objects ({ text }) pass through untouched. */
+  bubbles<T extends string | Bubble>(db: DatabaseSync, userId: number, list: T[]): T[];
+  /** The canonical wording of any variant, values kept. Anything that is not a variant comes back unchanged. */
+  canonical(text: string): string;
+  /** Every wording a canonical line may go out as (itself included). */
+  variantsOf(text: string): string[];
+  /** The same context, with say / sayTo / sayToOwed speaking through this voice. */
+  wrap(ctx: FlowContext): FlowContext;
+}
+
+const RAW = Symbol("unvoiced");
+type Speak = Pick<FlowContext, "say" | "sayTo" | "sayToOwed">;
+
+/** The context as the pipeline made it, for handing a message to another flow. */
+export function unvoiced(ctx: FlowContext): FlowContext {
+  const raw = (ctx as FlowContext & { [RAW]?: Speak })[RAW];
+  return raw ? { ...ctx, ...raw } : ctx;
+}
+
+export function makeVoice(ns: string, pools: Pools): Voice {
+  const exact = new Map<string, Hit>();
+  const back = new Map<string, string>();
+  const forward: { re: RegExp; key: string; fn: (...slots: string[]) => readonly string[] }[] = [];
+  const backward: { re: RegExp; fn: (...slots: string[]) => readonly string[] }[] = [];
+
+  for (const [key, def] of Object.entries(pools)) {
+    if (typeof def === "function") {
+      const marks = Array.from({ length: def.length }, (_, i) => `\u0001${i}\u0001`);
+      const templates = def(...marks);
+      forward.push({ re: templateRe(templates[0]!), key, fn: def });
+      for (const t of templates) backward.push({ re: templateRe(t), fn: def });
+      continue;
+    }
+    const variants = def.map((v) => (typeof v === "string" ? [v] : [...v]));
+    variants[0]!.forEach((line, j) => {
+      if (!exact.has(line)) exact.set(line, { key, j, variants });
+    });
+    for (const v of variants) v.forEach((line, j) => {
+      if (!back.has(line)) back.set(line, variants[0]![j] ?? line);
+    });
+  }
+
+  const slotsOf = (m: RegExpMatchArray, n: number): string[] => Array.from({ length: n }, (_, i) => m.groups?.[`s${i}`] ?? "");
+
+  function find(text: string): Hit | null {
+    const hit = exact.get(text);
+    if (hit) return hit;
+    for (const f of forward) {
+      const m = text.match(f.re);
+      if (m) return { key: f.key, j: 0, variants: f.fn(...slotsOf(m, f.fn.length)).map((v) => [v]) };
+    }
+    return null;
+  }
+
+  function bubbles<T extends string | Bubble>(db: DatabaseSync, userId: number, list: T[]): T[] {
+    const picked = new Map<string, number>();
+    return list.map((b) => {
+      if (typeof b !== "string") return b;
+      const hit = find(b);
+      if (!hit) return b;
+      let i = picked.get(hit.key);
+      if (i === undefined) {
+        const joined = hit.variants.map((v) => v.join("\n"));
+        // Only the person and the pool's name go in. See SECURITY above.
+        const got = (picker ?? pickVariant)(db, userId, `${ns}.${hit.key}`, joined);
+        i = Math.max(0, joined.indexOf(got));
+        picked.set(hit.key, i);
+      }
+      return (hit.variants[i]?.[hit.j] ?? b) as T;
+    });
+  }
+
+  function canonical(text: string): string {
+    const known = back.get(text);
+    if (known !== undefined) return known;
+    for (const b of backward) {
+      const m = text.match(b.re);
+      if (m) return b.fn(...slotsOf(m, b.fn.length))[0]!;
+    }
+    return text;
+  }
+
+  const voice: Voice = {
+    ns,
+    pools,
+    bubbles,
+    canonical,
+    line: (db, userId, text) => bubbles(db, userId, [text])[0]!,
+    variantsOf(text) {
+      const hit = find(text);
+      return hit ? hit.variants.map((v) => v[hit.j]!) : [text];
+    },
+    wrap(ctx) {
+      const plain = unvoiced(ctx);
+      const raw: Speak = { say: plain.say, sayTo: plain.sayTo, sayToOwed: plain.sayToOwed };
+      const wrapped: FlowContext & { [RAW]?: Speak } = {
+        ...plain,
+        say: (...b) => raw.say(...bubbles(plain.db, plain.user.id, b)),
+        sayTo: (userId, ...b) => raw.sayTo(userId, ...bubbles(plain.db, userId, b)),
+        sayToOwed: (userId, ...b) => raw.sayToOwed(userId, ...bubbles(plain.db, userId, b)),
+      };
+      wrapped[RAW] = raw;
+      return wrapped;
+    },
+  };
+  return voice;
+}
+
+const EMOJI_RE = /\p{Extended_Pictographic}/gu;
+
+/**
+ * Everything that would make a pool unsafe to ship, as plain sentences (empty when all is well): fewer than 3 or
+ * more than 5 variants, a variant with a different number of bubbles, a variant that drops or adds a value,
+ * capitals, em dashes, more than one emoji, an emoji the canonical line doesn't have, the same wording twice,
+ * or a line two pools would both claim.
+ */
+export function poolProblems(pools: Pools): string[] {
+  const out: string[] = [];
+  const owner = new Map<string, string>();
+  const voice = makeVoice("check", pools);
+  for (const [key, def] of Object.entries(pools)) {
+    const fn = typeof def === "function" ? def : null;
+    const marks = fn ? Array.from({ length: fn.length }, (_, i) => `\u0001${i}\u0001`) : [];
+    const variants = (fn ? fn(...marks).map((v) => [v]) : (def as readonly (string | readonly string[])[]).map((v) => (typeof v === "string" ? [v] : [...v])));
+    if (variants.length < 3 || variants.length > 5) out.push(`${key}: ${variants.length} variants, want 3 to 5`);
+    const first = variants[0]!;
+    const seen = new Set<string>();
+    for (const [i, v] of variants.entries()) {
+      const whole = v.join("\n");
+      if (seen.has(whole)) out.push(`${key}: variant ${i} repeats another one`);
+      seen.add(whole);
+      if (v.length !== first.length) out.push(`${key}: variant ${i} has ${v.length} bubbles, the first has ${first.length}`);
+      v.forEach((line, j) => {
+        const plain = line.replace(new RegExp(`${MARK}\\d+${MARK}`, "g"), "");
+        if (/[A-Z]/.test(plain.replace(/\b(?:STOP|HUMAN)\b/g, ""))) out.push(`${key}: variant ${i} has capitals`);
+        if (/[\u2014\u2013]|--/.test(plain)) out.push(`${key}: variant ${i} has a dash`);
+        const emoji = (plain.match(EMOJI_RE) ?? []).length;
+        const firstEmoji = ((first[j] ?? "").match(EMOJI_RE) ?? []).length;
+        if (emoji > 1) out.push(`${key}: variant ${i} has more than one emoji in a bubble`);
+        if (emoji > firstEmoji) out.push(`${key}: variant ${i} adds an emoji the first wording doesn't have`);
+        const slots = (t: string) => [...new Set(t.match(new RegExp(`${MARK}\\d+${MARK}`, "g")) ?? [])].sort().join(",");
+        if (slots(line) !== slots(first[j] ?? "")) out.push(`${key}: variant ${i} bubble ${j} carries different values`);
+        if (fn && slots(line).split(",").filter(Boolean).length !== fn.length) out.push(`${key}: variant ${i} doesn't use every value`);
+        const sample = line.replace(new RegExp(`${MARK}(\\d+)${MARK}`, "g"), "v$1");
+        const claimed = owner.get(sample);
+        if (claimed && claimed !== key) out.push(`${key}: "${sample}" is also in ${claimed}`);
+        owner.set(sample, key);
+        if (i === 0 && voice.variantsOf(sample).length !== variants.length) out.push(`${key}: its first wording isn't found as its own pool`);
+        if (voice.canonical(sample) !== (first[j] ?? "").replace(new RegExp(`${MARK}(\\d+)${MARK}`, "g"), "v$1")) out.push(`${key}: variant ${i} bubble ${j} reads back as another line`);
+      });
+    }
+  }
   return out;
 }

@@ -11,8 +11,10 @@ import { fallbackIntent, setModelCall } from "../src/ai.ts";
 import { walkingMinutes } from "../src/places.ts";
 import { laMinutes } from "../src/quiet.ts";
 import { RELAY_COPY, activeRelayFor, startRelay } from "../src/relay.ts";
-import { FOOD_COPY, claimServing, findRecipients, food, setFoodDeps, startFoodTimers, sweepFood, walkLine } from "../src/flows/food.ts";
+import { FOOD_COPY, FOOD_POOLS, FOOD_VOICE, claimServing, findRecipients, food, setFoodDeps, startFoodTimers, sweepFood, walkLine } from "../src/flows/food.ts";
 import { LOCATION_STALE_MS, getUserLocation, saveUserLocation } from "../src/location.ts";
+import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
+import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
 
 registerFlow(food);
 // Nothing in this file may reach the network: every model call fails, so every reply is fallback copy.
@@ -27,7 +29,14 @@ const LEAVEY = place("Leavey Library");
 const TCC = place("Ronald Tutor Campus Center");
 const VILLAGE = place("USC Village");
 
-type Call = { method: "sendMessage" | "editMessage"; chatId: string; text: string; id: string };
+type Call = { method: "sendMessage" | "editMessage"; chatId: string; text: string; id: string; raw: string };
+
+/**
+ * Facts locked, wording varied: any line Troy sends may be any variant from FOOD_POOLS. The fake adapter records
+ * each bubble read back to its first wording, with every count, place and time kept exactly as sent, so the
+ * assertions below hold for whichever variant went out. `raw` keeps the words as they were sent.
+ */
+const canon = (text: string): string => FOOD_VOICE.canonical(text);
 type Who = "poster" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "k";
 
 const hhmm = (mins: number) => {
@@ -49,7 +58,7 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; editOk?: boolean; ph
     capabilities: () => ({ tapbacks: true, typing: true, readReceipts: true, edits: true, effects: true, polls: false, groupChats: false, contactCard: true, liveLocation: true, ...opts.caps }),
     async sendMessage(chatId, text) {
       const id = `out-${++n}`;
-      calls.push({ method: "sendMessage", chatId, text, id });
+      calls.push({ method: "sendMessage", chatId, text: canon(text), id, raw: text });
       return { messageId: id };
     },
     sendImage: async () => null,
@@ -59,7 +68,7 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; editOk?: boolean; ph
     async stopTyping() {},
     react: async () => true,
     async editMessage(chatId, messageId, text) {
-      calls.push({ method: "editMessage", chatId, text, id: messageId });
+      calls.push({ method: "editMessage", chatId, text, id: messageId, raw: text });
       return settings.editOk;
     },
     sendPoll: async (_c, _q, options) => ({ optionMessageIds: options.map(() => null), mode: "tap" }),
@@ -739,4 +748,56 @@ test("no text to anyone else ever carries a location: only the alert, a walking 
   for (const secret of ["34.02", "118.28", String(VILLAGE.lat), String(VILLAGE.lng), "lastLat", "village"]) assert.ok(!everything.includes(secret), `leaked ${secret}`);
   // What the poster hears is a head count, never who or where.
   assert.ok(w.textsTo("poster").every((t) => !/walk|near (?!by)|where u/.test(t)), w.textsTo("poster").join(" | "));
+});
+
+// ---------- facts locked, wording varied ----------
+
+/** Always the last variant of a pool, so every pooled line goes out in words other than its first wording. */
+const lastVariant: VariantPicker = (_db, _userId, _key, variants) => variants[variants.length - 1]!;
+const numbersIn = (t: string): string => (t.match(/\d+/g) ?? []).join(",");
+/** Every bubble is one of its line's own variants, and carries exactly the numbers its first wording carries. */
+function assertSameFacts(voice: Voice, sent: { text: string; raw: string }[]): void {
+  for (const b of sent) {
+    assert.ok(voice.variantsOf(b.text).includes(b.raw), `not a known variant: ${b.raw}`);
+    assert.equal(numbersIn(b.raw), numbersIn(b.text), b.raw);
+  }
+}
+
+test("food wording pools are well formed, and the alert bubble, the ban and relay copy have no variants", () => {
+  assert.deepEqual(poolProblems(FOOD_POOLS), []);
+  for (const line of [`${LEAD}, about 6 bowls left`, `${LEAD}, 2 left`, `${LEAD}, last one`, `${LEAD}, all gone 😔`, ...FOOD_COPY.banned, ...RELAY_COPY.start]) {
+    assert.deepEqual(FOOD_VOICE.variantsOf(line), [line]);
+  }
+  // Every wording of a line carries the same count, time and place.
+  for (const v of FOOD_VOICE.variantsOf(walkLine(8, { kind: "spot", name: "tcc" }))) assert.match(v, /\ban 8 min walk from tcc$/);
+  for (const v of FOOD_VOICE.variantsOf("it's yours, grab it in the next 15 min")) assert.match(v, /\b15 min\b/);
+  for (const v of FOOD_VOICE.variantsOf("posted. i texted 3 people nearby")) assert.match(v, /\bi texted 3 people nearby$/);
+  for (const v of FOOD_VOICE.variantsOf("all gone at leavey 😔")) assert.match(v, /at leavey 😔$/);
+});
+
+test("food: with other wording on every line, counts, walking times, hold time and places are exactly the same", async () => {
+  setVariantPicker(lastVariant);
+  try {
+    const w = world();
+    const done = await w.post(6);
+    assert.deepEqual(done, ["posted. i texted 3 people nearby", "text me how many are left anytime, or 'we're out' when it's done"]);
+    const alert = w.sentTo("a");
+    // The count bubble is the one that gets edited: it is never reworded.
+    assert.equal(alert[0].raw, `${LEAD}, about 6 bowls left`);
+    assert.equal(alert[1].text, walkLine(6, { kind: "spot", name: "tcc" }));
+    assert.notEqual(alert[1].raw, alert[1].text);
+    assert.match(alert[1].raw, /\ba 6 min walk from tcc$/);
+    const claimed = await w.text("a", "me");
+    assert.equal(claimed[0], "it's yours, grab it in the next 15 min");
+    assert.equal(w.drop().servingsLeft, 5);
+    assert.deepEqual(await w.text("a", "got it"), [FOOD_COPY.pickedUp]);
+    assert.deepEqual(await w.text("poster", "2 left"), ["updated, 2 left"]);
+    const all = w.calls.filter((c) => c.method === "sendMessage");
+    assertSameFacts(FOOD_VOICE, all);
+    assert.ok(all.filter((c) => c.raw !== c.text).length >= 6, "the wording really did change");
+    // One emoji at most in any bubble, whatever the wording.
+    for (const c of all) assert.ok((c.raw.match(/\p{Extended_Pictographic}/gu) ?? []).length <= 1, c.raw);
+  } finally {
+    setVariantPicker(null);
+  }
 });

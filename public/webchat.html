@@ -50,13 +50,13 @@
   .bubble img { display: block; max-width: 100%; max-height: 240px; border-radius: 12px; margin: 2px 0; }
   .bubble.card { display: flex; gap: 10px; align-items: center; font-weight: 600; }
   .bubble.card span { width: 34px; height: 34px; border-radius: 50%; background: var(--cardinal); color: #fff; display: grid; place-items: center; font-family: "Instrument Serif", serif; font-size: 20px; font-weight: 400; }
-  .bubble.poll, .bubble.ask { display: flex; flex-direction: column; gap: 6px; min-width: 190px; padding: 10px; }
-  .bubble.poll small, .bubble.ask small { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); padding: 0 3px; }
+  .bubble.poll { display: flex; flex-direction: column; gap: 6px; min-width: 190px; padding: 10px; }
+  .bubble.poll small { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); padding: 0 3px; }
   .bubble.poll button { display: flex; justify-content: space-between; gap: 10px; width: 100%; border: 1px solid var(--line); background: var(--white); border-radius: 12px; padding: 8px 12px; cursor: pointer; text-align: left; }
   .bubble.poll button.on { background: var(--me-bubble); border-color: var(--me-bubble); color: #fff; font-weight: 600; }
-  .bubble.ask strong { font-weight: 600; padding: 0 3px; }
-  .bubble.ask button { border: 0; border-radius: 999px; background: var(--me-bubble); color: #fff; font-weight: 600; padding: 7px 14px; cursor: pointer; }
-  .bubble.ask em { font-style: normal; color: var(--stone); padding: 0 3px; }
+  .findmy { display: flex; gap: 8px; align-items: center; justify-content: space-between; border: 1px solid var(--line); background: var(--paper); border-radius: 14px; padding: 6px 6px 6px 12px; font-size: 12px; }
+  .findmy small { display: block; font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); }
+  .findmy button { flex: none; border: 0; border-radius: 999px; background: var(--me-bubble); color: #fff; font-weight: 600; padding: 6px 14px; cursor: pointer; }
   .bubble.pop { animation: pop .5s ease-out; }
   @keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
   .taps { position: absolute; top: -11px; right: -8px; display: flex; gap: 2px; }
@@ -103,7 +103,7 @@
 <header>
   <span class="badge"><i></i>Development simulator, not real iMessage</span>
   <h1>Three pretend phones, one Troy.</h1>
-  <p>Each column is a simulated phone texting Troy through the same privacy gate as the real thing. A phone has to open with <code>hey troy</code> before Troy will see or answer it. Tap one of Troy's bubbles to react, vote on his polls, and answer a location request with Share.</p>
+  <p>Each column is a simulated phone texting Troy through the same privacy gate as the real thing. A phone has to open with <code>hey troy</code> before Troy will see or answer it. Tap one of Troy's bubbles to react, vote on his polls, and accept a location request with the Find My request control at the top of the phone.</p>
 </header>
 <main id="phones"></main>
 
@@ -151,6 +151,7 @@
           <select class="spot" aria-label="Simulated location"></select>
           <label title="Pretend this chat already had messages before Troy went live. It can then never opt in with hey troy."><input type="checkbox" class="old"> Has old history</label>
         </div>
+        <div class="findmy" hidden><span><small>Find My request</small>Troy asked to see this phone's location</span><button type="button" class="accept" title="Accepts in Find My and starts sharing the spot picked above. Nothing shows in the chat.">Accept</button></div>
       </div>
       <div class="msgs" aria-live="polite"></div>
       <div class="bottom">
@@ -162,7 +163,7 @@
           <input class="text" placeholder="iMessage" autocomplete="off" aria-label="Message">
           <button class="send">Send</button>
         </form>
-        <div class="row"><button type="button" class="quick hey">Send "hey troy"</button><button type="button" class="quick pin">Send location pin</button></div>
+        <div class="row"><button type="button" class="quick hey">Send "hey troy"</button><button type="button" class="quick pin">Send location pin</button><button type="button" class="quick sharebubble" title="The + menu, then Location, then Share: a share bubble in the chat">Share location</button></div>
         <button type="button" class="judge">Hackathon judge? Skip USC verification (demo only)</button>
         <p class="note">The skip exists for this hackathon demo. The real campus version always checks a USC email.</p>
       </div>`;
@@ -214,7 +215,7 @@
       const isGroup = (p.chats.find((c) => c.chatId === chatId) || {}).isGroup;
 
       // Replay events into what the phone would show right now.
-      const bubbles = [], byId = new Map(), taps = new Map(), votes = new Map(), answered = new Set();
+      const bubbles = [], byId = new Map(), taps = new Map(), votes = new Map();
       let typing = false, readSeq = 0;
       for (const e of list) {
         if (e.kind === "typing") typing = !!e.on;
@@ -232,7 +233,6 @@
           if (t) { t.text = e.text; t.edited = true; }
         } else {
           const b = { ...e };
-          if (e.kind === "location" && e.targetId) answered.add(e.targetId);
           bubbles.push(b); byId.set(e.id, b);
           if (e.from === "troy") typing = false;
         }
@@ -247,8 +247,8 @@
         if (isGroup && !me && b.from !== prevFrom) msgs.append(el("div", "who", fromTroy ? "Troy" : b.from));
         prevFrom = b.from;
         const line = el("div", "line" + (me ? " me" : "") + (b.undelivered ? " undelivered" : ""));
-        const card = b.kind === "poll" || b.kind === "location_request";
-        const bubble = el(fromTroy && !card ? "button" : "div", "bubble" + (b.kind === "contact" ? " card" : b.kind === "poll" ? " poll" : b.kind === "location_request" ? " ask" : ""));
+        const card = b.kind === "poll";
+        const bubble = el(fromTroy && !card ? "button" : "div", "bubble" + (b.kind === "contact" ? " card" : b.kind === "poll" ? " poll" : ""));
         if (fromTroy && !card) { bubble.type = "button"; bubble.title = "Tap to react"; bubble.onclick = () => { p.picker = p.picker === b.id ? null : b.id; render(); }; }
         if (b.kind === "contact") { bubble.append(el("span", "", "T"), document.createTextNode("Troy (contact card)")); }
         else if (b.kind === "poll") {
@@ -261,15 +261,6 @@
             btn.onclick = async () => { fail(""); const r = await post("/webchat/vote", { handle: p.handle, pollId: b.id, optionIndex }).catch(() => null); if (!r) fail("Could not reach the Troy server."); else if (!r.ok) fail(r.error); poll(); };
             bubble.append(btn);
           });
-        }
-        else if (b.kind === "location_request") {
-          bubble.append(el("small", "", "Find My"), el("strong", "", "Requested Location"));
-          if (answered.has(b.id)) bubble.append(el("em", "", "Shared"));
-          else {
-            const btn = el("button", "", "Share"); btn.type = "button"; btn.title = "Shares the spot picked at the top of this phone";
-            btn.onclick = () => shareLocation(b.id);
-            bubble.append(btn);
-          }
         }
         else if (b.kind === "location") bubble.textContent = (b.shared ? "Started Sharing Location: " : "Location pin: ") + b.location.lat.toFixed(4) + ", " + b.location.lng.toFixed(4);
         else {
@@ -330,7 +321,10 @@
         if (!p.chat || !p.chats.some((c) => c.chatId === p.chat)) p.chat = p.chats[0].chatId;
         if (chatsChanged) renderChats();
         p.since = data.cursor;
-        if (p.first) { share.checked = data.phone.sharingLocation; old.checked = data.phone.hasOldHistory; }
+        if (p.first) old.checked = data.phone.hasOldHistory;
+        // Sharing can start from the Find My request control or the Share location button, so follow the server.
+        if (document.activeElement !== share) share.checked = data.phone.sharingLocation;
+        $(".findmy").hidden = !data.phone.findMyRequest;
         // Nothing left to skip once this phone is verified.
         $(".judge").hidden = $(".note").hidden = !!data.phone.verified;
         if (data.entries.length || p.first) { p.entries.push(...data.entries); render(); }
@@ -368,15 +362,24 @@
     };
     const here = () => { const s = SPOTS.find((x) => x[0] === spot.value) || SPOTS[0]; return { lat: s[1], lng: s[2] }; };
     $(".pin").onclick = () => send({ location: here() });
-    // The Share button on a "Requested Location" bubble: one share event to Troy, and the phone keeps sharing.
-    async function shareLocation(requestId) {
+    // "Share location": the + menu path. One share bubble to Troy, and the phone keeps sharing.
+    $(".sharebubble").onclick = async () => {
       fail("");
-      const r = await post("/webchat/share", { handle: p.handle, requestId, ...here() }).catch(() => null);
+      const r = await post("/webchat/share", { handle: p.handle, ...here() }).catch(() => null);
       if (!r) return fail("Could not reach the Troy server.");
       if (!r.ok) return fail(r.error);
-      if (r.accepted) share.checked = true;
+      if (!r.accepted) fail('Troy has not heard from this chat yet. Send "hey troy" first.');
       poll();
-    }
+    };
+    // "Find My request": accepting starts sharing the picked spot. Nothing shows in the chat and Troy gets no
+    // message, so he only notices on his next look (the background refresh, about every 45 seconds).
+    $(".accept").onclick = async () => {
+      fail("");
+      const r = await post("/webchat/findmy/accept", { handle: p.handle, ...here() }).catch(() => null);
+      if (!r) return fail("Could not reach the Troy server.");
+      if (!r.ok) return fail(r.error);
+      poll();
+    };
     const shareNow = () => post("/webchat/location", { handle: p.handle, ...(share.checked ? here() : { lat: null }) }).then((r) => { if (!r.ok) fail(r.error); }).catch(() => fail("Could not reach the Troy server."));
     share.onchange = shareNow;
     spot.onchange = () => { if (share.checked) shareNow(); };

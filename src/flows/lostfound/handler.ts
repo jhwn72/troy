@@ -1,5 +1,6 @@
 // Flow 1, lost and found: the conversation on top of match.ts, verify.ts and vision.ts.
 // Every reply here is a fixed lowercase template, so the whole flow works with no API key.
+// The facts are locked and the wording is varied: see LF_POOLS for which lines have variants and which never do.
 // Code decides every threshold, attempt limit, pickup code, contact rule and DPS detail.
 //
 // STATE MACHINE (flow_state.flow = "lost_found", one open step per user, data always carries what it needs)
@@ -65,6 +66,8 @@ import { dropPending, isBusy, isProtected, onSweep, onUserGone, parkAsk, registe
 import { pullDetails } from "../../ai.ts";
 import { findPlace } from "../../places.ts";
 import { RELAY_COPY, endRelayByContext, onRelayEnd, startRelay } from "../../relay.ts";
+import type { Pools, Voice } from "../reports-shared.ts";
+import { makeVoice } from "../reports-shared.ts";
 import type { Category, ItemProfile, LostReport } from "./types.ts";
 import { canonTokens, isColorWord, isGenericWord, normalizeCategory } from "./types.ts";
 import type { MatchResult } from "./match.ts";
@@ -116,7 +119,254 @@ export const COPY = {
   win: "that's a win. fight on 🎉",
   sorted: "that one's already sorted. text me if u need anything",
   which: "did u lose something or find something? if u found it, send me a pic",
+  needWords: "tell me in words and i'll take it from there",
+  describeWords: "describe it in words for me",
+  nameMatched: "the name on it matches ur usc account, so ur good",
+  howDescribed: "here's how they described it:",
+  finderNo: "ok, not a match. i'll keep looking for the owner",
+  finderYes: "good news. the person who found it says it sounds like urs",
+  proofSame: "that's the same one. it's urs",
+  proofUnsettled: "that pic didn't settle it",
+  proofCantCheck: "can't check photos rn",
+  proofHow: "send a pic of it if u have one, or say no",
+  cantConnect: "couldn't confirm this one's urs, so i can't connect u",
+  reportStaysOpen: "ur report stays open in case another one turns up",
+  okToMeet: "the person holding it is ok to meet u",
+  dropAtDpsOk: "ok, drop it at dps lost and found when u can",
+  dropAtDps: "drop it at dps lost and found when u can",
+  takeFromThere: "they'll take it from there",
+  holderDropping: "the person holding it is dropping it there",
+  keepHolding: "ok, hang onto it. i'll text u if someone else claims it",
+  checkingHandoff: "checking how the finder wants to hand it off. i'll text u right back",
+  atDps: "it's at dps lost and found",
+  finderDropping: "the finder's dropping it at dps lost and found",
+  finderDown: "the finder's down to meet up and hand it back",
+  /** Goes with the contact-sharing warning, so it stays word for word too. */
+  consentHow: "reply yes for the group chat, or no and i'll pass messages between u instead",
+  noGroup: "no group chat then",
+  groupFailed: "couldn't start the group chat",
+  waitingThem: "cool. waiting on them to ok it too",
+  inGroupFinder: "ur both in a group chat now. thanks for looking out",
+  inGroupOwner: "ur both in a group chat now",
+  loveThat: "love that",
+  gladBack: "glad u got it back",
+  closedReport: "closed out ur report",
+  didYouGet: "did u get it back? text me got it when u do",
+  noHandoffAnswer: "didn't hear back on the handoff, so dps it is",
+  dropped: "ok, dropped it. text me if u need me",
+  stoppedOpen: "ok, stopped. ur report's still open and i'll text u if something turns up",
+  stillTextIfYes: "ok. i'll still text u if the person holding it says it's urs",
+  skipping: "ok, skipping that one",
+  ownerWaitingDps: "ok. the owner's waiting on it tho, so dps it is",
+  gotItWhenever: "ok. text me got it back whenever u have it",
+  reply123: "reply 1, 2 or 3",
+  reply12: "reply 1 to meet them or 2 to drop it at dps",
+  noCode: "no code on this one. u two are sorting the handoff directly",
+  noRush: "no rush. text me got it when u do",
+  soundsGood: "sounds good",
 };
+
+/** Lines with a value in them (a summary, a pickup code). Code puts the value in; these only hold the words around it. */
+const T = {
+  logged: (summary: string) => `logged it: ${summary}`,
+  finderClaims: (summary: string, theirs: string) => `someone says the ${summary} u found ${theirs}`,
+  tryingToClaim: (summary: string) => `someone's trying to claim the ${summary} u found`,
+  nudge: (things: string) => `dps is safest for ${things}, but ur call`,
+  ownerCheckedOut: (summary: string) => `the owner of the ${summary} u found just checked out`,
+  ownerCheckedOutDps: (summary: string) => `the owner of the ${summary} u turned in just checked out`,
+  theirCode: (code: string) => `their pickup code is ${code}`,
+  tellCode: (code: string) => `tell them it's for pickup code ${code}`,
+  urCode: (code: string) => `ur pickup code is ${code}`,
+  thanksFrom: (summary: string) => `the owner of the ${summary} wanted u to have this:`,
+};
+
+// ---------- wording variants (facts locked, wording varied) ----------
+//
+// Variant 0 of every pool is the line the code writes. The others say the same thing with the same values.
+// NOT in any pool, so always word for word: COPY.dangerous (the dangerous-item line), COPY.consent and
+// COPY.consentHow (the contact-sharing warning and its yes/no), COPY.groupFirst (the group chat's first
+// message), COPY.win (the confetti line), the dps address / hours / contact lines (directory text), relay
+// copy, and anyone's quoted words.
+//
+// SECURITY (what a claimant can learn): which variant goes out is picked from the person and the pool's name
+// by the picker's own rotation. Nothing about the match score, the description score or the hidden details
+// is ever an input, and no pool is chosen by score either: a miss always reads from the same pools whether it
+// was off by a little or a lot. None of the miss wordings say or hint which part was wrong or how close it was.
+export const LF_POOLS: Pools = {
+  // finder: reporting
+  askWhat: [COPY.askWhat, "what'd u find?", "what kind of thing is it?"],
+  askFoundPlace: [COPY.askFoundPlace, "where was it?", "where'd u spot it?", "whereabouts did u find it?"],
+  askMarks: [
+    COPY.askMarks,
+    "is there anything on it only the owner would know? a sticker, a mark, a case, a name. i keep that part between us",
+    "what's on it that only the owner would know? stickers, marks, a case, a name. that stays between us",
+  ],
+  logged: (summary) => [T.logged(summary), `got it logged: ${summary}`, `ok, it's logged: ${summary}`],
+  holdOnto: [COPY.holdOnto, "keep it with u for now. i'll text u when the owner turns up", "hold onto it for now, and i'll text u once the owner turns up"],
+  finderHeadsUp: [COPY.finderHeadsUp, "i think someone's already looking for this. checking with them now", "someone may be looking for this already. checking with them now"],
+
+  // owner: reporting
+  askLostWhat: [COPY.askLostWhat, "ah no. what'd u lose?", "oh no, what's missing?"],
+  askLostPlace: [COPY.askLostPlace, "any idea where u lost it? idk is fine", "where do u think it went missing? idk is fine"],
+  askLostTime: [COPY.askLostTime, "when did u last see it? rough is fine", "when's the last time u had it? rough is fine"],
+  checking: [COPY.checking, "on it. looking through what's been turned in", "on it, checking what's been turned in rn"],
+  nothingYet: [
+    [COPY.nothingYet, COPY.willText],
+    ["nothing yet. still looking", "i'll text u as soon as something turns up"],
+    ["nothing's turned up yet, still looking", "the second something does, i'll text u"],
+  ],
+  which: [COPY.which, "is this something u lost or something u found? if u found it, send me a pic", "lost something or found something? if u found it, send me a pic"],
+  needWords: [COPY.needWords, "type it out for me and i'll take it from there", "i need it in words. tell me and i'll take it from there"],
+
+  // the claim: every claimant gets these, whatever the scores say
+  mightHave: [COPY.mightHave, "i might have something", "think i might have something", "may have something here"],
+  turnedUp: [COPY.turnedUp, "something that looks like what u lost just turned up", "hey, something like what u lost just turned up"],
+  quickCheck: [COPY.quickCheck, "quick check first tho", "just a quick check first"],
+  describe: [
+    COPY.describe,
+    "tell me about it in ur own words. anything only the owner would know, like marks, stickers or what's on it",
+    "describe it in ur own words for me. marks, stickers, what's on it, anything only the owner would know",
+  ],
+  describeWords: [COPY.describeWords, "i need it in words. describe it for me", "can u describe it in words?"],
+  passed: [COPY.passed, "yep, that checks out. it's urs", "that lines up. it's urs"],
+  nameMatched: [COPY.nameMatched, "the name on it matches ur usc account. ur good", "name on it matches ur usc account, so ur all set"],
+  // After a miss. Same pools for every miss, and no wording here says what was wrong or how near it was.
+  retry: [
+    COPY.retry,
+    ["that doesn't match what i have", "u get one more try. describe it again with anything specific u remember"],
+    ["hmm, that's not lining up with what i have", "one more try. tell me again, anything specific u remember"],
+  ],
+  cantConfirmDescription: [COPY.cantConfirmDescription, "i couldn't confirm it from ur description", "wasn't able to confirm it from ur description"],
+  cantConfirm: [COPY.cantConfirm, "something like it turned up, but i wasn't able to confirm it's urs", "something like it did turn up, but i couldn't confirm it's urs"],
+  askProof: [
+    COPY.askProof,
+    "do u have an old photo of it, or a find my screenshot? send it here, or say no",
+    "an old photo of it or a find my screenshot would help. send it here, or say no",
+  ],
+  proofHow: [COPY.proofHow, "if u have a pic of it, send it here. or say no", "send me a pic of it if u've got one, or say no"],
+  proofSame: [COPY.proofSame, "yep, that's the same one. it's urs", "that's the one. it's urs"],
+  proofUnsettled: [COPY.proofUnsettled, "that pic wasn't enough to settle it", "couldn't settle it from that pic"],
+  proofCantCheck: [COPY.proofCantCheck, "i can't check photos rn", "photos aren't something i can check rn"],
+  dpsInPerson: [COPY.dpsInPerson, "i can't confirm this one over text. dps can help u in person", "this one i can't confirm by text, but dps can help u in person"],
+  askingHolder: [COPY.askingHolder, "i'll check with the person holding it and text u back either way", "let me ask the person holding it. i'll text u back either way"],
+  stillWaiting: [
+    COPY.stillWaiting,
+    "haven't heard back from the person holding it yet. i'll text u either way",
+    "no word yet from the person holding it. i'll text u either way",
+  ],
+  checkingHolder: [
+    COPY.checkingHolder,
+    ["ok, checking that with the person who found it", "either way, i'll text u back"],
+    ["got it. running that by the person who found it", "i'll text u back whichever way it goes"],
+  ],
+  finderYes: [COPY.finderYes, "good news. the person who found it says that sounds like urs", "good news, the person who found it thinks it sounds like urs"],
+  cantConnect: [COPY.cantConnect, "i couldn't confirm this one's urs, so i can't connect u", "wasn't able to confirm this one's urs, so i can't connect u"],
+  reportStaysOpen: [COPY.reportStaysOpen, "ur report's staying open in case another one turns up", "i'm keeping ur report open in case another one turns up"],
+  okToMeet: [COPY.okToMeet, "the person holding it is good to meet u", "the person holding it said ok to meeting u"],
+  timedOut: [
+    COPY.timedOut,
+    ["that check ran out of time, so i let it go for now", "text me still looking and i'll pick it back up"],
+    ["that check timed out, so i set it aside for now", "just text me still looking and i'll pick it right back up"],
+  ],
+  holderQuiet: [
+    COPY.holderQuiet,
+    ["i never heard back from the person holding it, so i couldn't confirm it", "ur report is still open and i'll keep looking"],
+    ["the person holding it didn't get back to me, so i couldn't confirm it", "ur report stays open and i'll keep looking"],
+  ],
+  lostTouch: [
+    COPY.lostTouch,
+    ["sorry, i lost touch with the person on the other end of that one", "ur report is still open and i'll text u if it turns up again"],
+    ["i lost touch with the person on the other end of that one, sorry", "ur report stays open and i'll text u if it turns up again"],
+  ],
+  stoppedOpen: [
+    COPY.stoppedOpen,
+    "ok, i stopped. ur report's still open and i'll text u if something turns up",
+    "ok, stopping there. ur report's still open and i'll text u if something turns up",
+  ],
+  stillTextIfYes: [
+    COPY.stillTextIfYes,
+    "ok. if the person holding it says it's urs, i'll still text u",
+    "ok, no problem. i'll still text u if the person holding it says it's urs",
+  ],
+
+  // finder: the check and the call
+  finderClaims: (summary, theirs) => [T.finderClaims(summary, theirs), `someone's saying the ${summary} u found ${theirs}`, `someone thinks the ${summary} u found ${theirs}`],
+  tryingToClaim: (summary) => [T.tryingToClaim(summary), `someone wants to claim the ${summary} u found`, `someone's asking to claim the ${summary} u found`],
+  howDescribed: [COPY.howDescribed, "this is how they described it:", "their description:"],
+  finderCheck: [COPY.finderCheck, "does that sound like what u found? yes or no", "that sound like the one u found? yes or no"],
+  finderNo: [COPY.finderNo, "ok, not a match then. i'll keep looking for the owner", "got it, not a match. i'll keep looking for the owner"],
+  finderCall: [
+    COPY.finderCall,
+    "i couldn't confirm this person, so it's ur call: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it",
+    "wasn't able to confirm this person. up to u: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it",
+  ],
+  reply123: [COPY.reply123, "just reply 1, 2 or 3", "need a 1, 2 or 3 from u"],
+  claimDropped: [
+    COPY.claimDropped,
+    "the person who was asking about that one dropped it. i'll text u if someone else asks",
+    "whoever was asking about that one dropped it. i'll text u if someone else asks",
+  ],
+  skipping: [COPY.skipping, "ok, i'll skip that one", "got it, skipping that one"],
+  keepHolding: [COPY.keepHolding, "ok, keep it with u. i'll text u if someone else claims it", "ok, hold onto it. if someone else claims it i'll text u"],
+
+  // handoff
+  ownerCheckedOut: (summary) => [T.ownerCheckedOut(summary), `the owner of the ${summary} u found checks out`, `found the owner of the ${summary} u found, and they check out`],
+  nudge: (things) => [T.nudge(things), `dps is the safest way for ${things}, but it's ur call`, `for ${things} dps is safest. ur call tho`],
+  handoffAsk: [
+    COPY.handoffAsk,
+    "how do u want to get it back to them? 1) hold it and meet them, 2) drop it at dps",
+    "how should we do the handoff? 1) hold it and meet them, 2) drop it at dps",
+  ],
+  reply12: [COPY.reply12, "just reply 1 to meet them or 2 to drop it at dps", "it's 1 to meet them or 2 to drop it at dps"],
+  checkingHandoff: [
+    COPY.checkingHandoff,
+    "asking the finder how they want to hand it off. i'll text u right back",
+    "seeing how the finder wants to hand it off. i'll text u right back",
+  ],
+  meetBusy: [COPY.meetBusy, "pick somewhere busy to meet, in the daytime if u can", "meet up somewhere busy, and in the daytime if u can"],
+  finderDown: [COPY.finderDown, "the finder's good to meet up and hand it back", "the finder is down to meet and hand it back"],
+  noGroup: [COPY.noGroup, "ok, no group chat", "no group chat, got it"],
+  groupFailed: [COPY.groupFailed, "the group chat wouldn't start", "i couldn't get the group chat started"],
+  waitingThem: [COPY.waitingThem, "cool, just waiting on them to ok it too", "got it. waiting on them to ok it too"],
+  waitingConsent: [COPY.waitingConsent, "they haven't ok'd it yet. i'll text u when they do", "waiting on them to ok it still. i'll text u when they do"],
+  inGroupFinder: [COPY.inGroupFinder, "u two are in a group chat now. thanks for looking out", "ur both in a group chat now. appreciate u looking out"],
+  inGroupOwner: [COPY.inGroupOwner, "u two are in a group chat now", "ok, ur both in a group chat now"],
+  ownerWaitingDps: [COPY.ownerWaitingDps, "ok. the owner is waiting on it tho, so it goes to dps", "ok, but the owner's waiting on it, so dps it is"],
+  noHandoffAnswer: [COPY.noHandoffAnswer, "never heard back on the handoff, so dps it is", "didn't hear back about the handoff, so it goes to dps"],
+
+  // dps and pickup codes (the code itself is put in by code, never reworded)
+  ownerCheckedOutDps: (summary) => [T.ownerCheckedOutDps(summary), `the owner of the ${summary} u turned in checks out`, `found the owner of the ${summary} u turned in, and they check out`],
+  theirCode: (code) => [T.theirCode(code), `the pickup code they'll use is ${code}`, `they'll pick it up with code ${code}`],
+  dropAtDps: [COPY.dropAtDps, "take it to dps lost and found when u can", "when u get a chance, drop it at dps lost and found"],
+  dropAtDpsOk: [COPY.dropAtDpsOk, "ok, take it to dps lost and found when u can", "ok. when u get a chance, drop it at dps lost and found"],
+  tellCode: (code) => [T.tellCode(code), `let them know it's for pickup code ${code}`, `say it's for pickup code ${code} when u drop it`],
+  takeFromThere: [COPY.takeFromThere, "they take it from there", "they'll handle it from there"],
+  atDps: [COPY.atDps, "it's over at dps lost and found", "dps lost and found has it"],
+  finderDropping: [COPY.finderDropping, "the finder is taking it to dps lost and found", "the finder's bringing it to dps lost and found"],
+  holderDropping: [COPY.holderDropping, "the person holding it is taking it there", "the person holding it is bringing it there"],
+  urCode: (code) => [T.urCode(code), `here's ur pickup code: ${code}`, `ur code for pickup is ${code}`],
+  noCode: [COPY.noCode, "there's no code on this one. u two are sorting the handoff directly", "no pickup code here, u two are sorting the handoff directly"],
+  gotItHint: [COPY.gotItHint, "text me got it when it's back with u", "once it's back with u, text me got it"],
+  gotItWhenever: [COPY.gotItWhenever, "ok. whenever u have it, text me got it back", "ok, just text me got it back once u have it"],
+  noRush: [COPY.noRush, "no rush at all. text me got it when u do", "take ur time. text me got it when u do"],
+  didYouGet: [COPY.didYouGet, "did it make it back to u? text me got it when it does", "is it back with u yet? text me got it when it is"],
+  soundsGood: [COPY.soundsGood, "sounds good to me", "ok, sounds good"],
+
+  // closing the loop
+  loveThat: [COPY.loveThat, "love to hear it", "so glad"],
+  askThanks: [
+    COPY.askThanks,
+    "wanna send the finder a quick thank-you? text it here and i'll pass it along. or say skip",
+    "if u want to thank the finder, text it here and i'll pass it on. or say skip",
+  ],
+  thanksFrom: (summary) => [T.thanksFrom(summary), `the owner of the ${summary} asked me to pass this on:`, `this is from the owner of the ${summary}:`],
+  gladBack: [COPY.gladBack, "so glad u got it back", "glad it's back with u"],
+  closedReport: [COPY.closedReport, "i closed out ur report", "ur report's closed out"],
+  sorted: [COPY.sorted, "that one's already taken care of. text me if u need anything", "that one's sorted already. text me if u need anything"],
+  dropped: [COPY.dropped, "ok, i dropped it. text me if u need me", "ok, it's dropped. text me if u need me"],
+};
+
+export const LF_VOICE: Voice = makeVoice("lost_found", LF_POOLS);
 
 /** Proof photos only count when the same-item check is at least this sure. */
 export const PROOF_MIN_CONFIDENCE = 70;
@@ -205,7 +455,7 @@ function ioFrom(ctx: FlowContext): LostFoundIo {
     me: ctx.user.id,
     adapter: ctx.adapter,
     async say(userId, ...bubbles) {
-      const real = bubbles.filter((b): b is string | Bubble => !!b);
+      const real = LF_VOICE.bubbles(ctx.db, userId, bubbles.filter((b): b is string | Bubble => !!b));
       if (!real.length) return [];
       // The other person in a claim is owed these: they are answers on their own report or the item they found,
       // so quiet hours don't hold them back (a dropped question would leave a step open on words nobody saw).
@@ -342,7 +592,9 @@ type Say = string | Bubble | null | undefined | false;
  * "failed" means the bubbles could not be sent (they texted STOP): no step is opened on a question nobody saw.
  */
 async function ask(io: LostFoundIo, userId: number, step: Step, data: Data, ...bubbles: Say[]): Promise<"sent" | "parked" | "failed"> {
-  const real = bubbles.filter((b): b is string | Bubble => !!b);
+  // Worded here, once, so a question that has to wait is parked in the same words it will be asked in.
+  // (As bubble objects, they go through io.say untouched.)
+  const real = LF_VOICE.bubbles(io.db, userId, bubbles.filter((b): b is string | Bubble => !!b)).map((b): Bubble => (typeof b === "string" ? { text: b } : b));
   const cur = getFlowState(io.db, userId);
   const sameMatch = cur?.flow === "lost_found" && Number(cur.data.matchId) === Number(data.matchId);
   if (userId !== io.me && cur && !sameMatch) {
@@ -548,7 +800,7 @@ async function continueFound(ctx: FlowContext, io: LostFoundIo, draft: FoundDraf
   }
   const id = saveFound(io.db, me, draft);
   io.setState(me, null);
-  await io.say(me, `logged it: ${draft.profile.publicSummary || kindOf(draft.profile.category)}`, COPY.holdOnto);
+  await io.say(me, T.logged(draft.profile.publicSummary || kindOf(draft.profile.category)), COPY.holdOnto);
   await afterNewListing(io, id, "found");
 }
 
@@ -668,7 +920,7 @@ async function answerLost(ctx: FlowContext, io: LostFoundIo, step: Step, data: D
     return;
   }
   if (!text) {
-    await io.say(ctx.user.id, "tell me in words and i'll take it from there");
+    await io.say(ctx.user.id, COPY.needWords);
     return;
   }
   const w = word(text);
@@ -789,7 +1041,7 @@ async function startClaim(io: LostFoundIo, pair: Pair, why: "found_later" | "jus
     const ok = nameMatches(name, owner.uscEmail, owner.name);
     addVerification(db, pair.match.id, "name_match", null, null, ok ? "pass" : "fail");
     if (ok) {
-      await io.say(owner.id, opener, "the name on it matches ur usc account, so ur good");
+      await io.say(owner.id, opener, COPY.nameMatched);
       await markVerified(io, pair);
     } else {
       // Same neutral line as any other miss: it says nothing about what is on the item or how it was checked.
@@ -810,7 +1062,7 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
   const me = ctx.user.id;
   const { db } = io;
   if (!text) {
-    await io.say(me, "describe it in words for me");
+    await io.say(me, COPY.describeWords);
     return;
   }
   const answer = text.slice(0, 1200);
@@ -870,7 +1122,7 @@ async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score:
   await io.say(pair.ownerId, ...COPY.checkingHolder);
   await ask(io, pair.ownerId, "await_finder", { matchId: pair.match.id });
   const theirs = PLURAL.has(normalizeCategory(pair.profile.category)) ? "are theirs" : "is theirs";
-  const res = await ask(io, pair.finderId, "finder_check", { matchId: pair.match.id }, `someone says the ${pair.summary} u found ${theirs}`, "here's how they described it:", quote(answer), COPY.finderCheck);
+  const res = await ask(io, pair.finderId, "finder_check", { matchId: pair.match.id }, T.finderClaims(pair.summary, theirs), COPY.howDescribed, quote(answer), COPY.finderCheck);
   if (res === "failed") await finderUnreachable(io, pair);
 }
 
@@ -896,13 +1148,13 @@ async function handleFinderCheck(ctx: FlowContext, io: LostFoundIo, pair: Pair, 
     addVerification(io.db, pair.match.id, "finder_confirm", null, null, "fail");
     release(io.db, pair.match, "rejected");
     clearFor(io, pair.ownerId, pair.match.id);
-    await io.say(me, "ok, not a match. i'll keep looking for the owner");
+    await io.say(me, COPY.finderNo);
     await io.say(pair.ownerId, ...NOTHING_YET);
     await rematch(io, pair.match.foundListingId);
     return;
   }
   addVerification(io.db, pair.match.id, "finder_confirm", null, null, "pass");
-  await io.say(pair.ownerId, "good news. the person who found it says it sounds like urs");
+  await io.say(pair.ownerId, COPY.finderYes);
   await markVerified(io, pair);
 }
 
@@ -938,11 +1190,11 @@ async function handleProof(ctx: FlowContext, io: LostFoundIo, pair: Pair, w: str
     const ok = !!res && res.same && res.confidence >= PROOF_MIN_CONFIDENCE;
     if (res) addVerification(db, pair.match.id, "proof_photo", null, res.confidence, ok ? "pass" : "fail");
     if (ok && found?.status === "open") {
-      await io.say(me, "that's the same one. it's urs");
+      await io.say(me, COPY.proofSame);
       await markVerified(io, pair);
       return;
     }
-    await toFinderDecide(io, pair, res ? "that pic didn't settle it" : "can't check photos rn");
+    await toFinderDecide(io, pair, res ? COPY.proofUnsettled : COPY.proofCantCheck);
     return;
   }
   if (yesNo(w) === false || /\b(?:dont have|no photo|no pic|none|nothing|cant find)\b/.test(w)) {
@@ -950,7 +1202,7 @@ async function handleProof(ctx: FlowContext, io: LostFoundIo, pair: Pair, w: str
     return;
   }
   if (ctx.intent.flow !== "lost_found") return;
-  await io.say(me, "send a pic of it if u have one, or say no");
+  await io.say(me, COPY.proofHow);
 }
 
 /** The finder is shown the claimant's own words and makes the call. The claimant is shown nothing. */
@@ -961,7 +1213,7 @@ async function toFinderDecide(io: LostFoundIo, pair: Pair, lead: string | null):
   await ask(io, pair.ownerId, "await_finder", { matchId: pair.match.id });
   const answers = (db.prepare("SELECT ownerAnswer FROM verifications WHERE matchId = ? AND method = 'blind_description' AND ownerAnswer IS NOT NULL ORDER BY id").all(pair.match.id) as { ownerAnswer: string }[]).map((r) => r.ownerAnswer);
   const quotes = [...new Set([pair.report.description, ...answers].map(quote))].slice(-3);
-  const res = await ask(io, pair.finderId, "finder_decide", { matchId: pair.match.id }, `someone's trying to claim the ${pair.summary} u found`, "here's how they described it:", ...quotes, COPY.finderCall);
+  const res = await ask(io, pair.finderId, "finder_decide", { matchId: pair.match.id }, T.tryingToClaim(pair.summary), COPY.howDescribed, ...quotes, COPY.finderCall);
   if (res === "failed") {
     await finderUnreachable(io, pair);
     return;
@@ -978,7 +1230,7 @@ async function finderDecides(io: LostFoundIo, pair: Pair, choice: 1 | 2 | 3): Pr
     // Someone else was verified for it in the meantime.
     release(db, pair.match, "rejected");
     await io.say(pair.finderId, COPY.sorted);
-    await io.say(pair.ownerId, "couldn't confirm this one's urs, so i can't connect u");
+    await io.say(pair.ownerId, COPY.cantConnect);
     return;
   }
   if (choice === 1) {
@@ -986,7 +1238,7 @@ async function finderDecides(io: LostFoundIo, pair: Pair, choice: 1 | 2 | 3): Pr
     setMatch(db, pair.match.id, "verified");
     setListing(db, pair.match.foundListingId, "verified");
     setListing(db, pair.match.lostListingId, "verified");
-    await io.say(pair.ownerId, "the person holding it is ok to meet u");
+    await io.say(pair.ownerId, COPY.okToMeet);
     await startMeet(io, pair, true);
     return;
   }
@@ -994,11 +1246,11 @@ async function finderDecides(io: LostFoundIo, pair: Pair, choice: 1 | 2 | 3): Pr
   release(db, pair.match, "rejected");
   if (choice === 2) {
     db.prepare("UPDATE listings SET heldBy = 'dps' WHERE id = ?").run(pair.match.foundListingId);
-    await io.say(pair.finderId, "ok, drop it at dps lost and found when u can", ...dpsWhere(db), "they'll take it from there");
-    await io.say(pair.ownerId, COPY.dpsInPerson, "the person holding it is dropping it there", ...dpsReach(db));
+    await io.say(pair.finderId, COPY.dropAtDpsOk, ...dpsWhere(db), COPY.takeFromThere);
+    await io.say(pair.ownerId, COPY.dpsInPerson, COPY.holderDropping, ...dpsReach(db));
   } else {
-    await io.say(pair.finderId, "ok, hang onto it. i'll text u if someone else claims it");
-    await io.say(pair.ownerId, "couldn't confirm this one's urs, so i can't connect u", "ur report stays open in case another one turns up");
+    await io.say(pair.finderId, COPY.keepHolding);
+    await io.say(pair.ownerId, COPY.cantConnect, COPY.reportStaysOpen);
   }
   await rematch(io, pair.match.foundListingId);
 }
@@ -1032,10 +1284,10 @@ async function startHandoff(io: LostFoundIo, pair: Pair): Promise<void> {
     return;
   }
   const category = normalizeCategory(pair.profile.category);
-  const nudge = category === "wallet" ? "dps is safest for wallets, but ur call" : category === "phone" ? "dps is safest for phones, but ur call" : null;
+  const nudge = category === "wallet" ? T.nudge("wallets") : category === "phone" ? T.nudge("phones") : null;
   clearFor(io, pair.ownerId, pair.match.id);
-  await io.say(pair.ownerId, "checking how the finder wants to hand it off. i'll text u right back");
-  const res = await ask(io, pair.finderId, "handoff_choice", { matchId: pair.match.id }, `the owner of the ${pair.summary} u found just checked out`, nudge, COPY.handoffAsk);
+  await io.say(pair.ownerId, COPY.checkingHandoff);
+  const res = await ask(io, pair.finderId, "handoff_choice", { matchId: pair.match.id }, T.ownerCheckedOut(pair.summary), nudge, COPY.handoffAsk);
   if (res === "failed") await dpsPath(io, pair);
 }
 
@@ -1060,9 +1312,9 @@ async function dpsPath(io: LostFoundIo, pair: Pair): Promise<void> {
   clearConsent(db, pair.match.id);
   const where = dpsWhere(db);
   clearFor(io, pair.finderId, pair.match.id);
-  if (alreadyThere) await io.say(pair.finderId, `the owner of the ${pair.summary} u turned in just checked out`, `their pickup code is ${code}`);
-  else await io.say(pair.finderId, "drop it at dps lost and found when u can", ...where, `tell them it's for pickup code ${code}`);
-  await io.say(pair.ownerId, alreadyThere ? "it's at dps lost and found" : "the finder's dropping it at dps lost and found", ...where, `ur pickup code is ${code}`, COPY.gotItHint);
+  if (alreadyThere) await io.say(pair.finderId, T.ownerCheckedOutDps(pair.summary), T.theirCode(code));
+  else await io.say(pair.finderId, COPY.dropAtDps, ...where, T.tellCode(code));
+  await io.say(pair.ownerId, alreadyThere ? COPY.atDps : COPY.finderDropping, ...where, T.urCode(code), COPY.gotItHint);
   await ask(io, pair.ownerId, "await_pickup", { matchId: pair.match.id });
 }
 
@@ -1095,7 +1347,7 @@ async function startMeet(io: LostFoundIo, pair: Pair, busy: boolean): Promise<vo
   setSetting(db, consentKey(pair.match.id), "{}");
   touch(db, pair.match.id);
   for (const [u, role] of [[finder, "finder"], [owner, "owner"]] as const) {
-    const res = await ask(io, u.id, "gc_consent", { matchId: pair.match.id, role, busy }, role === "owner" ? "the finder's down to meet up and hand it back" : null, COPY.consent);
+    const res = await ask(io, u.id, "gc_consent", { matchId: pair.match.id, role, busy }, role === "owner" ? COPY.finderDown : null, COPY.consent);
     if (res !== "failed") continue;
     // The warning can't reach this person, so there is no question for anyone to say yes to.
     clearFor(io, finder.id, pair.match.id);
@@ -1141,11 +1393,11 @@ async function handleConsent(ctx: FlowContext, io: LostFoundIo, pair: Pair, data
   }
   if (yn === null) {
     if (ctx.intent.flow !== "lost_found") return;
-    await io.say(me, "reply yes for the group chat, or no and i'll pass messages between u instead");
+    await io.say(me, COPY.consentHow);
     return;
   }
   if (!yn) {
-    await relayHandoff(io, pair, busy, "no group chat then");
+    await relayHandoff(io, pair, busy, COPY.noGroup);
     return;
   }
   let consent: { finder?: boolean; owner?: boolean } = {};
@@ -1160,7 +1412,7 @@ async function handleConsent(ctx: FlowContext, io: LostFoundIo, pair: Pair, data
     touch(db, pair.match.id);
     // Still the consent step, marked answered: nothing is handed off yet, so "ok" here can't close anything.
     io.setState(me, "gc_consent", { ...data, answered: true });
-    await io.say(me, "cool. waiting on them to ok it too");
+    await io.say(me, COPY.waitingThem);
     return;
   }
   clearConsent(db, pair.match.id);
@@ -1170,13 +1422,13 @@ async function handleConsent(ctx: FlowContext, io: LostFoundIo, pair: Pair, data
   const stillAllowed = !!finder && !!owner && [finder, owner].every((u) => u.contactMode === "direct" && u.groupChatsAllowed && !u.stopped);
   const chatId = stillAllowed && io.adapter ? await io.adapter.createGroupChat([finder.handle, owner.handle], COPY.groupFirst).catch(() => null) : null;
   if (!chatId) {
-    await relayHandoff(io, pair, busy, "couldn't start the group chat");
+    await relayHandoff(io, pair, busy, COPY.groupFailed);
     return;
   }
   addHandoff(db, pair.match.id, "group_chat", null);
   clearFor(io, pair.finderId, pair.match.id);
-  await io.say(pair.finderId, "ur both in a group chat now. thanks for looking out", busy ? COPY.meetBusy : null);
-  await io.say(pair.ownerId, "ur both in a group chat now", COPY.gotItHint);
+  await io.say(pair.finderId, COPY.inGroupFinder, busy ? COPY.meetBusy : null);
+  await io.say(pair.ownerId, COPY.inGroupOwner, COPY.gotItHint);
   await ask(io, pair.ownerId, "await_pickup", { matchId: pair.match.id });
 }
 
@@ -1196,7 +1448,7 @@ async function closeLoop(io: LostFoundIo, pair: Pair): Promise<boolean> {
   endRelayByContext(db, `lost_found:${pair.match.id}`);
   clearConsent(db, pair.match.id);
   clearFor(io, pair.ownerId, pair.match.id);
-  await ask(io, pair.ownerId, "thanks_note", { matchId: pair.match.id }, "love that", COPY.askThanks);
+  await ask(io, pair.ownerId, "thanks_note", { matchId: pair.match.id }, COPY.loveThat, COPY.askThanks);
   return true;
 }
 
@@ -1205,7 +1457,7 @@ async function handleThanks(ctx: FlowContext, io: LostFoundIo, pair: Pair, text:
   const note = text.replace(/\s+/g, " ").trim().slice(0, 500);
   if (!skip && note) {
     io.db.prepare("UPDATE handoffs SET thankYouNote = ? WHERE id = (SELECT MAX(id) FROM handoffs WHERE matchId = ?)").run(note, pair.match.id);
-    await io.say(pair.finderId, `the owner of the ${pair.summary} wanted u to have this:`, quote(note));
+    await io.say(pair.finderId, T.thanksFrom(pair.summary), quote(note));
   }
   const win: Bubble = { text: COPY.win, effect: "confetti" };
   await io.say(pair.finderId, win);
@@ -1234,7 +1486,7 @@ async function resolved(ctx: FlowContext, io: LostFoundIo): Promise<void> {
   if (pair && (await closeLoop(io, pair))) return;
   const res = io.db.prepare("UPDATE listings SET status = 'returned' WHERE userId = ? AND type = 'lost' AND status IN ('open','matched')").run(me);
   io.setState(me, null);
-  await io.say(me, "glad u got it back", Number(res.changes) > 0 ? "closed out ur report" : null);
+  await io.say(me, COPY.gladBack, Number(res.changes) > 0 ? COPY.closedReport : null);
 }
 
 /** "still looking" after a check timed out: the reports that were set aside are offered again. */
@@ -1264,7 +1516,7 @@ function plainIo(db: DatabaseSync, send: (userId: number, bubbles: (string | Bub
     me: null,
     adapter,
     async say(userId, ...bubbles) {
-      const real = bubbles.filter((b): b is string | Bubble => !!b);
+      const real = LF_VOICE.bubbles(db, userId, bubbles.filter((b): b is string | Bubble => !!b));
       return real.length ? send(userId, real) : [];
     },
     setState(userId, step, data = {}) {
@@ -1303,7 +1555,7 @@ onRelayEnd("lost_found:", async (ctx, relay) => {
   const lost = rawListing(ctx.db, pair.match.lostListingId);
   if (!lost || lost.status !== "handed_off") return;
   // `asked` marks that a yes here answers this exact question.
-  await ask(ioFrom(ctx), pair.ownerId, "await_pickup", { matchId: pair.match.id, asked: true }, "did u get it back? text me got it when u do");
+  await ask(ioFrom(ctx), pair.ownerId, "await_pickup", { matchId: pair.match.id, asked: true }, COPY.didYouGet);
 });
 
 // ---------- nothing stays locked ----------
@@ -1368,10 +1620,10 @@ export async function sweepClaims(io: LostFoundIo, now = Date.now()): Promise<nu
       release(db, pair.match, "rejected");
       clearFor(io, pair.ownerId, id);
       clearFor(io, pair.finderId, id);
-      await io.say(pair.ownerId, "couldn't confirm this one's urs, so i can't connect u", "ur report stays open in case another one turns up");
+      await io.say(pair.ownerId, COPY.cantConnect, COPY.reportStaysOpen);
     } else {
       // Verified, and the handoff question has sat for a day: the owner isn't left waiting on it.
-      await io.say(pair.finderId, "didn't hear back on the handoff, so dps it is");
+      await io.say(pair.finderId, COPY.noHandoffAnswer);
       await dpsPath(io, pair);
       released++;
       continue;
@@ -1480,7 +1732,7 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
   const { db } = io;
   if (!pair) {
     io.setState(me, null);
-    await io.say(me, "ok, dropped it. text me if u need me");
+    await io.say(me, COPY.dropped);
     return;
   }
   switch (step) {
@@ -1488,7 +1740,7 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
       // Backing out resets nothing: tries already used stay used, and this pair waits until they report again.
       release(db, pair.match, "proposed", true);
       io.setState(me, null);
-      await io.say(me, "ok, stopped. ur report's still open and i'll text u if something turns up");
+      await io.say(me, COPY.stoppedOpen);
       await rematch(io, pair.match.foundListingId);
       return;
     case "proof":
@@ -1498,7 +1750,7 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
     case "await_finder":
       // The finder still gets to answer. The owner just isn't held in this step anymore.
       io.setState(me, null);
-      await io.say(me, "ok. i'll still text u if the person holding it says it's urs");
+      await io.say(me, COPY.stillTextIfYes);
       return;
     case "finder_check":
       // The finder passed on answering. The description they were shown still counts as a try.
@@ -1506,7 +1758,7 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
       release(db, pair.match, "proposed", true);
       io.setState(me, null);
       clearFor(io, pair.ownerId, pair.match.id);
-      await io.say(me, "ok, skipping that one");
+      await io.say(me, COPY.skipping);
       await io.say(pair.ownerId, ...NOTHING_YET);
       await rematch(io, pair.match.foundListingId);
       return;
@@ -1515,7 +1767,7 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
       return;
     case "handoff_choice":
       // A verified owner is waiting, so the safe default is DPS.
-      await io.say(me, "ok. the owner's waiting on it tho, so dps it is");
+      await io.say(me, COPY.ownerWaitingDps);
       await dpsPath(io, pair);
       return;
     case "gc_consent":
@@ -1523,14 +1775,14 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
       return;
     case "await_pickup":
       io.setState(me, null);
-      await io.say(me, "ok. text me got it back whenever u have it");
+      await io.say(me, COPY.gotItWhenever);
       return;
     case "thanks_note":
       await handleThanks(ctx, io, pair, "", true);
       return;
     default:
       io.setState(me, null);
-      await io.say(me, "ok, dropped it. text me if u need me");
+      await io.say(me, COPY.dropped);
   }
 }
 
@@ -1626,7 +1878,7 @@ async function handle(ctx: FlowContext): Promise<void> {
   if (ctx.intent.action === "resolved" && !hasImage) {
     if (step === "lost_category" || step === "lost_place" || step === "lost_time") {
       io.setState(me, null);
-      await io.say(me, "glad u got it back");
+      await io.say(me, COPY.gladBack);
       return;
     }
     if (pair && (step === "verify_describe" || step === "proof" || step === "await_finder")) {
@@ -1718,7 +1970,7 @@ async function handle(ctx: FlowContext): Promise<void> {
     case "finder_decide": {
       const choice = /^(?:1|one)\b|\bmeet\b/.test(w) ? 1 : /^(?:2|two)\b|\bdps\b|\bdrop\b/.test(w) ? 2 : /^(?:3|three)\b|\bkeep\b|\bhold/.test(w) ? 3 : null;
       if (choice === null) {
-        if (!elsewhere || /^\d+$/.test(w)) await io.say(me, "reply 1, 2 or 3");
+        if (!elsewhere || /^\d+$/.test(w)) await io.say(me, COPY.reply123);
         return;
       }
       return finderDecides(io, pair!, choice);
@@ -1727,7 +1979,7 @@ async function handle(ctx: FlowContext): Promise<void> {
       const meet = /^(?:1|one)\b|\bmeet\b|\bhold\b|in person/.test(w);
       const dps = /^(?:2|two)\b|\bdps\b|\bdrop\b|lost and found/.test(w);
       if (meet === dps) {
-        if (!elsewhere || /^\d+$/.test(w)) await io.say(me, "reply 1 to meet them or 2 to drop it at dps");
+        if (!elsewhere || /^\d+$/.test(w)) await io.say(me, COPY.reply12);
         return;
       }
       io.setState(me, null);
@@ -1763,16 +2015,16 @@ async function handle(ctx: FlowContext): Promise<void> {
       }
       if (/\bcode\b/.test(w)) {
         const h = io.db.prepare("SELECT pickupCode FROM handoffs WHERE matchId = ? ORDER BY id DESC LIMIT 1").get(pair!.match.id) as { pickupCode: string | null } | undefined;
-        if (h?.pickupCode) await io.say(me, `ur pickup code is ${h.pickupCode}`, ...dpsWhere(io.db));
-        else await io.say(me, "no code on this one. u two are sorting the handoff directly");
+        if (h?.pickupCode) await io.say(me, T.urCode(h.pickupCode), ...dpsWhere(io.db));
+        else await io.say(me, COPY.noCode);
         return;
       }
       if (yn === false || /\bnot yet\b/.test(w)) {
-        await io.say(me, "no rush. text me got it when u do");
+        await io.say(me, COPY.noRush);
         return;
       }
       if (elsewhere) return;
-      await io.say(me, yn === true ? "sounds good" : null, COPY.gotItHint);
+      await io.say(me, yn === true ? COPY.soundsGood : null, COPY.gotItHint);
       return;
     }
     case "thanks_note": {

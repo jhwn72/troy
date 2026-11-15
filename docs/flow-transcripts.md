@@ -13,6 +13,198 @@ How it was run:
 - Read receipts and typing indicators are left out of the conversations to keep them readable. The welcome timing section shows them with timestamps.
 - A like tapback from Troy on someone's text is his "got it" when his own reply is more than 3 seconds away, usually because he is texting the other person first.
 
+## Latest replay: onboarding, Flow 1 happy path, one food drop (Nov 14, late)
+
+Run again after the chat safety fixes (model handoffs, relayed text, the reply checks, the onboarding location read), to confirm nothing in the flows moved.
+
+- `PORT=3122 MESSAGING_PROVIDER=webchat SEED_EXAMPLES=true DATABASE_URL=<temp db> ALLOWED_HANDLES= node src/server.ts`, with no `.env`, no API key, and the Resend key, helper token and BlueBubbles password blank. `/health` answered `{"ok":true,"provider":"webchat","enabled":true}` before anything was sent. The server was stopped and the temp database deleted afterwards.
+- Phones: A (+1 213 555 0211), B (0212), C (0213). Real pacing, nothing sped up. A's verification code was read from the server's console output.
+- **Wording now varies between runs.** The flows still decide every fact (codes, counts, places, walking times, what was found, who is asked what), but most fixed lines are picked from a small pool of hand-written variants, rotated per person. So "might have something" can come out as "think i might have something", and B and C get differently worded versions of the same alert below. The welcome, STOP, emergency, the contact-sharing warning, quoted words and directory text never vary. The older sections further down show the first wording of each line.
+- Two things differ from the older sections for reasons that are not wording: the location ask in web chat is now the text "i sent u a location request. open find my, then people, and accept it" (no request bubble in the transcript), and each phone here shared from the chat or gave a usual spot instead.
+- Every line Troy sent to someone outside their own turn (the finder's question, the quoted description, the thank-you, the food alerts) is now saved as a notice. 19 of the 106 bubbles in this run were. Free chat shows those to the model as "passed along by troy", never as Troy's own words.
+
+### Onboarding
+
+_Phone A is a student: answers the poll, verifies a USC email, shares a location from the chat_
+
+**A:** hey troy  
+**troy -> A:** hey i'm troy  
+**troy -> A:** i'm an ai, but i know a guy for everything  
+**troy -> A:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> A:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> A:** save my contact if u haven't so u know it's me  
+**troy -> A:** [contact card: Troy]  
+**troy -> A:** quick thing, gotta make sure ur a trojan. what's ur usc email  
+**troy -> A:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> A:** which one are u?  
+**troy -> A:** [poll: usc student / hackathon judge]  
+**A:** _(votes "usc student" in the poll)_  
+**troy -> A:** bet. what's ur usc email?  
+**A:** tommy.trojan@usc.edu  
+**troy -> A:** sent a 6 digit code to tommy.trojan@usc.edu  
+**troy -> A:** text it back to me. might be in spam since i'm new 👀  
+**A:** 870387  
+**troy -> A:** ur verified. welcome in  
+**troy -> A:** what do u want texts about?  
+**troy -> A:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> A:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**A:** _(votes "free food" in the poll)_  
+**troy -> A:** got it. want more? text the numbers like 1 and 3. or text done  
+**A:** done  
+**troy -> A:** bet, i'll text u about free food  
+**troy -> A:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> A:** i sent u a location request. open find my, then people, and accept it  
+**troy -> A:** or just tell me ur usual spots, or reply skip  
+**A:** _(shares location from the chat)_  
+**troy -> A:** got it, thx  
+**troy -> A:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
+
+_Phone B is a judge: votes "hackathon judge" in the poll_
+
+**B:** hey troy  
+**troy -> B:** hey i'm troy  
+**troy -> B:** i'm an ai, but i know a guy for everything  
+**troy -> B:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> B:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> B:** save my contact if u haven't so u know it's me  
+**troy -> B:** [contact card: Troy]  
+**troy -> B:** quick thing, gotta make sure ur a trojan. what's ur usc email  
+**troy -> B:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> B:** which one are u?  
+**troy -> B:** [poll: usc student / hackathon judge]  
+**B:** _(votes "hackathon judge" in the poll)_  
+**troy -> B:** ur in as a judge. this skip is demo only, the real campus version wouldn't have it  
+**troy -> B:** what do u want texts about?  
+**troy -> B:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> B:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**B:** 1  
+**troy -> B:** bet, i'll text u about free food  
+**troy -> B:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> B:** i sent u a location request. open find my, then people, and accept it  
+**troy -> B:** or just tell me ur usual spots, or reply skip  
+**B:** _(shares location from the chat)_  
+**troy -> B:** got it, thx  
+**troy -> B:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
+
+_Phone C is a judge by typing, and gives a usual spot instead of sharing_
+
+**C:** hey troy  
+**troy -> C:** hey i'm troy  
+**troy -> C:** i'm an ai, but i know a guy for everything  
+**troy -> C:** send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'  
+**troy -> C:** reply STOP anytime and i'll leave u alone until u want to talk again  
+**troy -> C:** save my contact if u haven't so u know it's me  
+**troy -> C:** [contact card: Troy]  
+**troy -> C:** quick thing, gotta make sure ur a trojan. what's ur usc email  
+**troy -> C:** hackathon judges can skip this. not a judge? pls don't tap it, i'm trusting u  
+**troy -> C:** which one are u?  
+**troy -> C:** [poll: usc student / hackathon judge]  
+**C:** i'm a judge  
+**troy -> C:** ur in as a judge. this skip is demo only, the real campus version wouldn't have it  
+**troy -> C:** what do u want texts about?  
+**troy -> C:** [poll: free food / free stuff / events / help others with classes]  
+**troy -> C:** pick one in the poll, or text me a few like 1 and 3. or reply skip  
+**C:** free food  
+**troy -> C:** bet, i'll text u about free food  
+**troy -> C:** last thing. i keep the last location u share so alerts and walking times are accurate. text forget my location anytime to erase it  
+**troy -> C:** i sent u a location request. open find my, then people, and accept it  
+**troy -> C:** or just tell me ur usual spots, or reply skip  
+**C:** tcc  
+**troy -> C:** saved ur usual spots  
+**troy -> C:** ur all set. try sending me a pic of something u found, or ask "who do i talk to about dining hall hours"  
+
+### Flow 1, happy path: found airpods, meet up, group chat
+
+_A finds airpods and sends a photo_
+
+**A:** [photo] found these airpods at leavey  
+**troy -> A:** what's on it that only the owner would know? stickers, marks, a case, a name. that stays between us  
+**A:** white case with a dinosaur sticker on the lid, initials MK engraved on the back  
+**troy -> A:** ok, it's logged: earbuds  
+**troy -> A:** keep it with u for now. i'll text u when the owner turns up  
+
+_B reports airpods lost_
+
+**B:** lost my airpods near leavey yesterday  
+**troy -> B:** on it. checking what's been turned in  
+**troy -> B:** think i might have something  
+**troy -> B:** quick check first tho  
+**troy -> B:** describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it  
+**B:** white case, theres a dinosaur sticker on the lid and my initials mk engraved on the back  
+**troy -> B:** ok, checking that with the person who found it  
+**troy -> B:** either way, i'll text u back  
+**troy -> A:** someone says the earbuds u found are theirs  
+**troy -> A:** here's how they described it:  
+**troy -> A:** "white case, theres a dinosaur sticker on the lid and my initials mk engraved on the back"  
+**troy -> A:** that sound like the one u found? yes or no  
+**A:** yes  
+**troy -> B:** good news. the person who found it says it sounds like urs  
+**troy -> B:** seeing how the finder wants to hand it off. i'll text u right back  
+**troy -> A:** the owner of the earbuds u found checks out  
+**troy -> A:** how do u wanna hand it off? 1) hold it and meet them, 2) drop it at dps  
+**A:** 1  
+**troy -> A:** i'll add u both to a group chat. heads up, that shares ur contact info. ok?  
+**troy -> B:** the finder is down to meet and hand it back  
+**troy -> B:** i'll add u both to a group chat. heads up, that shares ur contact info. ok?  
+**A:** yes  
+**troy -> A:** cool, just waiting on them to ok it too  
+**B:** yes  
+**troy -> group(A+B):** handing you off. one of u found it and one of u lost it, so pick a busy spot to meet. i'll step back now  
+**troy -> A:** ur both in a group chat now. appreciate u looking out  
+**troy -> B:** ok, ur both in a group chat now  
+**troy -> B:** once it's back with u, text me got it  
+**B:** got it  
+**troy -> B:** love that  
+**troy -> B:** wanna send the finder a quick thank-you? text it here and i'll pass it along. or say skip  
+**B:** thank u so much, u saved my week  
+**troy -> A:** the owner of the earbuds wanted u to have this:  
+**troy -> B:** _(like tapback on "thank u so much, u saved my week")_  
+**troy -> A:** "thank u so much, u saved my week"  
+**troy -> A:** that's a win. fight on 🎉  _(sent with confetti)_  
+**troy -> B:** that's a win. fight on 🎉  _(sent with confetti)_  
+
+### Flow 2: one food drop
+
+_A posts food with a photo_
+
+**A:** [photo] 3 bowls of chipotle at leavey  
+**troy -> A:** who's it from? give me a club or org name, or reply skip  
+**A:** acm  
+**troy -> C:** yo acm is giving away free chipotle at leavey, about 3 bowls left  
+**troy -> B:** yo acm is giving away free chipotle at leavey, about 3 bowls left  
+**troy -> C:** it's about a 6 min walk from tcc  
+**troy -> A:** _(like tapback on "acm")_  
+**troy -> B:** that's about a 1 min walk from u  
+**troy -> B:** want one? react  
+**troy -> C:** react if u want one  
+**troy -> A:** posted. i texted 2 people nearby  
+**troy -> A:** text me the number left whenever, or 'we're out' when it's done  
+
+_B claims with a tapback, C claims by text_
+
+**B:** _(love tapback on "want one? react")_  
+**troy -> B:** it's yours. u have 15 min to grab it  
+**troy -> B:** once u have it, text 'got it'  
+**troy -> B:** if u want to talk to acm, just say so  
+**troy -> B:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, 2 left  
+**troy -> C:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, 2 left  
+**C:** me  
+**troy -> C:** one's yours, grab it within 15 min  
+**troy -> C:** text 'got it' once u have it  
+**troy -> C:** lmk if u want to talk to acm  
+**troy -> B:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, last one  
+**troy -> C:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, last one  
+**B:** got it  
+**troy -> B:** enjoy 🙌  
+
+_The poster closes it out_
+
+**A:** we're out  
+**troy -> A:** got it, closed it out. thanks for sharing  
+**troy -> C:** heads up, the chipotle at leavey just ran out, sorry  
+**troy -> B:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, all gone 😔  
+**troy -> C:** _(edited an earlier bubble to)_ yo acm is giving away free chipotle at leavey, all gone 😔
+
 ## Welcome timing
 
 Measured from the transcript timestamps of the four welcomes in section 0 (phones A to D). Order on every incoming text: Read shows, a pause, typing starts, the bubble lands, a short gap, typing starts again.

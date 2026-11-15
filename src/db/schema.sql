@@ -76,7 +76,10 @@ CREATE TABLE IF NOT EXISTS messages (
   providerMessageId TEXT,
   text TEXT,
   media TEXT NOT NULL DEFAULT '[]',
-  createdAt INTEGER NOT NULL
+  createdAt INTEGER NOT NULL,
+  -- 1 = an outgoing text Troy sent outside this person's own turn (a relayed message, an alert, a question
+  -- about someone else's item). It can carry another person's words, so free chat never treats it as Troy's own.
+  notice INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_provider ON messages(providerMessageId);
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chatId, createdAt);

@@ -25,6 +25,8 @@ function migrate(d: DatabaseSync): void {
   if (!has("users", "lastLng")) d.exec("ALTER TABLE users ADD COLUMN lastLng REAL");
   if (!has("users", "lastLocationAt")) d.exec("ALTER TABLE users ADD COLUMN lastLocationAt INTEGER");
   if (!has("users", "lastLocationSource")) d.exec("ALTER TABLE users ADD COLUMN lastLocationSource TEXT");
+  // Outgoing texts sent outside the recipient's own turn (relayed words, alerts). See schema.sql.
+  if (!has("messages", "notice")) d.exec("ALTER TABLE messages ADD COLUMN notice INTEGER NOT NULL DEFAULT 0");
 }
 
 export function getDb(): DatabaseSync {
@@ -116,9 +118,18 @@ export function setFlowState(d: DatabaseSync, userId: number, state: Omit<FlowSt
 
 export function saveMessage(
   d: DatabaseSync,
-  m: { userId: number | null; chatId: string; direction: "in" | "out"; providerMessageId: string | null; text: string | null; media?: unknown[] },
+  m: {
+    userId: number | null;
+    chatId: string;
+    direction: "in" | "out";
+    providerMessageId: string | null;
+    text: string | null;
+    media?: unknown[];
+    /** Outgoing only: sent outside this person's own turn, so it may carry someone else's words (a relay, an alert). */
+    notice?: boolean;
+  },
 ): void {
-  d.prepare("INSERT INTO messages (userId, chatId, direction, providerMessageId, text, media, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+  d.prepare("INSERT INTO messages (userId, chatId, direction, providerMessageId, text, media, createdAt, notice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
     m.userId,
     m.chatId,
     m.direction,
@@ -126,5 +137,6 @@ export function saveMessage(
     m.text,
     JSON.stringify(m.media ?? []),
     Date.now(),
+    m.direction === "out" && m.notice ? 1 : 0,
   );
 }

@@ -229,7 +229,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     to: User,
     chatId: string,
     bubbles: (string | Bubble)[],
-    opts: { force?: boolean; turn?: Turn; instant?: boolean; noSave?: boolean } = {},
+    opts: { force?: boolean; turn?: Turn; instant?: boolean; noSave?: boolean; notice?: boolean } = {},
   ): Promise<(string | null)[]> {
     const adapter = deps.getAdapter();
     const turn = opts.turn;
@@ -260,7 +260,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         if (stopped()) break;
         const effect = bubble.effect && k === pieces.length - 1 ? { effect: bubble.effect } : undefined;
         const sent = await quiet(adapter.sendMessage(chatId, text, effect), null);
-        if (sent && !opts.noSave) saveMessage(db, { userId: to.id, chatId, direction: "out", providerMessageId: sent.messageId, text });
+        // `notice`: not a reply in this person's own turn, so free chat must not read it back as Troy's own words.
+        if (sent && !opts.noSave) saveMessage(db, { userId: to.id, chatId, direction: "out", providerMessageId: sent.messageId, text, notice: opts.notice });
         sentAny = sentAny || !!sent;
         id = sent?.messageId ?? null;
       }
@@ -340,13 +341,13 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       async sayTo(userId, ...bubbles) {
         const other = getUserById(db, userId);
         if (!other || other.stopped) return bubbles.map(() => null);
-        return send(other, other.chatId, bubbles);
+        return send(other, other.chatId, bubbles, { notice: true });
       },
     };
   }
 
   /** Parked questions go out to whoever is free now. */
-  const deliver = (now?: number) => deliverPending(db, (to, bubbles) => send(to, to.chatId, bubbles), now);
+  const deliver = (now?: number) => deliverPending(db, (to, bubbles) => send(to, to.chatId, bubbles, { notice: true }), now);
 
   /**
    * `owner` is the flow this context is handed to. A flow may only clear or replace its own open step:
@@ -368,12 +369,13 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       async sayTo(userId, ...bubbles) {
         const other = getUserById(db, userId);
         if (!other || other.stopped || inQuietHours(other)) return bubbles.map(() => null);
-        return send(other, other.chatId, bubbles);
+        // To someone else's chat: a relayed message, an alert, a question about their item. Saved as a notice.
+        return send(other, other.chatId, bubbles, { notice: other.id !== user.id });
       },
       async sayToOwed(userId, ...bubbles) {
         const other = getUserById(db, userId);
         if (!other || other.stopped) return bubbles.map(() => null);
-        return send(other, other.chatId, bubbles);
+        return send(other, other.chatId, bubbles, { notice: other.id !== user.id });
       },
       setState: (s) => {
         const cur = getFlowState(db, user.id);

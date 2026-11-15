@@ -22,11 +22,22 @@ import {
   parse,
   parseAtNow,
   setNotesClock,
+  NOTES_POOLS,
+  NOTES_VOICE,
 } from "../src/flows/notes.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LOCATION_STALE_MS, getUserLocation, saveUserLocation } from "../src/location.ts";
 import type { RuleGuess } from "../src/flows/notes.ts";
+import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
+import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
+
+/**
+ * Facts locked, wording varied: any line Troy sends may be any variant from NOTES_POOLS. The fake adapter records
+ * each bubble read back to its first wording, with every setting, time and place kept exactly as sent, so the
+ * assertions below hold for whichever variant went out. `raw` keeps the words as they were sent.
+ */
+const canon = (text: string): string => NOTES_VOICE.canonical(text);
 
 registerFlow(notes);
 
@@ -34,14 +45,14 @@ const A = "+12135550101";
 const B = "+12135550102";
 
 function fakeAdapter() {
-  const sent: { chatId: string; text: string; id: string }[] = [];
+  const sent: { chatId: string; text: string; id: string; raw: string }[] = [];
   let n = 0;
   const adapter: MessagingAdapter = {
     provider: "webchat",
     capabilities: () => ({ tapbacks: true, typing: true, readReceipts: true, edits: false, effects: true, polls: false, groupChats: false, contactCard: true, liveLocation: false }),
     async sendMessage(chatId, text) {
       const id = `out-${++n}`;
-      sent.push({ chatId, text, id });
+      sent.push({ chatId, text: canon(text), id, raw: text });
       return { messageId: id };
     },
     async sendImage() {
@@ -832,7 +843,7 @@ test("the plain phrase forget my location works inside the notes flow itself", a
     event: { provider: "webchat", userHandle: A, chatId: `chat-${A}`, isGroup: false, messageId: "in-x", text: "forget my location", images: [], receivedAt: Date.now() },
     intent: { flow: "notes", action: "forget", details: {}, source: "fallback" },
     state: null,
-    say: async (...b) => b.map((x) => (said.push(typeof x === "string" ? x : x.text), null)),
+    say: async (...b) => b.map((x) => (said.push(canon(typeof x === "string" ? x : x.text)), null)),
     sayTo: async () => [],
     sayToOwed: async () => [],
     setState: () => {},
@@ -841,4 +852,56 @@ test("the plain phrase forget my location works inside the notes flow itself", a
   });
   assert.deepEqual(said, ["done. i forgot ur location", "i won't show walking times until u share again or tell me where u are"]);
   assert.equal(t.row(A).lastLat, null);
+});
+
+// ---------- facts locked, wording varied ----------
+
+/** Always the last variant of a pool, so every pooled line goes out in words other than its first wording. */
+const lastVariant: VariantPicker = (_db, _userId, _key, variants) => variants[variants.length - 1]!;
+const numbersIn = (t: string): string => (t.match(/\d+/g) ?? []).join(",");
+/** Every bubble is one of its line's own variants, and carries exactly the numbers its first wording carries. */
+function assertSameFacts(voice: Voice, sent: { text: string; raw: string }[]): void {
+  for (const b of sent) {
+    assert.ok(voice.variantsOf(b.text).includes(b.raw), `not a known variant: ${b.raw}`);
+    assert.equal(numbersIn(b.raw), numbersIn(b.text), b.raw);
+  }
+}
+
+test("notes wording pools are well formed, and the read-backs and command hints have no variants", () => {
+  assert.deepEqual(poolProblems(NOTES_POOLS), []);
+  for (const line of [
+    "here's what i have",
+    "contact: relay only. i pass messages along and nobody gets ur number. group chats: ok",
+    "to mute alerts text pause. to stop every text from me text STOP",
+    'to wipe everything i have on u, text "delete my data"',
+  ]) {
+    assert.deepEqual(NOTES_VOICE.variantsOf(line), [line]);
+  }
+  // Every wording of a contact setting states the same rule.
+  for (const v of NOTES_VOICE.variantsOf("got it. relay only. i pass messages along and nobody gets ur number")) assert.match(v, /relay only\..*(?:nobody|no one) gets ur number$/);
+  for (const v of NOTES_VOICE.variantsOf("got it. no contact. i don't connect u with anyone")) assert.match(v, /no contact\..*(?:don't|won't|not) connect(?:ing)? u with anyone$/);
+  for (const v of NOTES_VOICE.variantsOf("done. no alerts from 11pm to 8am")) assert.match(v, /from 11pm to 8am$/);
+});
+
+test("notes: with other wording on every line, the setting that was saved and the times said are exactly the same", async () => {
+  setVariantPicker(lastVariant);
+  try {
+    const t = setup();
+    await t.a("quiet hours 11pm to 8am");
+    await t.a("only food within 5 min");
+    await t.a("don't share my number with anyone");
+    await t.a("no");
+    const row = t.user(A);
+    assert.deepEqual(row.quietHours, { start: "23:00", end: "08:00" });
+    assert.equal(row.alertMinutes, 5);
+    assert.equal(row.contactMode, "no_contact");
+    const mine = t.fake.sent.filter((s) => s.chatId === `chat-${A}`);
+    assertSameFacts(NOTES_VOICE, mine);
+    assert.ok(mine.filter((s) => s.raw !== s.text).length >= 5 && mine.length === 6, "the wording really did change");
+    const raw = mine.map((s) => s.raw).join("\n");
+    assert.match(raw, /from 11pm to 8am/);
+    assert.match(raw, /within a 5 min walk/);
+  } finally {
+    setVariantPicker(null);
+  }
 });
