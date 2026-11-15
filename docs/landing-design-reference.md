@@ -11,7 +11,12 @@ John's reference (Nov 14, 2026), saved word for word below the amendments. Build
    - FAQ: **Does Troy track my location?** "Only if you share it. He keeps the last spot you shared to work out walking distance, never shows it to anyone, and 'forget my location' erases it."
 4. **Number.** The sms link uses the configured number (`TROY_NUMBER`, baked in at build time by `scripts/build-landing.ts`), never a placeholder.
 5. **FAQ "Is this run by USC?"** "No. A student built it at a hackathon. It isn't an official USC service yet."
-6. Everything else, including sections that show where Troy is going (a USG member's phone, a technician's phone, LAX rides), is built as written. John knows those go beyond the current build.
+6. **Lost and found: the finder chooses the handoff, not the owner** (John, Nov 14 night: "it's important that the finder chooses for convenience"). Replace the end of the section 3 script with:
+   - Owner: "lost my airpods near leavey 😭" / troy: "on it 👀" / troy: "someone found airpods near leavey. quick check: what's on the case?" / owner: "a little trojan sticker" / troy: "that's them 🙌 asking the finder how they want to hand it off"
+   - Finder (new message): troy: "found the owner ✅ want to meet them or drop it at DPS?" / finder: "meet"
+   - End: both phones switch to the same new group chat. troy: "handing u off. you two got it from here 🤝"
+   Hero scenario 2 ends with troy: "that's them 🙌 checking how the finder wants to hand it off" instead of asking the owner to choose.
+7. Everything else, including sections that show where Troy is going (a USG member's phone, a technician's phone, LAX rides), is built as written. The product now demonstrates each of these with clearly labeled examples (see CLAUDE.md), so the page and the build agree.
 
 ---
 
