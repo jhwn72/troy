@@ -365,6 +365,9 @@ class Convo {
   emit(name, detail) {
     if (name === 'convo:step' && detail.step.link != null) {
       this.mount.classList.toggle('is-linked', Boolean(detail.step.link));
+      // The label on the line says how far apart these two are; each conversation carries its own.
+      const fact = this.mount.querySelector('.hero-link-fact-text');
+      if (fact && detail.step.link && detail.step.fact) fact.textContent = detail.step.fact;
       if (detail.step.link) this.pulse();
     }
     if (name === 'convo:step') this.markShown(detail.step);

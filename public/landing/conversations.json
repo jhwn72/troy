@@ -37,7 +37,7 @@
         "phone": "left",
         "type": "switch-group",
         "name": "LAX ride",
-        "link": true,
+        "link": true, "fact": "1 min apart",
         "delay": 2400
       },
       {
@@ -112,7 +112,7 @@
         "phone": "left",
         "type": "switch-group",
         "name": "The finder and the owner",
-        "link": true,
+        "link": true, "fact": "4 min apart",
         "delay": 2400
       },
       {
@@ -172,7 +172,7 @@
         "phone": "right",
         "from": "me",
         "tapback": "👍",
-        "link": true,
+        "link": true, "fact": "5 min apart",
         "delay": 550
       },
       {
@@ -241,7 +241,7 @@
         "from": "me",
         "text": "yes",
         "status": "Read",
-        "link": true,
+        "link": true, "fact": "6 min apart",
         "delay": 450
       },
       {

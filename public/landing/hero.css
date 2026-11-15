@@ -229,7 +229,8 @@
   position: absolute;
   z-index: 2;
   left: 50%;
-  top: calc(var(--troy-top) + var(--troy-w) * 0.62 + (var(--hero-gap) + 28px) * 0.1);
+  /* Under Troy, clear of him: he stands in front of the line, so a label on the line itself was hidden behind him. */
+  top: calc(var(--troy-top) + var(--troy-w) * 1.08 + 10px);
   transform: translate(-50%, 6px);
   padding: 4px 10px;
   border-radius: 999px;
