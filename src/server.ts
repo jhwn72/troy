@@ -105,7 +105,8 @@ const locationRefresh = createLocationRefresher({
   getAdapter: () => adapter,
   ready: () => config.provider === "webchat" || (config.provider === "bluebubbles" && helperConnected()),
 });
-if (config.provider === "webchat" || config.provider === "bluebubbles") locationRefresh.start();
+// TROY_LOCATION_REFRESH=off stops the 45 second background reads (each one can bring the Find My app forward on the Mac).
+if ((config.provider === "webchat" || config.provider === "bluebubbles") && process.env.TROY_LOCATION_REFRESH !== "off") locationRefresh.start();
 
 app.route("/", createLandingRoutes());
 app.route("/", createWebRoutes({ db, getAdapter: () => adapter!, notify, completeHandoff: (handoffId) => completeHandoff({ db, notify: (userId, bubbles) => notify(userId, bubbles, { owed: true }) }, handoffId) }));

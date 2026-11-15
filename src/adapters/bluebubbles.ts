@@ -464,6 +464,8 @@ export function createBluebubblesAdapter(
         try {
           lastFindMyRefresh = Date.now();
           // Returns straight away with the current cache and refreshes in the background.
+          // TROY_FINDMY_REFRESH=off: use the cached fixes only. A refresh opens the Find My app on the Mac.
+          if (process.env.TROY_FINDMY_REFRESH === "off") throw new Error("refresh off");
           await api("POST", "/icloud/findmy/friends/refresh");
           for (let i = 0; i < 2; i++) {
             await new Promise((r) => setTimeout(r, 4000));
