@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 // BlueBubbles adapter (Server 1.9.12, Private API). The server sees every iMessage on John's Apple ID,
 // so this file is where the privacy rules are enforced:
 //   - incoming: decide() runs before anything is downloaded, saved, built or logged
@@ -94,6 +95,26 @@ export function buildContactCard(): string {
   lines.push("END:VCARD");
   const folded = lines.map((l) => (l.length <= 75 ? l : l.slice(0, 75) + l.slice(75).replace(/.{1,74}/g, "\r\n $&")));
   return folded.join("\r\n") + "\r\n";
+}
+
+/**
+ * A Find My refresh makes macOS bring the Find My app to the front on John's Mac, over whatever he is doing.
+ * The refresh still happens; the window is just hidden again right after (it opens a moment late, so a few tries).
+ * Best effort and silent: no window, no error, nothing logged. TROY_HIDE_FINDMY=off leaves it alone.
+ */
+function hideFindMy(): void {
+  if (process.env.TROY_HIDE_FINDMY === "off" || process.platform !== "darwin") return;
+  const script = 'tell application "System Events" to if exists application process "FindMy" then set visible of application process "FindMy" to false';
+  for (const ms of [800, 2500, 5000, 9000]) {
+    const t = setTimeout(() => {
+      try {
+        execFile("osascript", ["-e", script], { timeout: 4000 }, () => {});
+      } catch {
+        // Hiding a window is never worth an error.
+      }
+    }, ms);
+    t.unref?.();
+  }
 }
 
 export function createBluebubblesAdapter(
@@ -467,6 +488,7 @@ export function createBluebubblesAdapter(
           // TROY_FINDMY_REFRESH=off: use the cached fixes only. A refresh opens the Find My app on the Mac.
           if (process.env.TROY_FINDMY_REFRESH === "off") throw new Error("refresh off");
           await api("POST", "/icloud/findmy/friends/refresh");
+          hideFindMy();
           for (let i = 0; i < 2; i++) {
             await new Promise((r) => setTimeout(r, 4000));
             if (!allowed()) return null;
