@@ -61,7 +61,7 @@ These all happened. Pick the five or six that make the best story and keep each 
 ## Accomplishments that we're proud of
 
 - Zero wrong handoffs on 40 test cases, including look-alike items and fraud attempts.
-- About 850 automated tests, and a rehearsal test of the exact demo that runs on every build.
+- Over 1,000 automated tests (1,061 at the last count), and a rehearsal test of the exact demo that runs on every build.
 - A privacy gate that held through every live test on a personal phone number.
 - It works on a real iPhone today: text the number and Troy answers.
 - Troy has a voice. He is brief on purpose, and people testing him kept talking to him.

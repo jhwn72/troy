@@ -79,7 +79,7 @@ The deck must not overclaim. Use these labels where they apply.
 Numbers from the build on Nov 14 (John will refresh them before submitting; keep them easy to edit):
 
 - Evaluation on 40 written test cases, including look-alike items and fraud attempts: 36 of 40 correct with the AI, 37 of 40 on rules alone, and **zero wrong handoffs** in both. Every miss was a real owner who described their item too vaguely, and those fall through to a proof photo or the finder's call.
-- About 750 automated tests passing.
+- Over 1,000 automated tests passing (1,061 at the last count).
 - Separate AI reviewers were assigned only to break it: one acting as a scammer, one hunting for stuck conversations, one checking the privacy gate. Their findings were fixed with tests.
 - A red-team run produced 175 attempts to break Troy's conversation, turned into ten principles and a test set.
 - Reply speed: about one second for the AI call.
