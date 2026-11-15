@@ -758,20 +758,12 @@ button.engine-circle { cursor: pointer; }
   /* 357px sits above the hero phone here. */
   #hero .phone { height: clamp(480px, calc(100vh - 365px), 640px); height: clamp(480px, calc(100svh - 365px), 640px); }
 
-  /* Why: one horizontal row that scrolls and snaps, the next card peeking in from the right. */
+  /* Why: the three cards stack, so all of them are on the page with nothing hidden off to the side. */
   .why-grid {
-    display: flex;
+    grid-template-columns: 1fr;
     gap: 12px;
-    margin: 28px -18px 0;
-    padding: 12px 18px 16px;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scroll-padding-inline: 18px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    margin-top: 28px;
   }
-  .why-grid::-webkit-scrollbar { display: none; }
-  .why-grid li { flex: 0 0 76%; scroll-snap-align: start; }
 
   /* Engine: the five circles stay in one row on the line. The steps' boxes drop out of the layout so every
      title, line and example shares the same place under the row; only the chosen step's shows (the first

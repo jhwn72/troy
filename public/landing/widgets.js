@@ -145,6 +145,50 @@ if (engineSteps.length) {
   });
 }
 
+// The steps play through by themselves while the section is on screen, so nobody has to find out that the
+// numerals can be pressed. The first press on a numeral takes over and the auto-play stops for good.
+(() => {
+  const section = document.getElementById("engine");
+  if (!section || !engineSteps.length || !("IntersectionObserver" in window)) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const STEP_MS = 3200;
+  let at = -1;
+  let timer = 0;
+  let taken = false;
+  // On phones every step can be shown; on wide screens only the ones with an example open.
+  const playable = () => engineSteps.filter((step) => engineRow.matches || (engineButton(step) && step.querySelector(".engine-example")));
+  const show = () => {
+    const steps = playable();
+    if (!steps.length) return;
+    at = (at + 1) % steps.length;
+    const step = steps[at];
+    closeEngine(step);
+    step.classList.add("is-open");
+    const button = engineButton(step);
+    if (button) button.setAttribute("aria-expanded", "true");
+  };
+  const stop = () => {
+    clearInterval(timer);
+    timer = 0;
+  };
+  const start = () => {
+    if (taken || timer) return;
+    show();
+    timer = setInterval(show, STEP_MS);
+  };
+  section.addEventListener("click", (event) => {
+    if (!event.isTrusted || !event.target.closest(".engine-step .engine-circle")) return;
+    taken = true;
+    stop();
+  }, true);
+  new IntersectionObserver((entries) => {
+    for (const entry of entries) (entry.isIntersecting ? start : stop)();
+  }, { threshold: 0.35 }).observe(section);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stop();
+  });
+})();
+
 /* ---------- FAQ: native details, one open at a time ---------- */
 
 const faqItems = [...document.querySelectorAll(".faq details")];

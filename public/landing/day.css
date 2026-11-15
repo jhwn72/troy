@@ -65,6 +65,11 @@ html:not(.day-on) .day-cardbox-repair .day-card > :not(.repair-steps) { display:
 
 /* The only snap point on the page is the top of the scene, and only when a scroll ends near it. */
 html.day-on { scroll-snap-type: y proximity; }
+/* Not on touch screens or narrow ones: there the browser snaps again whenever the scene's content changes, which
+   pulled the page back up to the scene each time the day moved on while the visitor was reading further down. */
+@media (hover: none), (pointer: coarse), (max-width: 899px) {
+  html.day-on { scroll-snap-type: none; }
+}
 
 html.day-on main > section#demos {
   height: 500vh;
