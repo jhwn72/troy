@@ -12,6 +12,8 @@ import { openDb, getOrCreateUser, updateUser, getFlowState, getUserById } from "
 import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
+import { photoAnswer } from "../src/flows/lostfound/handler.ts";
+import { OFFER_STEP } from "../src/flows/reports-shared.ts";
 import { CLAIM_TTL_MS, COPY, HOLD_TTL_MS, LF_POOLS, LF_VOICE, MAX_ASKS, claimantBlocked, completeHandoff, isDescriptionAttempt, lostFound, parseWhen } from "../src/flows/lostfound/handler.ts";
 import { repair } from "../src/flows/repair.ts";
 import { RELAY_COPY } from "../src/relay.ts";
@@ -88,12 +90,22 @@ type ModelCfg = {
   rank: (lostDescription: string) => number;
   describe: (answer: string) => number;
   same: { same: boolean; confidence: number } | null;
+  /** The first look at a photo (free_food, found_item, broken, unclear). Null: that call fails. */
+  sort: string | null;
 };
+/** How many times the first look at a photo was asked for, this test. */
+let sortCalls = 0;
 let model: ModelCfg;
 
 beforeEach(() => {
-  model = { profile: AIRPODS, rank: () => 90, describe: (a) => (/dinosaur/i.test(a) ? 92 : 10), same: null };
+  model = { profile: AIRPODS, rank: () => 90, describe: (a) => (/dinosaur/i.test(a) ? 92 : 10), same: null, sort: null };
+  sortCalls = 0;
   setModelCall(async (opts) => {
+    if (opts.system.startsWith("You sort one photo")) {
+      sortCalls++;
+      if (!model.sort) throw new Error("off");
+      return JSON.stringify({ kind: model.sort });
+    }
     if (opts.system.startsWith("You read one photo")) {
       if (!model.profile) throw new Error("off");
       return JSON.stringify(model.profile);
@@ -200,7 +212,7 @@ function world(opts: { caps?: Partial<AdapterCapabilities>; groupChat?: string |
   }
   const finder = person("+12135550101", "Fiona Finder", "fiona.finder@usc.edu");
   const owner = person("+12135550102", "Owen Owner", "owen.owner@usc.edu");
-  return { db, sent, groups, images, reacts, finder, owner, person, pipeline };
+  return { db, sent, groups, images, reacts, finder, owner, person, pipeline, adapter };
 }
 
 type World = ReturnType<typeof world>;
@@ -2454,4 +2466,202 @@ test("ask first: an owner who gets the item back while the finder's question is 
   assert.deepEqual(w.finder.texts().slice(fb), [COPY.claimDropped]);
   assert.equal(w.finder.state(), null);
   assert.deepEqual(asks(w), {});
+});
+
+// ---------- a photo is read before any question (John, 8pm lessons (4)) ----------
+
+const listings = (db: DatabaseSync, type: "found" | "lost") => (db.prepare("SELECT COUNT(*) AS n FROM listings WHERE type = ?").get(type) as { n: number }).n;
+const SALAD: IncomingImage = { path: "/tmp/troy-test/sweetgreen.jpg", mime: "image/jpeg" };
+
+test("john's sweetgreen lunch: 'look at my lunch' with a photo never starts a found report or a food post", async () => {
+  const w = world();
+  const out = await w.finder.say("look at my lunch", [SALAD]);
+  assert.ok(!out.includes(COPY.askFoundPlace) && !out.includes(COPY.askWhat), `no found questions: ${JSON.stringify(out)}`);
+  assert.equal(listings(w.db, "found"), 0);
+  assert.equal(w.db.prepare("SELECT COUNT(*) AS n FROM food_drops").get()!.n, 0);
+  assert.notEqual(w.finder.state()?.flow, "lost_found");
+  assert.notEqual(w.finder.state()?.flow, "food");
+  assert.equal(sortCalls, 0, "the words settled it, so no model looked at the photo");
+});
+
+test("the sweetgreen photo still lands in chat when the router calls it a found item", async () => {
+  const w = world({ intent: () => ({ flow: "lost_found", action: "report_found", details: {}, source: "ai" }) });
+  const out = await w.finder.say("my sweetgreen order today", [SALAD]);
+  assert.ok(!out.includes(COPY.askFoundPlace) && !out.includes(COPY.askWhat));
+  assert.equal(listings(w.db, "found"), 0);
+  assert.equal(w.finder.state(), null);
+});
+
+test("a food post routed by the model is not posted when the words say it's their own meal", async () => {
+  const w = world({ intent: () => ({ flow: "food", action: "post_food", details: { category: "salad" }, source: "ai" }) });
+  await w.finder.say("look at my sweetgreen salad", [SALAD]);
+  assert.equal(w.db.prepare("SELECT COUNT(*) AS n FROM food_drops").get()!.n, 0);
+  assert.notEqual(w.finder.state()?.flow, "food");
+});
+
+test("a bare meal photo the first look can't place gets one question, never 'where'd u find it?'", async () => {
+  const w = world();
+  model.sort = "unclear";
+  const out = await w.finder.say("", [SALAD]);
+  assert.deepEqual(out, [COPY.photoWhat]);
+  assert.ok(LF_POOLS.photoWhat, "the question has his own wordings");
+  assert.equal(w.finder.state()?.step, "photo_what");
+  // Their own lunch: nothing saved, the question is closed and not asked again.
+  const after = await w.finder.say("nah it's my lunch lol");
+  assert.ok(!after.includes(COPY.photoWhat) && !after.includes(COPY.askFoundPlace));
+  assert.equal(w.finder.state(), null);
+  assert.equal(listings(w.db, "found"), 0);
+});
+
+test("unclear photo, then 'i found it at leavey': the found report runs with that photo and place", async () => {
+  const w = world();
+  model.sort = "unclear";
+  await w.finder.say("", [PHOTO]);
+  const out = await w.finder.say("i found it at leavey");
+  assert.deepEqual(out, ["logged it: white airpods case", COPY.holdOnto]);
+  const l = foundListing(w.db);
+  assert.equal(l.photoUrl, PHOTO.path);
+  assert.equal(l.locationText, "Leavey Library");
+  assert.equal(sortCalls, 1, "the photo is sorted once");
+});
+
+test("the photo question is a native poll when polls work, and a vote answers it", async () => {
+  const w = world({ caps: { polls: true } });
+  const polls: { question: string; options: string[] }[] = [];
+  w.adapter.sendPoll = async (_c, question, options) => {
+    polls.push({ question, options });
+    return { optionMessageIds: options.map(() => "poll-1"), mode: "native" };
+  };
+  model.sort = "unclear";
+  assert.deepEqual(await w.finder.say("", [PHOTO]), []);
+  assert.equal(polls.length, 1);
+  assert.ok(LF_VOICE.variantsOf(COPY.photoWhat).includes(polls[0]!.question));
+  assert.deepEqual(polls[0]!.options, ["i found it", "it's up for grabs", "neither, just sharing"]);
+  await w.pipeline.handleEvent({ provider: "webchat", userHandle: w.finder.handle, chatId: w.finder.chatId, isGroup: false, messageId: "vote-1", text: "", images: [], receivedAt: Date.now(), pollVote: { pollMessageId: "poll-1", optionIndex: 0 } });
+  // The vote said found: the found report runs on with that photo, at its "where'd u find it?".
+  assert.equal(w.finder.state()?.step, "found_place");
+  assert.deepEqual(w.finder.state()?.data.photo, PHOTO);
+  assert.equal(w.finder.texts().at(-1), COPY.askFoundPlace);
+  await w.finder.say("tcc");
+  assert.equal(foundListing(w.db).photoUrl, PHOTO.path);
+});
+
+test("a photo the first look reads as free food goes to the food flow, not lost and found", async () => {
+  const w = world();
+  model.sort = "free_food";
+  const out = await w.finder.say("", [SALAD]);
+  assert.ok(!out.includes(COPY.askFoundPlace) && !out.includes(COPY.photoWhat), JSON.stringify(out));
+  assert.equal(listings(w.db, "found"), 0);
+  assert.equal(w.finder.state()?.flow, "food");
+});
+
+test("a photo of something broken goes to repair, which asks before filing anything", async () => {
+  const w = world();
+  model.sort = "broken";
+  await w.finder.say("", [PHOTO]);
+  assert.equal(listings(w.db, "found"), 0);
+  assert.deepEqual({ flow: w.finder.state()?.flow, step: w.finder.state()?.step }, { flow: "repair", step: OFFER_STEP });
+  assert.equal(w.db.prepare("SELECT COUNT(*) AS n FROM reports").get()!.n, 0, "nothing filed without a yes");
+});
+
+test("words that say it was found skip the first look; a first look that fails reads it as an item", async () => {
+  const w = world();
+  model.sort = "unclear";
+  await w.finder.say("found these at leavey", [PHOTO]);
+  assert.equal(sortCalls, 0);
+  assert.equal(listings(w.db, "found"), 1);
+  model.sort = null;
+  const out = await w.owner.say("", [PHOTO]);
+  assert.equal(sortCalls, 1);
+  assert.deepEqual(out, [COPY.askFoundPlace]);
+});
+
+test("photoAnswer reads the answers to the photo question", () => {
+  assert.equal(photoAnswer("i found it"), "found_item");
+  assert.equal(photoAnswer("someone left it in leavey"), "found_item");
+  assert.equal(photoAnswer("not mine, it was on the floor"), "found_item");
+  assert.equal(photoAnswer("up for grabs"), "free_food");
+  assert.equal(photoAnswer("free, come grab some"), "free_food");
+  assert.equal(photoAnswer("the sink is leaking"), "broken");
+  assert.equal(photoAnswer("neither, just sharing"), "own");
+  assert.equal(photoAnswer("thats my lunch lol"), "own");
+  assert.equal(photoAnswer("2", true), "free_food");
+  assert.equal(photoAnswer("what do u mean"), null);
+});
+
+// ---------- flip flops (live database, Nov 14 10:45pm) ----------
+
+test("'I lost my black flip flops' is footwear, not 'other'", async () => {
+  const w = world();
+  assert.deepEqual(await w.owner.say("I lost my black flip flops"), [COPY.askLostPlace]);
+  await w.owner.say("leavey");
+  await w.owner.say("yesterday");
+  const row = w.db.prepare("SELECT category, title, details FROM listings WHERE type = 'lost'").get() as { category: string; title: string; details: string };
+  assert.equal(row.category, "footwear");
+  assert.notEqual(row.title, "item");
+  assert.equal((JSON.parse(row.details) as { color: string }).color, "black");
+});
+
+test("'yo troy i lost my flip flops' is footwear too", async () => {
+  const w = world();
+  await w.owner.say("yo troy i lost my flip flops");
+  await w.owner.say("idk");
+  await w.owner.say("idk");
+  assert.equal((w.db.prepare("SELECT category FROM listings WHERE type = 'lost'").get() as { category: string }).category, "footwear");
+});
+
+test("asked where, 'they're brown olu kai with green camp straps' goes on the report and the place is asked once more", async () => {
+  const w = world();
+  await w.owner.say("yo troy i lost my flip flops");
+  assert.deepEqual(await w.owner.say("they’re brown olu kai with green camp straps"), [COPY.notedDetail, COPY.askLostPlace]);
+  assert.equal(w.owner.state()?.step, "lost_place");
+  // Asked when, they give a place: it is kept as the place, and the time stays unknown.
+  assert.deepEqual(await w.owner.say("not sure"), [COPY.askLostTime]);
+  await w.owner.say("not sure maybe around the statue");
+  const row = w.db.prepare("SELECT category, locationText, happenedAt, details FROM listings WHERE type = 'lost'").get() as { category: string; locationText: string | null; happenedAt: number | null; details: string };
+  const report = JSON.parse(row.details) as { brand: string | null; color: string | null; description: string; locationText: string | null };
+  assert.equal(row.category, "footwear");
+  assert.equal(report.brand, "olu kai");
+  assert.equal(report.color, "brown");
+  assert.match(report.description, /camp straps/);
+  assert.ok(!/olu kai|straps/i.test(row.locationText ?? ""), "the item words are not the place");
+  assert.equal(row.locationText, "statue");
+  assert.equal(row.happenedAt, null);
+});
+
+test("a second item-description answer to 'where' is taken as the place, so it never loops", async () => {
+  const w = world();
+  await w.owner.say("lost my flip flops");
+  await w.owner.say("they're brown olukai");
+  const out = await w.owner.say("they have green straps");
+  assert.deepEqual(out, [COPY.askLostTime]);
+});
+
+test("'not sure, maybe leavey' at the place step is the place", async () => {
+  const w = world();
+  await w.owner.say("lost my black flip flops");
+  await w.owner.say("not sure, maybe leavey");
+  await w.owner.say("yesterday");
+  assert.equal((w.db.prepare("SELECT locationText FROM listings WHERE type = 'lost'").get() as { locationText: string }).locationText, "Leavey Library");
+});
+
+test("photo question: a typed answer the router sends to food keeps the photo (the step holds the turn)", async () => {
+  const w = world({ intent: (t) => (/pizza/.test(t) ? { flow: "food", action: "post_food", details: {}, source: "ai" } : null) });
+  model.sort = "unclear";
+  await w.finder.say("", [SALAD]);
+  assert.equal(w.finder.state()?.step, "photo_what");
+  await w.finder.say("pizza for whoever wants it");
+  const st = w.finder.state();
+  assert.equal(st?.flow, "food", "the food flow took it");
+  assert.match(JSON.stringify(st?.data ?? {}), new RegExp(SALAD.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "with the photo from the question");
+});
+
+test("photo question in tap mode: one hint of ours, never 'tap ❤️ on ur pick'", async () => {
+  const w = world({ caps: { polls: true } });
+  w.adapter.sendPoll = async (_c, _q, options) => ({ optionMessageIds: options.map((_, i) => `opt-${i}`), mode: "tap" });
+  model.sort = "unclear";
+  const out = await w.finder.say("", [PHOTO]);
+  const hints = out.filter((l) => /\b(?:heart|tap|thumbs up)\b/.test(l));
+  assert.equal(hints.length, 1, JSON.stringify(out));
+  assert.doesNotMatch(hints[0]!, /tap ❤️ on ur pick/);
 });

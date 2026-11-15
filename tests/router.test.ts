@@ -3,7 +3,7 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { FlowState, IntentCommand } from "../src/types.ts";
 import { config } from "../src/config.ts";
-import { asksToPassOn, detectIntent, fallbackCommand, fallbackIntent, peopleOrPolicy, setModelCall } from "../src/ai.ts";
+import { asksToPassOn, detectIntent, fallbackCommand, fallbackIntent, peopleOrPolicy, photoWords, setModelCall } from "../src/ai.ts";
 
 // No test may reach the network.
 config.anthropicKey = "";
@@ -244,4 +244,30 @@ test("the router's instructions keep people, noise, rules, hours and prices out 
   await detectIntent({ text: "my ra won't do anything about the noise", hasImage: false, state: null, notes: [] });
   assert.match(system, /repair: report \(a physical thing/);
   assert.match(system, /Noise, roommates or dormmates, an RA or any staff member not doing their job, rules not being enforced, policies, hours, prices and service quality are never repair/);
+});
+
+// ---------- photos (John, 8pm lessons (4)) ----------
+
+test("the words sent with a photo say what it is when they can", () => {
+  assert.equal(photoWords("look at my lunch"), "own");
+  assert.equal(photoWords("my sweetgreen order"), "own");
+  assert.equal(photoWords("rate my fit"), "own");
+  assert.equal(photoWords("found this at leavey"), "found");
+  assert.equal(photoWords("is this anyone's? it was on the bench"), "found");
+  assert.equal(photoWords("free pizza at tcc come grab"), "food");
+  assert.equal(photoWords("leftovers up for grabs"), "food");
+  assert.equal(photoWords("this sink is leaking"), "broken");
+  assert.equal(photoWords(""), null);
+  assert.equal(photoWords("yo"), null);
+  assert.equal(photoWords("what is this"), null);
+});
+
+test("a photo of their own meal is chat, never a found item or a food post", () => {
+  const photo = (text: string) => fallbackIntent({ text, hasImage: true, state: null });
+  assert.deepEqual([photo("look at my lunch").flow, photo("look at my lunch").action], ["smalltalk", "chat"]);
+  assert.equal(photo("look at my sweetgreen salad").flow, "smalltalk", "a food word does not make it a post");
+  assert.equal(photo("pizza at leavey").flow, "food");
+  assert.equal(photo("").flow, "lost_found", "a bare photo goes where it is read first");
+  // "what" no longer reads as a hat.
+  assert.equal(photo("what is this").details.category, undefined);
 });

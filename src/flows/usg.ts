@@ -13,8 +13,8 @@ import type { FlowContext, FlowHandler, FlowState } from "../types.ts";
 import { askJson, asksToPassOn, composeReply, fallbackIntent } from "../ai.ts";
 import { findPlace } from "../places.ts";
 import { openQuestionId, readYesNo } from "../yes.ts";
-import { CANCEL, CANCELLED, CANCELLED_POOL, DEMO_NOTE, DEMO_NOTE_POOL, OFFER_STEP, claimsDone, directoryRows, firstFiling, follow, insertReport, isFresh, joinWords, makeVoice, newestOutId, offerLive, openReports, othersPhrase, ownWords, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, unvoiced, userNotes } from "./reports-shared.ts";
-import type { DirectoryRow, Pools, Voice } from "./reports-shared.ts";
+import { CANCEL, CANCELLED, CANCELLED_POOL, DEMO_NOTE, DEMO_NOTE_POOL, OFFER_STEP, askPoll, claimsDone, pollOf, pollPick, directoryRows, firstFiling, follow, insertReport, isFresh, joinWords, makeVoice, newestOutId, offerLive, openReports, othersPhrase, ownWords, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, unvoiced, userNotes } from "./reports-shared.ts";
+import type { AskPoll, DirectoryRow, Pools, Voice } from "./reports-shared.ts";
 import { DECISION, STAFF_STEP, TALK_STEP, aside, handleStaffTurn, notifyStaffOfReport, queueStaffNotice, recordPerson, restoreStaffPointer, simulateIfAlone, simulationTurn, tellerFor } from "../staff.ts";
 
 export const TOPICS = ["dining", "safety", "housing", "academics", "transportation", "club funding", "other"] as const;
@@ -163,6 +163,32 @@ function pendingFrom(data: Record<string, unknown>): Pending | null {
   };
 }
 
+// One-tap answers (John, second live test (5)): the offer and the name question go out as polls when the provider
+// has them. Typed answers keep working exactly as before.
+export const OFFER_OPTIONS = ["send it with my name", "send it anonymously", "not now"];
+export const NAME_OPTIONS = ["with my name", "anonymously"];
+export const JOIN_OPTIONS = ["add my name", "keep me anonymous"];
+
+/**
+ * `lead` in words, then `question` as a poll of `options` when the provider has polls, else in words. Returns the
+ * poll (null when it was asked in words) and the id of the last bubble that went out as text.
+ */
+async function askOneTap(ctx: FlowContext, lead: string[], question: string, options: string[], key: string): Promise<{ poll: AskPoll | null; lastId: string | null }> {
+  const last = (ids: (string | null)[]) => [...ids].reverse().find((id) => !!id) ?? null;
+  const pollsOn = (() => {
+    try {
+      return typeof ctx.adapter?.capabilities === "function" && ctx.adapter.capabilities().polls && typeof ctx.adapter.sendPoll === "function";
+    } catch {
+      return false;
+    }
+  })();
+  if (!pollsOn) return { poll: null, lastId: last(await ctx.say(...lead, question)) };
+  const before = lead.length ? last(await ctx.say(...lead)) : null;
+  const poll = await askPoll(unvoiced(ctx), question, options, key);
+  if (poll) return { poll, lastId: poll.pollId ?? before };
+  return { poll: null, lastId: last(await ctx.say(question)) ?? before };
+}
+
 /** Who a concern would go to, as a student is told it. Code puts this in: the model never names an office. */
 const toWords = (p: Pending): string => p.office ?? `the ${p.routedTo}`;
 
@@ -193,9 +219,9 @@ async function offer(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
   // It has to be a question they can answer with a yes: that is the whole point of it.
   // And about something that has not happened: wording that says it was sent never goes out.
   if (!bubbles.length || !bubbles[bubbles.length - 1]!.includes("?") || claimsDone(bubbles)) bubbles = fallback[0]!;
-  const ids = await ctx.say(...lead, ...bubbles);
-  const qid = [...ids].reverse().find((id) => !!id) ?? null;
-  ctx.setState({ flow: "usg", step: OFFER_STEP, data: { ...p, qid, lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+  // The question is the last bubble. With polls it goes out as one: name, anonymous or not now, in one tap.
+  const { poll, lastId: qid } = await askOneTap(ctx, [...lead, ...bubbles.slice(0, -1)], bubbles[bubbles.length - 1]!, OFFER_OPTIONS, "usg:offer");
+  ctx.setState({ flow: "usg", step: OFFER_STEP, data: { ...p, qid, lastOut: newestOutId(ctx.db, ctx.event.chatId), ...(poll ? { poll } : {}) } });
 }
 
 /** An open concern that says the same thing, which this one would join instead of being filed again. */
@@ -222,7 +248,8 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = [], choice: 
     // The member's updated summary waits a little for this answer, and goes out anyway if it never comes.
     queueStaffNotice(ctx.db, dup.id);
     ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...p, reportId: dup.id } });
-    await ctx.say(...lead, p.office ? UT.joinedOffice(othersPhrase(others), p.office) : UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp, ASK_JOIN_NAME);
+    const join = await askOneTap(ctx, [...lead, p.office ? UT.joinedOffice(othersPhrase(others), p.office) : UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp], ASK_JOIN_NAME, JOIN_OPTIONS, "usg:join");
+    if (join.poll) ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...p, reportId: dup.id, poll: join.poll } });
     await aside(ctx, {
       step: "usg_joined",
       behind: { did: "found the same concern already open and added u to it instead of filing a second one. {studentsSharingIt} students share it now, with the {committee}", numbers: { studentsSharingIt: others + 1, committee: p.routedTo } },
@@ -236,7 +263,8 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = [], choice: 
     return;
   }
   ctx.setState({ flow: "usg", step: "ask_name", data: { ...p } });
-  await ctx.say(...lead, ASK_NAME);
+  const asked = await askOneTap(ctx, lead, ASK_NAME, NAME_OPTIONS, "usg:name");
+  if (asked.poll) ctx.setState({ flow: "usg", step: "ask_name", data: { ...p, poll: asked.poll } });
 }
 
 async function send(ctx: FlowContext, p: Pending, anonymous: boolean, note?: string, lead: string[] = []): Promise<void> {
@@ -565,9 +593,11 @@ export const usg: FlowHandler = {
     if (await simulationTurn(plain, OWN_STEPS)) return;
     // A usg member's answer to a summary, or a student's answer about joining a group chat with them, comes first.
     if (await handleStaffTurn(plain)) return;
-    // A thumbs up or down on troy's offer answers it. Any other tapback or poll vote means nothing here.
+    // A thumbs up or down on troy's offer answers it, and so does a pick on its poll or on the name poll. Any other
+    // tapback or poll vote means nothing here.
     if (ctx.event.reaction || ctx.event.pollVote) {
       if (ctx.state?.flow === "usg" && ctx.state.step === OFFER_STEP) await answerOffer(ctx, ctx.state);
+      else if (ctx.state?.flow === "usg" && (ctx.state.step === "ask_name" || ctx.state.step === "ask_join_name") && isFresh(ctx.state) && pollPick(ctx.event, pollOf(ctx.state.data.poll)) >= 0) await converse(ctx);
       return;
     }
     try {
@@ -592,6 +622,17 @@ async function answerOffer(ctx: FlowContext, state: FlowState): Promise<void> {
     // Lapsed, or he has said something else since: a "yes" now is not a yes to this.
     ctx.setState(null);
     if (!tap) await movedOn(ctx, text);
+    return;
+  }
+  // A pick on the offer's poll: with their name, anonymously, or not now.
+  const picked = pollPick(ctx.event, pollOf(state.data.poll));
+  if (picked === 0 || picked === 1) {
+    await raise(ctx, pending, [], picked === 0 ? "name" : "anonymous");
+    return;
+  }
+  if (picked === 2) {
+    ctx.setState(null);
+    await ctx.say(SAY.leftIt);
     return;
   }
   const answer = readYesNo({ event: ctx.event, questionMessageId: openQuestionId(ctx.db, ctx.user.id, state) });
@@ -671,8 +712,11 @@ async function converse(ctx: FlowContext): Promise<void> {
     }
 
     // The optional name on a concern they joined. They are already counted, so nothing here can lose their concern.
+    // A pick on the name poll is the choice, the same as typing it.
+    const pickedIndex = pollPick(ctx.event, pollOf(state.data.poll));
+    const picked: "name" | "anonymous" | null = pickedIndex === 0 ? "name" : pickedIndex === 1 ? "anonymous" : null;
     if (state.step === "ask_join_name" && joinId !== null) {
-      const choice = parseChoice(text);
+      const choice = picked ?? parseChoice(text);
       if (!choice && asksAboutName(text)) {
         ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...state.data } });
         await ctx.say(...EXPLAIN_JOIN_NAME);
@@ -697,7 +741,7 @@ async function converse(ctx: FlowContext): Promise<void> {
     }
 
     if (state.step === "ask_name") {
-      const choice = parseChoice(text);
+      const choice = picked ?? parseChoice(text);
       if (choice) {
         await send(ctx, pending, choice === "anonymous");
         return;

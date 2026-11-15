@@ -3,7 +3,7 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import type { Bubble, FlowContext, FlowName, FlowState } from "../types.ts";
-import { getFlowState, getSetting, setFlowState, setSetting } from "../db/index.ts";
+import { getFlowState, getSetting, saveMessage, setFlowState, setSetting } from "../db/index.ts";
 import { pickVariant } from "../voice.ts";
 
 type Row = Record<string, unknown>;
@@ -601,4 +601,87 @@ export function poolProblems(pools: Pools): string[] {
     }
   }
   return out;
+}
+
+// ---------- one-tap asks (John, second live test (5)) ----------
+//
+// A yes/no or pick-one ask goes out as a native poll when the provider has polls, so it is one tap. When the
+// provider falls back, the tap mode gets exactly one hint after the options and the numbered mode answers by number.
+// Never "tap ❤️ on ur pick", and never two different tap instructions in one message: the question itself names
+// no way to tap. Without polls at all the caller asks in words as before (a thumbs up on the question still counts).
+
+export type AskPoll = { pollId: string | null; optionIds: (string | null)[]; mode: "native" | "tap" | "numbered"; options: string[] };
+
+export const POLL_TAP_HINT: readonly string[] = ["heart the one u want", "heart or thumbs up the one u want"];
+export const POLL_NUMBER_HINT: readonly string[] = ["text the number", "just text the number"];
+
+/** The question bubble may not carry a tap instruction of its own: the poll (or the one hint) is the instruction. */
+const TAP_WORDS = /\s*\b(?:tap|heart|thumbs up)\b[^.?!]*(?:one|it|pick|this|that)\b[.!]?\s*$/i;
+
+/**
+ * Sends `question` with `options` as a poll and saves what went out, so "is this still his last word" checks see it.
+ * Returns null (and sends nothing) when the provider has no polls or the send failed: the caller asks in words.
+ */
+export async function askPoll(ctx: FlowContext, question: string, options: string[], key: string): Promise<AskPoll | null> {
+  const adapter = ctx.adapter;
+  if (typeof adapter?.sendPoll !== "function" || typeof adapter.capabilities !== "function" || !adapter.capabilities().polls) return null;
+  const chatId = ctx.user.chatId || ctx.event.chatId;
+  const q = question.replace(TAP_WORDS, "").trim() || question;
+  let poll: Awaited<ReturnType<typeof adapter.sendPoll>>;
+  try {
+    poll = await adapter.sendPoll(chatId, q, options);
+  } catch {
+    // Nothing went out: the caller asks in words.
+    return null;
+  }
+  // From here the question is out. Never null again, or the caller would ask the same thing a second time in words.
+  const asked: AskPoll = { pollId: null, optionIds: poll.optionMessageIds, mode: poll.mode, options };
+  try {
+    const save = (providerMessageId: string | null, text: string) => saveMessage(ctx.db, { userId: ctx.user.id, chatId, direction: "out", providerMessageId, text });
+    if (poll.mode === "native") {
+      const pollId = poll.optionMessageIds.find((id) => !!id) ?? null;
+      save(pollId, `[poll] ${q}: ${options.join(" / ")}`);
+      return { ...asked, pollId };
+    }
+    save(null, q);
+    options.forEach((o, i) => save(poll.optionMessageIds[i] ?? null, o));
+    // Exactly one instruction: the provider adds none of its own.
+    if (poll.mode === "tap") await ctx.say(pickVariant(ctx.db, ctx.user.id, `poll:${key}:tap`, POLL_TAP_HINT as string[]));
+    else await ctx.say(pickVariant(ctx.db, ctx.user.id, `poll:${key}:numbered`, POLL_NUMBER_HINT as string[]));
+  } catch {
+    // Saving or the hint failed; the poll itself is out.
+  }
+  return asked;
+}
+
+/** Reads a stored AskPoll back from flow state data. */
+export function pollOf(raw: unknown): AskPoll | null {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Partial<AskPoll>;
+  if (!Array.isArray(p.optionIds) || !Array.isArray(p.options) || (p.mode !== "native" && p.mode !== "tap" && p.mode !== "numbered")) return null;
+  return { pollId: typeof p.pollId === "string" ? p.pollId : null, optionIds: p.optionIds, mode: p.mode, options: p.options };
+}
+
+/**
+ * Which option this event picks: a vote on the poll, a heart or thumbs up on an option's bubble (tap mode), or a
+ * typed number or option (any mode). -1 when it picks nothing.
+ */
+export function pollPick(event: { pollVote?: { pollMessageId: string; optionIndex: number }; reaction?: { targetMessageId: string; type: string; removed: boolean }; text: string }, poll: AskPoll | null): number {
+  if (!poll) return -1;
+  if (event.pollVote) {
+    if (poll.mode !== "native") return -1;
+    if (event.pollVote.pollMessageId && poll.pollId && event.pollVote.pollMessageId !== poll.pollId) return -1;
+    const i = event.pollVote.optionIndex;
+    return Number.isInteger(i) && i >= 0 && i < poll.options.length ? i : -1;
+  }
+  if (event.reaction) {
+    const r = event.reaction;
+    if (r.removed || (r.type !== "love" && r.type !== "like")) return -1;
+    return poll.optionIds.findIndex((id) => !!id && id === r.targetMessageId);
+  }
+  const t = (event.text ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return -1;
+  const n = Number(t);
+  if (Number.isInteger(n) && n >= 1 && n <= poll.options.length) return n - 1;
+  return poll.options.findIndex((o) => o.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim() === t);
 }

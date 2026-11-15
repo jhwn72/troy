@@ -964,3 +964,10 @@ test("asking for food when nothing is live never ends on a dead end", async () =
   const w = world({ intent: () => ({ flow: "food", action: "status", details: {}, source: "ai" }) });
   assert.deepEqual(await w.text("a", "any free food rn?"), [FOOD_COPY.nothingLive, FOOD_COPY.nothingLiveNext]);
 });
+
+test("a photo of their own meal is never posted, even when the router calls it a post", async () => {
+  const w = world({ intent: () => ({ flow: "food", action: "post_food", details: { category: "salad" }, source: "ai" }) });
+  await w.text("poster", "look at my sweetgreen salad", PHOTO);
+  assert.equal((w.db.prepare("SELECT COUNT(*) AS n FROM food_drops").get() as { n: number }).n, 0);
+  assert.notEqual(getFlowState(w.db, w.ids.poster)?.flow, "food");
+});

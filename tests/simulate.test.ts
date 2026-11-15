@@ -8,7 +8,7 @@ import type { Bubble, FlowContext, IncomingEvent, Intent, MessagingAdapter } fro
 import { openDb, getOrCreateUser, getUserById, updateUser, getFlowState, setFlowState, saveMessage } from "../src/db/index.ts";
 import { setModelCall } from "../src/ai.ts";
 import { setFirstTenDeps } from "../src/firstten.ts";
-import { SHOW_ME, SIM_OFFER_STEP, SIM_PICK_STEP, offerSimulation, runSimulation, setSimulateDeps, stepSimulation } from "../src/simulate.ts";
+import { NOT_NOW, SHOW_ME, SIM_OFFER_STEP, SIM_PICK_STEP, offerSimulation, runSimulation, setSimulateDeps, stepSimulation } from "../src/simulate.ts";
 import type { SimKind } from "../src/simulate.ts";
 import { tour } from "../src/flows/tour.ts";
 import { COPY } from "../src/flows/lostfound/handler.ts";
@@ -139,17 +139,49 @@ test("the offer: honest about the demo, a one-tap 'show me', and the same line f
     assert.equal(made, true);
     const all = out.join(" ");
     assert.match(all, /demo/);
-    assert.match(all, /nobody else|no other users|no one/);
+    // Someone else (the bystander) is on troy, so the line says what is really true for this one, never "nobody else is on here".
+    assert.match(all, /no technician for that is on here yet/);
+    assert.doesNotMatch(all, /nobody else|no other users/);
     assert.match(all, /works|flow is real/);
     assert.match(all, /show u|play the other side/);
     assert.equal(w.polls.length, 1);
-    assert.deepEqual(w.polls[0].options, [SHOW_ME]);
+    assert.deepEqual(w.polls[0].options, [SHOW_ME, NOT_NOW]);
+    assert.doesNotMatch(w.polls[0].question, /\btap\b/, "the poll question carries no tap instruction of its own");
     assert.deepEqual({ flow: w.state()?.flow, step: w.state()?.step, kind: w.state()?.data.kind }, { flow: "tour", step: SIM_OFFER_STEP, kind: "repair" });
     w.nothingReal();
     // Offered once per person and kind: the second time the caller says its normal line.
     assert.equal((await w.offer("repair", { what: "x" })).made, false);
     assert.equal((await w.offer("food", { what: "pizza" })).made, true);
   }
+});
+
+test("status is true to the moment: 'nobody else is on here' only when nobody else really is", async () => {
+  const w = world({ judge: true });
+  // The only other person stops: now it is literally true.
+  w.db.prepare("UPDATE users SET stopped = 1 WHERE id != ?").run(w.id);
+  const { out } = await w.offer("food", { what: "pizza", where: "leavey" });
+  assert.match(out.join(" "), /nobody else|no other users|no one/);
+  const v = world({ judge: true });
+  const other = await v.offer("food", { what: "pizza", where: "leavey" });
+  assert.match(other.out.join(" "), /no students who get food texts are close enough right now/);
+  assert.doesNotMatch(other.out.join(" "), /nobody else|no other users/);
+});
+
+test("the offer poll: 'not now' is a no, by vote or by tapback on its bubble, and the tap hint is the only tap instruction", async () => {
+  const w = world();
+  await w.offer("usg", { what: "late village shuttles" });
+  const no = await w.turn({ pollVote: { pollMessageId: w.polls.at(-1)!.id, optionIndex: 1 } });
+  assert.equal(no.length, 1);
+  assert.equal(w.state(), null);
+
+  const v = world({ pollMode: "tap" });
+  const { out } = await v.offer("usg", { what: "late village shuttles" });
+  const tapLines = out.filter((b) => /\b(?:tap|heart|thumbs up)\b/.test(b));
+  assert.equal(tapLines.length, 1, out.join(" / "));
+  assert.doesNotMatch(out.join(" "), /tap ❤️ on ur pick/);
+  const tapNo = await v.turn({ reaction: { targetMessageId: `${v.polls.at(-1)!.id}-opt-1`, type: "love", removed: false } });
+  assert.equal(tapNo.length, 1);
+  assert.equal(v.state(), null);
 });
 
 test("a no is one easy line, a typed yes works, and anything else lets the offer lapse", async () => {

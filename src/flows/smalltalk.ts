@@ -28,15 +28,123 @@ import {
   sayInHisWords,
 } from "../brain.ts";
 import type { ChatContext, HandoffFlow, LookupResult } from "../brain.ts";
-import { isCrisis, isEmergency } from "../commands.ts";
+import { endsPlayful, isCrisis, isEmergency } from "../commands.ts";
 import { lookupOn } from "../config.ts";
-import { getFlowState } from "../db/index.ts";
+import { getFlowState, getSetting, setSetting } from "../db/index.ts";
 import { isProtected, pendingFor } from "../pending.ts";
 import { isDistress, pickVariant } from "../voice.ts";
 import { readYesNo } from "../yes.ts";
 import { doneForNow, isNeutral, isUntried, nextMove, noteQuestionAsked } from "../firstten.ts";
 import { OFFER_STEP, directoryRows, keepOfferStanding, offerLive, rowMentioned } from "./reports-shared.ts";
-import { isConcern } from "./usg.ts";
+import { isConcern, isHousingLife } from "./usg.ts";
+import type { TapbackType } from "../types.ts";
+
+// ---------- serious statements and tapbacks (John, second live test, Nov 14 8pm) ----------
+//
+// "the professors suck and are overpaid" got a thumbs up and "oof that would get to me too". A real complaint gets
+// his job instead: one line of acknowledgment and the ask-first offer to the right committee or office. Tapbacks
+// are rare and fit the moment, the way a young person uses them: a heart for something sad or kind, "haha" for
+// something funny, "!!" for a surprise. A thumbs up only says "got ur request" while a longer reply is coming
+// (the pipeline's acknowledgement). Never a reaction instead of an answer, never more than one per exchange, and
+// none on a serious statement.
+
+/** Something on campus a complaint can be about: people, classes, services, rules. */
+const CAMPUS_SUBJECT =
+  /\b(?:professors?|profs?|teachers?|lecturers?|ta|tas|class(?:es)?|courses?|lectures?|grad(?:e|es|ing)|exams?|midterms?|finals|tuition|fees?|dining|dining halls?|meal plans?|swipes?|evk|parkside|village|housing|dorms?|ra|ras|roommates?|shuttles?|buses|parking|admin|administration|usc|usg|dps|staff|advisors?|advising|registration|wifi|library|leavey|financial aid|bookstore|rec center|lyon|health center|engemann|counseling|policy|policies|rules?|security)\b/;
+/** Words that make it a grievance rather than a description. */
+const GRIEVANCE =
+  /\bsucks?\b|\bterrible\b|\bawful\b|\bhorrible\b|\boverpaid\b|\boverpriced\b|\bunderpaid\b|\bunfair\b|\bridiculous\b|\buseless\b|\bincompetent\b|\bunprofessional\b|\brude\b|\bdon'?t care\b|\bdoesn'?t care\b|\bnever (?:respond|responds|answer|answers|help|helps|show|shows|fix|fixes|on time)\b|\bwon'?t (?:do|help|respond|fix|listen|answer)\b|\bwouldn'?t (?:do|help|act|listen)\b|\bdidn'?t (?:do|help|act) anything\b|\bignor(?:e|es|ed|ing)\b|\bthe worst\b|\btrash\b|\bscam\b|\brip ?off\b|\bnot enough\b|\btoo (?:expensive|crowded|slow|loud|late|early|few|small)\b|\bso (?:expensive|crowded|slow|loud|bad)\b|\bkeeps? (?:breaking|getting worse|happening)\b|\bsick of\b|\btired of\b|\bfed up\b|\bunsafe\b|\bdisgusting\b|\bgross\b|\bmisera(?:ble)\b|\bbroken again\b|\bis a joke\b/;
+const LAUGHS = /\b(?:lol+|lmao+|lmfao+|rofl|haha\w*|hehe+|jk|jkjk)\b|😂|🤣|💀/u;
+
+/**
+ * A real complaint about something on campus that someone could act on: a grievance word, a campus subject, and
+ * no laugh or emoji that makes it a joke. ("that exam killed me lol" is not one; "the professors suck and are
+ * overpaid" is.) Code reads this so a complaint never gets only a shrug or a thumbs up.
+ */
+export function seriousComplaint(text: string): boolean {
+  const t = (text ?? "").toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
+  if (!t || t.split(" ").length < 3) return false;
+  if (endsPlayful(t) || LAUGHS.test(t)) return false;
+  return GRIEVANCE.test(t) && (CAMPUS_SUBJECT.test(t) || isHousingLife(t));
+}
+
+/** A statement no tapback may land on: a real complaint, distress, an emergency or a crisis. */
+export function seriousStatement(text: string): boolean {
+  const t = text ?? "";
+  return seriousComplaint(t) || isDistress(t) || isCrisis(t) || isEmergency(t);
+}
+
+// Words that ask Troy to do something. A bare question ("how was ur day?", "whats ur favorite dining hall?") is small
+// talk, not a request: it gets an answer, not a thumbs up first (John, second live test (1): reactions are rare).
+const REQUEST =
+  /^(?:(?:hey|yo|ok|okay|troy)[ ,]+)*(?:can|could|will) (?:u|you)\b(?! (?:believe|imagine))|^(?:(?:hey|yo|ok|okay|troy)[ ,]+)*(?:pls|please|find|show|send|tell me where|help me|get me|is there|are there|any (?:free|food|rides?|one going)|where (?:can|do|should) i|where(?:'s| is| are) (?:the|a|an)\b|how do i (?:get|find|report|sign|book|print)\b)|\b(?:lost my|i lost|i found|found (?:a|an|some|someone'?s)|i need|looking for|need help|there'?s free|free food|is broken|isn'?t working|not working)\b/;
+
+/**
+ * The pipeline's "got it" tapback while a longer reply is coming: only for a request (a photo, a real flow, or words
+ * that ask for something), and never on a serious statement. Statements and small talk get no acknowledgement.
+ */
+export function ackFits(text: string, opts: { hasImage?: boolean; realFlow?: boolean } = {}): boolean {
+  if (seriousStatement(text)) return false;
+  if (opts.hasImage || opts.realFlow) return true;
+  return REQUEST.test((text ?? "").toLowerCase().replace(/[‘’]/g, "'").trim());
+}
+
+export type ChatReaction = "love" | "laugh" | "emphasize";
+
+/** The reaction the model picked, if it is one he may use. A thumbs up is never his pick: that one only means "got it". */
+export function readReaction(raw: unknown): ChatReaction | null {
+  if (typeof raw !== "string") return null;
+  const r = raw.trim().toLowerCase();
+  if (r === "love" || r === "heart" || r === "❤️") return "love";
+  if (r === "laugh" || r === "haha") return "laugh";
+  if (r === "emphasize" || r === "!!") return "emphasize";
+  return null;
+}
+
+/** At most one of his own reactions per this many of their messages: rare, never a habit. */
+export const REACTION_EVERY = 4;
+const reactionKey = (userId: number) => `chat_reaction:${userId}`;
+
+function incomingCount(db: DatabaseSync, userId: number): number {
+  try {
+    return Number((db.prepare("SELECT COUNT(*) AS n FROM messages WHERE userId = ? AND direction = 'in'").get(userId) as { n: number }).n) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Whether the reaction he picked may go on their message. Code decides: none in a heavy conversation, none on a
+ * complaint, an emergency or a crisis; on something sad only a heart; and rare (one per REACTION_EVERY messages).
+ */
+export function reactionAllowed(db: DatabaseSync, userId: number, text: string, kind: ChatReaction, opts: { heavy?: boolean } = {}): boolean {
+  if (opts.heavy) return false;
+  const t = text ?? "";
+  if (seriousComplaint(t) || isCrisis(t) || isEmergency(t)) return false;
+  if (isDistress(t) && kind !== "love") return false;
+  const last = Number(getSetting(db, reactionKey(userId)) ?? NaN);
+  if (Number.isFinite(last) && incomingCount(db, userId) - last < REACTION_EVERY) return false;
+  return true;
+}
+
+/** Puts his reaction on their message when it is allowed and the provider has tapbacks. True when it landed. */
+export async function reactToMessage(ctx: FlowContext, kind: ChatReaction | null, opts: { heavy?: boolean } = {}): Promise<boolean> {
+  if (!kind || !ctx.event.messageId) return false;
+  try {
+    const adapter = ctx.adapter;
+    if (typeof adapter?.react !== "function" || typeof adapter.capabilities !== "function" || !adapter.capabilities().tapbacks) return false;
+    if (!reactionAllowed(ctx.db, ctx.user.id, ctx.event.text, kind, opts)) return false;
+    const ok = await adapter.react(ctx.event.chatId, ctx.event.messageId, kind as TapbackType);
+    if (ok) setSetting(ctx.db, reactionKey(ctx.user.id), String(incomingCount(ctx.db, ctx.user.id)));
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** One complaint offer pushed by code per person in this window: if they passed on it, he doesn't keep pressing. */
+const COMPLAINT_OFFER_MS = 20 * 60_000;
+const complaintKey = (userId: number) => `complaint_offer:${userId}`;
 
 // ---------- fallback lines (no model) ----------
 
@@ -375,7 +483,7 @@ const SOUNDS_LIKE_QUESTION = /\bwish (?:was|were|felt) (?:easier|simpler|less)\b
 
 // ---------- the reply ----------
 
-type ModelReply = { bubbles?: unknown; handoff?: unknown; lookup?: unknown };
+type ModelReply = { bubbles?: unknown; handoff?: unknown; lookup?: unknown; reaction?: unknown };
 
 function modelPrompt(c: ChatContext, rejected: string | null): string {
   return rejected ? `${c.prompt}\n\nyour last reply was not sent: ${rejected}. write it again.` : c.prompt;
@@ -396,7 +504,7 @@ export async function chatReply(input: {
   ack?: (line: string) => Promise<unknown>;
   /** Extra lines for the model about this one reply. */
   extra?: string[];
-}): Promise<{ bubbles: string[]; handoff: { flow: HandoffFlow; action: string } | null; source: "model" | "fallback" }> {
+}): Promise<{ bubbles: string[]; handoff: { flow: HandoffFlow; action: string } | null; source: "model" | "fallback"; reaction?: ChatReaction | null }> {
   const { db } = input;
   const { user, event, intent } = input.ctx;
   const started = Date.now();
@@ -469,7 +577,9 @@ export async function chatReply(input: {
     if (check.ok && c.onlyLink !== undefined && check.bubbles.length > 2) check = { ok: false, reason: "a looked up answer is at most two bubbles. keep the best guess, where it's from and double check" };
     if (check.ok) {
       debug("model", attempt + 1);
-      return { bubbles: check.bubbles, handoff: null, source: "model" };
+      // The tapback he picked rides along; the caller decides (in code) whether it may go on.
+      const reaction = readReaction(out.reaction);
+      return { bubbles: check.bubbles, handoff: null, source: "model", ...(reaction ? { reaction } : {}) };
     }
     rejected = check.reason;
     debug("rejected", attempt + 1, check.reason);
@@ -477,6 +587,29 @@ export async function chatReply(input: {
   debug("fallback(rejected twice)", 2);
   noteDoubleReject(db);
   return fallback();
+}
+
+/**
+ * A real complaint the model only reacted to ("oof that would get to me too"): he does his job instead. The message
+ * goes to the concern flow (the repair flow when it is a broken physical thing), marked as from a chat, so it only
+ * offers: one line of acknowledgment, where it could go, and nothing is sent without a yes. Not in a heavy moment,
+ * not over an open step, not when his reply already offers it, and at most once per person in COMPLAINT_OFFER_MS.
+ */
+async function offerForComplaint(ctx: FlowContext, bubbles: string[]): Promise<boolean> {
+  try {
+    const text = ctx.event.text ?? "";
+    if (ctx.event.images.length || !seriousComplaint(text)) return false;
+    if (ctx.intent.details.heavy === true || isHeavy(ctx.db, ctx.user.id) || getFlowState(ctx.db, ctx.user.id)) return false;
+    if (bubbles.some((b) => HIS_OFFER.test((b ?? "").toLowerCase()))) return false;
+    const last = Number(getSetting(ctx.db, complaintKey(ctx.user.id)) ?? NaN);
+    if (Number.isFinite(last) && Date.now() - last < COMPLAINT_OFFER_MS) return false;
+    const rules = fallbackIntent({ text, hasImage: false, state: null });
+    const to: { flow: HandoffFlow; action: string } = rules.flow === "repair" ? { flow: "repair", action: "report" } : { flow: "usg", action: "concern" };
+    setSetting(ctx.db, complaintKey(ctx.user.id), String(Date.now()));
+    return await handOff(ctx, to);
+  } catch {
+    return false;
+  }
 }
 
 const OFFER_STANDS =
@@ -521,9 +654,11 @@ export const smalltalk: FlowHandler = {
       if (await handOff(ctx, reply.handoff)) return;
       // The flow didn't take it (not registered, or it stayed silent): Troy answers it himself after all.
       reply = await chatReply({ db: ctx.db, ctx, allowHandoff: false, ack });
-    }
+    } else if (!again && (await offerForComplaint(ctx, reply.bubbles))) return;
     const heavyNow = isHeavy(ctx.db, ctx.user.id);
     const bubbles = reply.bubbles.length ? reply.bubbles : fallbackReply(ctx.db, ctx.user.id, ctx.event.text, { heavy: heavyNow, noQuestion: !heavyNow && questionStreak(ctx.db, ctx.event.chatId) >= QUESTION_LIMIT });
+    // His own tapback, when he picked one and code allows it: rare, fitting, and only alongside a real answer.
+    if (reply.source === "model" && bubbles.length) await reactToMessage(ctx, reply.reaction ?? null, { heavy: heavyNow });
     await ctx.say(...bubbles);
     // He made the "stump me" dare on his own: it counts as used, and what they name next is their attempt.
     const said = bubbles.join(" ").toLowerCase();

@@ -853,15 +853,16 @@ test("helper not connected, or the poll call failing: tap-to-pick bubbles, with 
   respond = () => ({ guid: `T-${i++}` });
   assert.equal(off.adapter.capabilities().polls, false);
   assert.deepEqual(await off.adapter.sendPoll(ALLOWED_CHAT, "pick one", ["a", "b"]), { optionMessageIds: ["T-1", "T-2"], mode: "tap" });
-  assert.deepEqual(sends().map((c) => c.body.message), ["pick one\ntap ❤️ on ur pick", "a", "b"]);
+  // No instruction line from the provider: the caller adds its one hint (never "tap ❤️ on ur pick").
+  assert.deepEqual(sends().map((c) => c.body.message), ["pick one", "a", "b"]);
   assert.equal(off.helperCalls.length, 0);
 
   calls = [];
   i = 0;
   const failing = await setupWithHelper();
   failing.state.answer = () => ({ ok: false, error: "exception: something" });
-  assert.deepEqual(await failing.adapter.sendPoll(ALLOWED_CHAT, "pick one", ["a", "b"]), { optionMessageIds: ["T-2", "T-3"], mode: "tap" });
-  assert.deepEqual(sends().map((c) => c.body.message), ["pick one", "tap ❤️ on ur pick", "a", "b"]);
+  assert.deepEqual(await failing.adapter.sendPoll(ALLOWED_CHAT, "pick one", ["a", "b"]), { optionMessageIds: ["T-1", "T-2"], mode: "tap" });
+  assert.deepEqual(sends().map((c) => c.body.message), ["pick one", "a", "b"]);
   assert.equal(getSetting(failing.db, "poll:"), null);
 });
 

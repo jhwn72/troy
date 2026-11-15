@@ -114,6 +114,11 @@ const POOLS = {
   verified: ["ur verified. welcome in", "that's the one. ur verified", "verified. welcome in"],
   alerts_question: ["what do u want me to text u about?", "what should i text u about?", "which of these do u want texts about?", "pick what u want me to hit u up about"],
   alerts_many: ["u can pick more than one", "pick as many as u want", "take as many as u like"],
+  // The one instruction for a poll that isn't native (the provider sends none of its own).
+  alerts_tap: ["heart the ones u want, as many as u like", "heart or thumbs up whichever ones u want, more than one is fine"],
+  alerts_numbered: ["text the numbers u want, as many as u like", "just text the numbers, more than one is fine"],
+  who_tap: ["heart the one that's u", "heart whichever one is u"],
+  who_numbered: ["text 1 or 2", "just text the number"],
   alerts_none: ["no alerts for now. u can always tell me later", "all good, no alerts. just tell me if that changes", "none for now then. say the word whenever u want some"],
   late_one: ["got that one too", "added that one", "got it, that one's on now"],
   late_many: ["got those too", "added those", "got them, those are on now"],
@@ -206,6 +211,14 @@ export type OnboardingDeps = {
   gifPath: string;
 };
 
+/**
+ * The how-to GIF that goes out with the location ask. The small cut (396x495, 86 frames, about 413 KB) arrives
+ * fast; the full 720x900, 288 frame, 1.8 MB original stays in bluebubbles/gif/ and is not sent.
+ */
+export const LOCATION_GIF = fileURLToPath(new URL("../public/assets/share-location-small.gif", import.meta.url));
+/** The GIF must stay under this many bytes so it lands right under the ask. */
+export const LOCATION_GIF_MAX_BYTES = 500 * 1024;
+
 const underTest = !!process.env.NODE_TEST_CONTEXT;
 let overrides: Partial<OnboardingDeps> = {};
 
@@ -229,7 +242,7 @@ async function deps(): Promise<OnboardingDeps> {
     },
     cardBeatMs: underTest ? 0 : 1500,
     settleMs: 4000,
-    gifPath: fileURLToPath(new URL("../bluebubbles/gif/share-location.gif", import.meta.url)),
+    gifPath: LOCATION_GIF,
     ...overrides,
   };
 }
@@ -566,6 +579,8 @@ function realRequest(event: IncomingEvent): boolean {
 async function askWho(ctx: FlowContext): Promise<void> {
   ctx.setState({ flow: FLOW, step: "who", data: {} });
   const ref = await sendPoll(ctx, (await deps()).pickLine(ctx, "quick_check")[0]!, JUDGE_OPTIONS);
+  // One instruction for a tap or numbered poll: the provider no longer adds its own.
+  if (ref.mode !== "native") await ctx.say(...vary(ctx, ref.mode === "tap" ? "who_tap" : "who_numbered"));
   ctx.setState({ flow: FLOW, step: "who", data: { judge: ref } });
 }
 
@@ -778,12 +793,13 @@ async function judgeSkip(ctx: FlowContext): Promise<void> {
   ctx.db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(ctx.user.id);
   ctx.setState({ flow: FLOW, step: "alerts", data: {} });
   await ctx.say(...(await deps()).pickLine(ctx, "judge"));
+  let toneTap = false;
   try {
-    await judgeIntro(ctx, inHisWords);
+    toneTap = await judgeIntro(ctx, inHisWords);
   } catch {
     // The intro is context, never a gate: the alerts poll still goes out.
   }
-  await askAlerts(ctx, []);
+  await askAlerts(ctx, [], { toneTap });
 }
 
 const SAYS_JUDGE = /^(?:im |i am |i m )?(?:a |the |an? )?(?:hackathon )?judge(?: here)?$/;
@@ -902,7 +918,7 @@ function loadAlertPoll(db: DatabaseSync, userId: number): AlertPoll | null {
   }
 }
 
-async function askAlerts(ctx: FlowContext, lead: string[]): Promise<void> {
+async function askAlerts(ctx: FlowContext, lead: string[], opts: { toneTap?: boolean } = {}): Promise<void> {
   const { db, user } = ctx;
   const all = listTopics(db);
   const offered = BUILT_IN_TOPICS.map((b) => all.find((t) => t.key === b.key)).filter((t): t is (typeof all)[number] => !!t);
@@ -911,8 +927,10 @@ async function askAlerts(ctx: FlowContext, lead: string[]): Promise<void> {
   const ref = await sendPoll(ctx, vary(ctx, "alerts_question").join(" "), [...offered.map((t) => t.label), SOMETHING_ELSE]);
   // Kept outside flow_state: the poll stays live long after onboarding, and across restarts.
   setSetting(db, pollKey(user.id), JSON.stringify({ ...ref, topicIds: [...offered.map((t) => t.id), -1] } satisfies AlertPoll));
-  // The provider's own hint for a list or tap poll says "ur pick". Several are fine here.
-  if (ref.mode !== "native") await ctx.say(...vary(ctx, "alerts_many"));
+  // A tap or numbered poll gets exactly one instruction, and it says several are fine. A judge who was just told to
+  // heart the "drop the slang" bubble gets no second tap instruction in the same reply: only "pick as many as u want".
+  if (ref.mode === "tap" && opts.toneTap) await ctx.say(...vary(ctx, "alerts_many"));
+  else if (ref.mode !== "native") await ctx.say(...vary(ctx, ref.mode === "tap" ? "alerts_tap" : "alerts_numbered"));
 }
 
 function joinList(parts: string[]): string {

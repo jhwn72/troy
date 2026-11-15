@@ -12,7 +12,7 @@ import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
 import { untriedState, markMove as brainMarkMove } from "../src/brain.ts";
 import { saveUserLocation } from "../src/location.ts";
-import { FIRST_TEN, TRY_ME_OPTIONS, afterOnboarding, cancelFirstTen, dueNow, hasMove, isNeutral, isUntried, saysDone, setFirstTenDeps } from "../src/firstten.ts";
+import { CLOSING, FIRST_TEN, TRY_ME_OPTIONS, afterOnboarding, cancelFirstTen, closingDue, dueNow, engageMode, hasMove, isNeutral, isUntried, saysDone, setFirstTenDeps } from "../src/firstten.ts";
 import { setSimulateDeps } from "../src/simulate.ts";
 
 console.warn = () => {};
@@ -179,7 +179,8 @@ test("right when onboarding ends: the 'what else' line, then the 'near u' bubble
   // The "try me" poll goes out right away, in the same turn: one tap starts something.
   assert.equal(w.polls.length, 1, "the poll does not wait for silence");
   assert.deepEqual(w.polls[0].options, [...TRY_ME_OPTIONS]);
-  assert.match(w.polls[0].question, /tap one|pick one/);
+  // The poll question names no way to tap: one tap instruction at most per message, and a native poll needs none.
+  assert.doesNotMatch(w.polls[0].question, /\b(?:tap|heart|thumbs up)\b/);
   assert.equal(p.state(), null);
   assert.ok(isUntried(w.db, p.id), "new and untried from here");
   assert.equal(dueNow(w.db, p.id), null, "the poll was part of the turn, not the unprompted message");
@@ -927,4 +928,94 @@ test("chat about the example offer is held to the question limit too: a third qu
   assert.ok(calls >= 2, "the ordinary chat path answered instead");
   assert.ok(!out.some((b) => /what does ur ra say/.test(b)), out.join(" / "));
   assert.ok(out.length >= 1);
+});
+
+// ---------- engagement: the demo closing line (John, second live test (3)) ----------
+
+test("demo: after the first ten minutes he starts nothing, then about 90 minutes after their first text one closing line, then only replies", async () => {
+  delete process.env.TROY_ENGAGE;
+  assert.equal(engageMode(), "demo");
+  assert.equal(CLOSING.afterMs, 90 * MIN);
+  const w = world();
+  const p = w.person("+12135550901");
+  const start = clock;
+  await p.finishOnboarding();
+  await p.say("i'm good for now");
+  // Between the first ten minutes and the 90 minute mark: nothing unprompted.
+  for (const at of [12 * MIN, 30 * MIN, 60 * MIN, 89 * MIN]) assert.deepEqual(await w.sweepAt(p, start + at), [], `nothing at ${at / MIN} min`);
+  const closing = await w.sweepAt(p, start + 91 * MIN);
+  assert.equal(closing.length, 1, closing.join(" / "));
+  assert.match(closing[0]!, /demo/);
+  assert.match(closing[0]!, /api credits are expensive/);
+  assert.match(closing[0]!, /text (?:u )?first/);
+  assert.doesNotMatch(closing[0]!, /\u2014/);
+  // Once, ever.
+  assert.deepEqual(await w.sweepAt(p, start + 95 * MIN), []);
+  assert.deepEqual(await w.sweepAt(p, start + 150 * MIN), []);
+  // Replies still work after it.
+  assert.ok((await p.say("what can u do")).length > 0);
+});
+
+test("demo closing line: never over an open step, never in quiet hours or while paused, and not hours late", async () => {
+  delete process.env.TROY_ENGAGE;
+  const w = world();
+  const p = w.person("+12135550902");
+  const start = clock;
+  await p.finishOnboarding();
+  await p.say("hey");
+  w.db.prepare("UPDATE users SET paused = 1 WHERE id = ?").run(p.id);
+  assert.equal(closingDue(w.db, p.id, start + 91 * MIN), false, "paused");
+  w.db.prepare("UPDATE users SET paused = 0 WHERE id = ?").run(p.id);
+  setFlowState(w.db, p.id, { flow: "lost_found", step: "describe", data: {} });
+  assert.equal(closingDue(w.db, p.id, start + 91 * MIN), false, "a step is open");
+  setFlowState(w.db, p.id, null);
+  assert.equal(closingDue(w.db, p.id, start + 91 * MIN), true);
+  assert.equal(closingDue(w.db, p.id, start + CLOSING.lateMs + MIN), false, "too late to still say it");
+});
+
+test("calm: the poll with onboarding is the one nudge; no unprompted first-ten message and no closing line", async () => {
+  process.env.TROY_ENGAGE = "calm";
+  try {
+    const w = world();
+    const p = w.person("+12135550903");
+    const start = clock;
+    await p.finishOnboarding();
+    assert.equal(p.polls().length, 1, "the one nudge");
+    for (const at of [26 * SEC, 91 * SEC, 8 * MIN, 91 * MIN]) assert.deepEqual(await w.sweepAt(p, start + at), [], `nothing at ${at / SEC} s`);
+    assert.equal(dueNow(w.db, p.id, start + 91 * SEC), null);
+  } finally {
+    delete process.env.TROY_ENGAGE;
+  }
+});
+
+test("calm: the pull is off after onboarding, so a bare \"ok\" gets no forced next step", async () => {
+  process.env.TROY_ENGAGE = "calm";
+  try {
+    const w = world();
+    const p = w.person("+12135550904");
+    await p.finishOnboarding();
+    assert.equal(isUntried(w.db, p.id), false, "calm never marks them untried");
+    assert.equal(untriedState(w.db, p.id), null);
+    await p.say("ok");
+    assert.notEqual(p.state()?.flow, "tour", "no tour offer pushed on a bare ok");
+    assert.equal(hasMove(w.db, p.id, "tour_offer"), false);
+  } finally {
+    delete process.env.TROY_ENGAGE;
+  }
+});
+
+test("demo closing line waits for a quiet chat, even long after the first ten minutes", async () => {
+  delete process.env.TROY_ENGAGE;
+  const w = world();
+  const p = w.person("+12135550905");
+  const start = clock;
+  await p.finishOnboarding();
+  await p.say("hey");
+  setFlowState(w.db, p.id, null);
+  // A chat going on at minute 90: their last text two minutes ago.
+  saveMessage(w.db, { userId: p.id, chatId: p.chatId, direction: "in", providerMessageId: "late-in", text: "lol what" });
+  w.db.prepare("UPDATE messages SET createdAt = ? WHERE providerMessageId = 'late-in'").run(start + 89 * MIN);
+  assert.equal(closingDue(w.db, p.id, start + 91 * MIN), false, "two minutes after their last text");
+  assert.deepEqual(await w.sweepAt(p, start + 91 * MIN), []);
+  assert.equal(closingDue(w.db, p.id, start + 95 * MIN), true, "quiet for six minutes");
 });

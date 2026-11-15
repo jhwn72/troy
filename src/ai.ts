@@ -264,7 +264,7 @@ const INTENT_SYSTEM = `You route one text message sent to Troy, a campus assista
 {"flow": "...", "action": "...", "details": {...}, "command": null}
 
 Flows and actions:
-- lost_found: report_found (they found an item, "found a ...", or sent a photo of an item), report_lost ("lost my ..."), resolved (they got their own item back, "found my keys nvm"), answer (replying to a question in an open lost_found conversation)
+- lost_found: report_found (they found an item, "found a ...", or sent a photo whose words don't say what it is: troy looks at the photo first and sorts it), report_lost ("lost my ..."), resolved (they got their own item back, "found my keys nvm"), answer (replying to a question in an open lost_found conversation)
 - food: post_food (free or leftover food to share, usually what and how many), claim (they want some), update_count ("6 left", "we're out"), status (asking if food is still there), report_fake (they went and there was no food)
 - repair: report (a physical thing on campus or in a dorm is broken, leaking, out of order or unsafe to use: a door, a lock, a light, an elevator, a toilet, a washer, a machine)
 - usg: concern or question (campus policy, dining hours, club funding, the lax shuttle, thrift, farmers market, student government)
@@ -284,6 +284,7 @@ smalltalk is the default. Pick another flow only when the message itself asks Tr
 usg is only for a question about club or org funding, the lax shuttle, thrift, the farmers market or student government itself, or a complaint or suggestion about campus that they want passed on.
 repair is only for a physical thing that someone could come and fix. Noise, roommates or dormmates, an RA or any staff member not doing their job, rules not being enforced, policies, hours, prices and service quality are never repair, even with words like "doesn't work" or "broken" in them ("my ra doesn't do anything about the noise", "the guest policy is broken"). They are a complaint: usg concern when the student asks for it to be reported or passed on, smalltalk when they are venting.
 lost_found report_lost is only when they say an item of theirs is missing. report_found is only when they have or saw someone else's item.
+A photo with words that show it is their own thing ("look at my lunch", "my sweetgreen order", a selfie, "rate my fit", a screenshot of their own screen) is smalltalk, never report_found and never food post_food. A photo of food they are offering to other students is food post_food.
 
 topics is only for a message meant for other students, or about which texts they get. Asking Troy a question ("is there a pickup game tonight?", "how do tickets work") is smalltalk. Free food and free items to give away are food, not topics. Finding people to share a ride with is rides, not topics.
 tour is only for wanting to try or see Troy in action. "how do u work" and "what can u do" are smalltalk.
@@ -309,27 +310,29 @@ const FOOD = "food|pizzas?|sandwich(?:es)?|donuts?|doughnuts?|bagels?|cookies?|t
 const FOOD_RE = new RegExp(`\\b(?:${FOOD})\\b`);
 
 const CATEGORIES: [RegExp, string][] = [
-  [/\bwallet|cardholder\b/, "wallet"],
+  [/\b(?:wallets?|cardholders?)\b/, "wallet"],
   [/\bkeys?\b|keychain|key fob|lanyard/, "keys"],
-  [/\bair ?pods?|earbuds?|headphones|beats\b/, "earbuds"],
+  [/\b(?:air ?pods?|earbuds?|headphones?|beats)\b/, "earbuds"],
   [/\b(?:i ?phone|phone|android|pixel)\b/, "phone"],
   [/\b(?:usc ?card|student id|id card|id|driver'?s license|license|passport)\b/, "id"],
-  [/\blaptop|macbook|ipad|tablet|chromebook\b/, "laptop"],
+  [/\b(?:laptops?|macbooks?|ipads?|tablets?|chromebooks?)\b/, "laptop"],
   [/\b(?:water ?bottle|bottle|hydro ?flask|stanley|owala|tumbler)\b/, "bottle"],
-  [/\bbackpack|bag|tote|purse|pouch\b/, "bag"],
-  [/\bjacket|hoodie|sweater|sweatshirt|coat|hat|cap|beanie|scarf|shirt\b/, "clothing"],
+  [/\b(?:backpacks?|bags?|totes?|purses?|pouch(?:es)?)\b/, "bag"],
+  // Before clothing, so "flip flops" and "running shoes" are footwear, not clothing or "other".
+  [/\b(?:flip ?flops?|sandals?|slides|sneakers?|shoes?|crocs|boots?|cleats?|heels|slippers?|loafers|uggs?|birks|birkenstocks|chacos|tevas|rainbows)\b/, "footwear"],
+  [/\b(?:jackets?|hoodies?|sweaters?|sweatshirts?|coats?|hats?|caps?|beanies?|scarf|scarves|shirts?)\b/, "clothing"],
   [/\bumbrella\b/, "umbrella"],
-  [/\bglasses|sunglasses\b/, "glasses"],
-  [/\bcharger|cable|adapter\b/, "charger"],
+  [/\b(?:sun)?glasses\b/, "glasses"],
+  [/\b(?:chargers?|cables?|adapters?)\b/, "charger"],
   [/\bwatch\b/, "watch"],
   [/\b(?:ring|necklace|bracelet|earrings?)\b/, "jewelry"],
   [/\bcalculator\b/, "calculator"],
   [/\b(?:notebook|textbook|book|planner)\b/, "book"],
-  [/\bskateboard|scooter|bike|bicycle\b/, "wheels"],
+  [/\b(?:skateboards?|scooters?|bikes?|bicycles?)\b/, "wheels"],
   [/\b(?:debit|credit) card\b/, "card"],
 ];
 const COLORS = /\b(black|white|gr[ae]y|silver|gold|red|cardinal|maroon|blue|navy|green|yellow|orange|purple|pink|brown|tan|beige|clear|teal)\b/;
-const BRANDS = /\b(apple|samsung|hydro ?flask|stanley|owala|nike|adidas|north ?face|patagonia|lululemon|jansport|herschel|ray.?ban|coach|kate spade|sony|bose|beats|dell|lenovo|hp|casio|ti-?84|yeti|carhartt|fjallraven|tumi|uniqlo|zara|h&m|oakley|warby parker|gucci|prada|burberry|longchamp|michael kors|ralph lauren|calvin klein|tommy hilfiger|levi'?s|champion|columbia|arc'?teryx|under armou?r|puma|new balance|vans|converse|crocs|birkenstock|ugg|doc martens|brandy melville|aritzia|alo|gymshark|osprey|nalgene|contigo|camelbak|thermos|garmin|fitbit|google|microsoft|asus|acer|razer|nintendo|logitech|anker|jbl|kindle|gopro|fossil|seiko|timex|swatch|rolex|pandora|tiffany)\b/;
+const BRANDS = /\b(apple|samsung|hydro ?flask|stanley|owala|nike|adidas|north ?face|patagonia|lululemon|jansport|herschel|ray.?ban|coach|kate spade|sony|bose|beats|dell|lenovo|hp|casio|ti-?84|yeti|carhartt|fjallraven|tumi|uniqlo|zara|h&m|oakley|warby parker|gucci|prada|burberry|longchamp|michael kors|ralph lauren|calvin klein|tommy hilfiger|levi'?s|champion|columbia|arc'?teryx|under armou?r|puma|new balance|vans|converse|crocs|birkenstocks?|uggs?|doc martens|dr\.? ?martens|olu ?kai|hoka|on clouds?|on running|teva|chacos?|rainbow sandals|havaianas|allbirds|salomon|asics|skechers|merrell|sperry|steve madden|dr\.? scholl'?s|stussy|fear of god|bape|aime leon dore|skullcandy|lacoste|everlane|madewell|free people|urban outfitters|princess polly|abercrombie|hollister|american eagle|cotopaxi|baggu|kanken|vuori|hydrojug|simple modern|iron flask|ti-?83|ti-?89|texas instruments|brandy melville|aritzia|alo|gymshark|osprey|nalgene|contigo|camelbak|thermos|garmin|fitbit|google|microsoft|asus|acer|razer|nintendo|logitech|anker|jbl|kindle|gopro|fossil|seiko|timex|swatch|rolex|pandora|tiffany)\b/;
 const PLACES = /\b(leavey|doheny|tcc|tutor campus center|ronald tutor|usc village|the village|village|parkside|evk|everybody'?s kitchen|lyon center|village gym|fertitta|taper|sgm|thh|vkc|grace ford salvatori|mccarthy quad|tommy trojan|annenberg|wallis annenberg|marshall|viterbi|bookstore|cafe 84|popovich|jff|iovine|kaprielian|sal|new north|birnkrant|pardee|marks tower|cale|irani|cowlings|mccarthy honors|the row|gateway|lorenzo|trousdale|hahn plaza|alumni park|galen center|galen|bovard|hoffman|bridge hall|olin|seeley mudd|zumberge|ginsburg|salvatori|law school|cinema school|sca|dml|engemann|student union|seeds|burger crush|rtcc|mudd hall|founders park|argue plaza|cromwell|coliseum|expo park|figueroa|jefferson|vermont)\b/;
 const TIME = /\b(just now|rn|right now|today|tonight|yesterday|last night|this morning|this afternoon|this evening|tomorrow|earlier|an hour ago|\d+ (?:min(?:ute)?s?|hours?|hrs?|days?) ago|(?:on |this |last |next )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:around |at |by )?\d{1,2}(?::\d\d)? ?(?:am|pm)|noon|midnight)\b/;
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, dozen: 12 };
@@ -357,7 +360,7 @@ export function pullDetails(text: string): Record<string, unknown> {
   if (color) d.color = color[1];
   const brand = t.match(BRANDS);
   if (brand) d.brand = brand[1];
-  const place = t.match(PLACES) ?? t.match(/\b(?:at|in|near|by|outside|inside|behind) (?:the )?((?!my\b|a\b|an\b|all\b|around\b|\d)[a-z][a-z'&]*(?: (?:hall|library|center|quad|plaza|gym|lobby|cafe|lot|room|building|tower|field|floor|lounge|steps|fountain))?)/);
+  const place = t.match(PLACES) ?? t.match(/\b(?:at|in|near|by|outside|inside|behind|around) (?:the )?((?!the\b|my\b|a\b|an\b|all\b|around\b|noon\b|midnight\b|lunch\b|dinner\b|breakfast\b|then\b|same\b|time\b|morning\b|afternoon\b|evening\b|night\b|week\b|weekend\b|day\b|middle\b|\d)[a-z][a-z'&]*(?: (?:hall|library|center|quad|plaza|gym|lobby|cafe|lot|room|building|tower|field|floor|lounge|steps|fountain))?)/);
   if (place) d.place = place[1];
   const time = t.match(TIME);
   if (time) d.time = time[1];
@@ -545,6 +548,31 @@ function topicHint(t: string, action: string): string | undefined {
   return undefined;
 }
 
+export type PhotoWords = "found" | "food" | "broken" | "own";
+
+const PHOTO_FOUND = /\bfound (?:it|this|these|them|that|a|an|some|someone'?s|somebody'?s)\b|\bpicked (?:it |this |these |them )?up\b|some(?:one|body) (?:left|dropped|forgot)\b|\bleft (?:behind|here|this)\b|\b(?:is|are) (?:this|these|it|they) (?:urs|yours|anyone'?s|someone'?s)\b|\bwho(?:se| ?'?s) (?:is this|are these|[a-z ]+ is this)\b|\blost and found\b|\b(?:not|isn'?t|aint) mine\b|\bturn(?:ed|ing)? (?:it |this |them )?in\b|\bsitting (?:here|there|on|at)\b/;
+const PHOTO_FOOD = /\bup for grabs\b|\bleft ?overs?\b|\bfree (?:food|pizza|[a-z]+)\b|\bgiving (?:it |this |these |them )?away\b|\bcome (?:get|grab)\b|\bhelp yourself\b|\bfor (?:anyone|everyone|grabs)\b|\banyone want (?:some|this|these|it)\b|\bextra (?:food|pizza|boxes|trays?)\b/;
+const PHOTO_BROKEN = /\bbroken\b|\bbroke\b|\bleak(?:ing|s|y|ed)?\b|out of order|(?:doesn'?t|does not|isn'?t|not|stopped|won'?t|wont) (?:work(?:ing)?|flush(?:ing)?|open(?:ing)?|turn(?:ing)? on|lock(?:ing)?|drain(?:ing)?)\b|\bclogged\b|\bflood(?:ed|ing)\b|\bbusted\b|\bcracked\b|\bshattered\b|needs? (?:to be )?(?:fix(?:ed|ing)|repair(?:ed)?)|can (?:u|you|some(?:one|body)) fix/;
+const MEAL = "lunch|dinner|breakfast|brunch|food|meal|plate|bowl|salad|order|coffee|drink|boba|snack|sweetgreen|chipotle|cava";
+const PHOTO_OWN = new RegExp(
+  `\\b(?:look(?:ing)? at (?:my|what i)|check (?:out )?(?:my|what i)|my (?:${MEAL}|outfit|fit|dog|cat|room|setup|view|nails|hair|new)|i (?:made|cooked|baked|ate|got (?:myself|me))|(?:what i'?m|what im|what i am) (?:eating|having|wearing|drinking)|(?:eating|having) (?:my|some|this for)|selfie|me rn|rate my|how do i look|fit check|my (?:screen|screenshot)|screenshot of my)\\b`,
+);
+
+/**
+ * What the words sent with a photo already say it is, or null when they don't settle it (no words, "yo", "what
+ * is this"). Code reads this before any model looks at the photo: a photo of someone's own lunch with "look at my
+ * lunch" is theirs, never a found item and never a free food post.
+ */
+export function photoWords(text: string): PhotoWords | null {
+  const t = (text ?? "").toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  if (PHOTO_FOUND.test(t)) return "found";
+  if (PHOTO_BROKEN.test(t) && !peopleOrPolicy(t)) return "broken";
+  if (PHOTO_FOOD.test(t)) return "food";
+  if (PHOTO_OWN.test(t)) return "own";
+  return null;
+}
+
 /** Keyword rules, ignoring any open conversation. */
 function classify(t: string, hasImage: boolean, inFood: boolean): { flow: FlowName; action: string } {
   const is = (re: RegExp) => re.test(t);
@@ -562,6 +590,9 @@ function classify(t: string, hasImage: boolean, inFood: boolean): { flow: FlowNa
   if (is(/\bstill (?:looking|lost|missing|haven'?t found|can'?t find)\b/)) return { flow: "lost_found", action: "still_looking" };
   if (is(/\b(?:i |i'?ve |just |think i )?(?:lost|misplaced)\b|can'?t find my|cannot find my|\bleft my\b|\bdropped my\b|\bmissing my\b|my [a-z ]+ (?:is|are|went) (?:missing|gone)|(?:has |did )?any(?:one|body) (?:seen|found|find|turn(?:ed)? in)|forgot my [a-z ]+ (?:at|in|on)\b/)) return { flow: "lost_found", action: "report_lost" };
   if (!food && is(/\bfound (?:a|an|some|this|these|the|someone'?s|somebody'?s|[a-z]+'s|\d)\b|\bpicked up (?:a|an|someone|somebody)|some(?:one|body) (?:left|dropped|forgot) (?:a|an|their|his|her|this)|\bturn(?:ed|ing)? (?:it |this |a |an )?in\b|\bwho(?:se| ?'?s) (?:is this|[a-z ]+ is this)/)) return { flow: "lost_found", action: "report_found" };
+
+  // A photo of their own lunch, outfit or screen is them sharing, not a found item or a food post.
+  if (hasImage && photoWords(t) === "own") return { flow: "smalltalk", action: "chat" };
 
   // the try-it tour
   if (is(TOUR_RE)) return { flow: "tour", action: "start" };

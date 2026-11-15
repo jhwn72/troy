@@ -18,6 +18,7 @@ export const CATEGORIES = [
   "book",
   "umbrella",
   "scooter",
+  "footwear",
   "other",
 ] as const;
 
@@ -95,6 +96,25 @@ const CATEGORY_ALIASES: Record<string, Category> = {
   cable: "charger",
   notebook: "book",
   textbook: "book",
+  shoe: "footwear",
+  shoes: "footwear",
+  flipflop: "footwear",
+  flipflops: "footwear",
+  sandal: "footwear",
+  sandals: "footwear",
+  slides: "footwear",
+  sneaker: "footwear",
+  sneakers: "footwear",
+  croc: "footwear",
+  crocs: "footwear",
+  boot: "footwear",
+  boots: "footwear",
+  cleat: "footwear",
+  cleats: "footwear",
+  heels: "footwear",
+  slipper: "footwear",
+  slippers: "footwear",
+  loafers: "footwear",
 };
 
 /** Any value to a Category. Unknown, empty or non-string values become 'other'. */
@@ -369,6 +389,7 @@ const GENERIC_BY_CATEGORY: Partial<Record<Category, string>> = {
   clothing: "hood sleeve",
   bag: "pocket zipper strap",
   scooter: "wheel brake electric",
+  footwear: "shoe flip flop sandal slide sneaker croc boot cleat heel slipper loafer pair sole strap lace size foot left right",
   glasses: "lens frame",
   laptop: "keyboard pro air",
   tablet: "pro air",

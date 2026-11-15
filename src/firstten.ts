@@ -97,6 +97,113 @@ export function setFirstTenDeps(over: Partial<Deps> | null): void {
   } else Object.assign(deps, over);
 }
 
+// ---------- engagement setting (John, "Engagement setting" and second live test (3)) ----------
+//
+// TROY_ENGAGE=demo (the default for the hackathon): the pull behaviour and the first-ten unprompted messages, then
+// once, about 90 minutes after they first texted, one closing line in his own words: he's on demo right now so he
+// won't text first anymore, api credits are expensive. After that he only replies.
+// TROY_ENGAGE=calm (a real campus launch): one nudge after onboarding (the "try me" poll that goes out with it), then
+// he waits. No sweep-driven unprompted message and no closing line.
+
+export type EngageMode = "demo" | "calm";
+
+/** TROY_ENGAGE: "calm" for a real launch, anything else (or unset) is "demo". Read on every call. */
+export function engageMode(): EngageMode {
+  return (process.env.TROY_ENGAGE || "").trim().toLowerCase() === "calm" ? "calm" : "demo";
+}
+
+export const CLOSING = {
+  /** About this long after their first text, the one closing line. */
+  afterMs: 90 * MIN,
+  /** Held back by quiet hours, pause or an open step, it may still go out until this long after their first text. */
+  lateMs: 4 * 60 * MIN,
+  /** Never right on top of a conversation: the last text either way must be at least this old. */
+  quietMs: 5 * MIN,
+} as const;
+
+const CLOSING_BRIEF: Brief = {
+  goal: "one last short text he starts himself, in his own words: a heads up that he's running as a demo right now, so he won't text them first anymore (api credits are expensive), but he's still here whenever they text him. no question, no offer, no list of what he does",
+  mustCover: ["he's on demo right now so he won't text first anymore", "api credits are expensive"],
+  fallback: [
+    ["fyi i'm on demo mode rn so i won't text u first anymore, api credits are expensive lol. i'm still here whenever u text me tho"],
+    ["heads up, i'm running as a demo rn, so this is the last time i text first. api credits are expensive. hit me up anytime tho"],
+    ["quick thing: i'm on demo right now, so i'm done texting first (api credits are expensive). still here if u need me"],
+  ],
+};
+
+const closingKey = (userId: number) => `demo_closing:${userId}`;
+
+/** When this person first texted Troy, or null. */
+function firstTextAt(db: DatabaseSync, userId: number): number | null {
+  try {
+    const r = db.prepare("SELECT MIN(createdAt) AS at FROM messages WHERE userId = ? AND direction = 'in'").get(userId) as { at: number | null } | undefined;
+    return r && r.at !== null && r.at !== undefined ? Number(r.at) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the closing line is due for this person right now. Pure: only reads. */
+export function closingDue(db: DatabaseSync, userId: number, now: number = deps.now()): boolean {
+  if (engageMode() !== "demo") return false;
+  if (getSettingRaw(db, closingKey(userId))) return false;
+  const user = getUserById(db, userId);
+  if (!user || !user.verifiedAt || !canAlert(user, new Date(now))) return false;
+  const first = firstTextAt(db, userId);
+  if (first === null) return false;
+  const since = now - first;
+  if (since < CLOSING.afterMs || since > CLOSING.lateMs) return false;
+  // Never over a step of theirs, and never right on top of a conversation that is going on.
+  if (getFlowState(db, userId) || isBusy(db, userId, now)) return false;
+  // first_ten.lastInAt stops updating once the first ten minutes end, so it can't tell whether they are chatting right
+  // now. The messages table can: the last text either way must be a few minutes old.
+  const last = lastMessageAt(db, userId);
+  if (last !== null && now - last < CLOSING.quietMs) return false;
+  return true;
+}
+
+/** The newest message in this person's chat, either direction, or null. */
+function lastMessageAt(db: DatabaseSync, userId: number): number | null {
+  try {
+    const r = db.prepare("SELECT MAX(createdAt) AS at FROM messages WHERE userId = ?").get(userId) as { at: number | null } | undefined;
+    return r && r.at !== null && r.at !== undefined ? Number(r.at) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getSettingRaw(db: DatabaseSync, key: string): string | null {
+  try {
+    const r = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+    return r?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setSettingRaw(db: DatabaseSync, key: string, value: string | null): void {
+  try {
+    if (value === null) db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+    else db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+  } catch {
+    // Never lets the sweep fail.
+  }
+}
+
+/** Sends the closing line when it is due. Claimed before sending, so it goes out once. True when it went out. */
+async function sendClosing(io: SweepIo, userId: number, now: number): Promise<boolean> {
+  if (!closingDue(io.db, userId, now)) return false;
+  setSettingRaw(io.db, closingKey(userId), String(now));
+  const user = getUserById(io.db, userId)!;
+  const ctx = sweepContext(io, user);
+  const sent = ids(await ctx.say(...(await inHisWords(ctx, "firstten:closing", CLOSING_BRIEF))));
+  if (!sent.length) {
+    setSettingRaw(io.db, closingKey(userId), null);
+    return false;
+  }
+  return true;
+}
+
 // ---------- the table ----------
 
 type PollRef = { pollId: string | null; optionIds: (string | null)[]; mode: "native" | "tap" | "numbered"; at: number };
@@ -476,8 +583,10 @@ const QUESTION_SHRUG: Brief = {
   fallback: [["fair, nothing is a fine answer"], ["all good, didn't mean to put u on the spot"], ["that's fair. if something ever bugs u, i'm the one to tell"], ["no worries, was just curious"]],
 };
 
-const TRY_ME_QUESTION = ["wanna see what i do? tap one", "want a quick demo? pick one", "curious what i actually do? tap one", "wanna try me out? pick one"];
-const TRY_ME_TAP_HINT = ["heart or thumbs up the one u want", "tap a heart or thumbs up on one of those", "thumbs up whichever one u want"];
+// The question names no way to tap (John, second live test: never two different tap instructions in one message).
+// A native poll needs none; the tap and numbered fallbacks add exactly one hint after the options.
+const TRY_ME_QUESTION = ["wanna see what i do?", "want a quick demo?", "curious what i actually do?", "wanna try me out?"];
+const TRY_ME_TAP_HINT = ["heart or thumbs up the one u want", "heart whichever one u want", "thumbs up whichever one u want"];
 const TRY_ME_NUMBER_HINT = ['reply "1", "2" or "3"', 'text me "1", "2" or "3"', 'just reply "1", "2" or "3"'];
 
 const STUMP: Brief = {
@@ -660,10 +769,13 @@ export async function afterOnboarding(ctx: FlowContext): Promise<void> {
   markMove(db, user.id, "near");
 
   // From here until they try one thing, he pulls: no dead ends, one easy next step every time.
-  brainMod.setUntried(db, user.id, { since: now, pollAt: null });
+  // TROY_ENGAGE=calm turns the pull off: the "try me" poll below is the one nudge, then he waits. Without the untried
+  // state no reply is forced to end on a next step and a bare "ok" is just "ok".
+  const pulls = engageMode() === "demo";
+  if (pulls) brainMod.setUntried(db, user.id, { since: now, pollAt: null });
   // The "try me" poll goes out right away, for everyone, so starting takes a single tap. It belongs to this turn,
   // so it does not use up the one unprompted message.
-  if (await sendTryMe(me, now, false)) brainMod.setUntried(db, user.id, { since: now, pollAt: now });
+  if ((await sendTryMe(me, now, false)) && pulls) brainMod.setUntried(db, user.id, { since: now, pollAt: now });
   schedule(db, user.id, FIRST_TEN.silentQuestionAfterMs + 500);
 }
 
@@ -1220,6 +1332,8 @@ export type Due = "poll" | "question" | "follow_up" | null;
 
 /** Which unprompted message, if any, this person should get right now. Pure: only reads. */
 export function dueNow(db: DatabaseSync, userId: number, now: number = deps.now()): Due {
+  // Calm: the poll that went out with onboarding was the one nudge. Nothing else unprompted.
+  if (engageMode() === "calm") return null;
   const row = load(db, userId);
   if (!inWindow(row, now) || row.endedAt !== null || row.unpromptedAt !== null) return null;
   const user = getUserById(db, userId);
@@ -1321,6 +1435,23 @@ export async function sweepFirstTen(io: SweepIo, now: number = deps.now()): Prom
       if (await runQueued(io, r.userId, now)) sent++;
     } catch {
       // One person's failed send never stops the sweep.
+    }
+  }
+  // The one closing line, about 90 minutes after they first texted (demo only). Everyone who went through onboarding
+  // recently enough is looked at; closingDue decides.
+  if (engageMode() === "demo") {
+    const recent = io.db.prepare("SELECT userId FROM first_ten WHERE startedAt > ?").all(now - CLOSING.lateMs - FIRST_TEN.windowMs) as { userId: number }[];
+    for (const r of recent) {
+      try {
+        if (!closingDue(io.db, r.userId, now)) continue;
+        const queue = queueFor.get(io.db);
+        let went = false;
+        if (queue) await queue(r.userId, async () => void (went = await sendClosing(io, r.userId, Math.max(now, deps.now()))));
+        else went = await sendClosing(io, r.userId, now);
+        if (went) sent++;
+      } catch {
+        // Same: never stops the sweep.
+      }
     }
   }
   return sent;

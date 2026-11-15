@@ -25,6 +25,7 @@ import type { SweepIo } from "./pending.ts";
 import { deliverPending, isProtected, parkAsk, relayBypass, runSweeps, runUserGone } from "./pending.ts";
 import { forgetUserLocation, saveUserLocation } from "./location.ts";
 import { releaseSeat } from "./signups.ts";
+import { ackFits } from "./flows/smalltalk.ts";
 
 /** The two calls the pipeline needs from src/location.ts. */
 export type LocationStore = {
@@ -64,6 +65,12 @@ export const HEAVY_MINUTES = 60;
 
 /** Steps of the try-it tour where every text is the answer, whatever intent detection made of it. Mirrors TOUR_HOLDS in src/flows/tour.ts. */
 const TOUR_HOLD_STEPS = new Set(["describe", "repair_photo", "study_spot"]);
+/**
+ * Lost and found's one photo question ("did u find it, or is it up for grabs?"): every reply is the answer, so the
+ * stored photo goes wherever the answer points (food, repair, a found report). Without this hold a typed "free
+ * pizza, come grab it" went straight to the food flow and the photo was lost.
+ */
+const LOST_FOUND_HOLD_STEPS = new Set(["photo_what"]);
 
 type AskKind = "stop" | "start" | "pause" | "resume" | "forget_location" | "delete_data" | "unsubscribe_topic" | "checkin";
 /** One short question of Troy's own that is waiting for a yes or a no (kept in settings, so it survives a restart). */
@@ -268,6 +275,24 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
   /** Message ids of STOP texts that were applied the moment they arrived and still need their one confirmation. */
   const stopConfirm = new Set<string>();
   let ackTurn = 0;
+  /**
+   * Messages that already carry one of Troy's tapbacks. One per exchange, ever (John, second live test): a second
+   * reaction on the same message is refused, whoever asks for it (the acknowledgement, the chat brain, a flow).
+   */
+  const reacted = new Set<string>();
+  const claimReaction = (messageId: string): boolean => {
+    if (!messageId || reacted.has(messageId)) return false;
+    reacted.add(messageId);
+    if (reacted.size > 2000) reacted.delete(reacted.values().next().value as string);
+    return true;
+  };
+  async function reactOnce(real: MessagingAdapter, chatId: string, messageId: string, type: Parameters<MessagingAdapter["react"]>[2]): Promise<boolean> {
+    if (chatStopped(chatId) || !claimReaction(messageId)) return false;
+    const ok = await quiet(real.react(chatId, messageId, type), false);
+    // A tapback that never landed doesn't use up the exchange.
+    if (!ok) reacted.delete(messageId);
+    return ok;
+  }
 
   const isStopped = (userId: number) => !!getUserById(db, userId)?.stopped;
 
@@ -418,7 +443,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       markRead: async (chatId) => (chatStopped(chatId) ? undefined : real.markRead(chatId)),
       startTyping: async (chatId) => (chatStopped(chatId) ? undefined : real.startTyping(chatId)),
       stopTyping: (chatId) => real.stopTyping(chatId),
-      react: async (chatId, messageId, type) => (chatStopped(chatId) ? false : real.react(chatId, messageId, type)),
+      react: (chatId, messageId, type) => reactOnce(real, chatId, messageId, type),
       editMessage: async (chatId, messageId, text) => (chatStopped(chatId) ? false : real.editMessage(chatId, messageId, text)),
       async sendPoll(chatId, question, options) {
         const none = { optionMessageIds: options.map(() => null), mode: "tap" as const };
@@ -838,13 +863,20 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     return false;
   }
 
-  /** Exactly one acknowledgement, and only if the handler is still quiet when the timer fires. */
-  function startAckTimer(event: IncomingEvent, user: User, hasSaid: () => boolean): () => void {
+  /**
+   * At most one acknowledgement, and only if the handler is still quiet when the timer fires. It says "got ur request,
+   * a longer reply is coming": so only for a request (a photo, a real flow, words that ask for something), never on
+   * a serious statement or small talk. A thumbs up, never a heart (John, second live test, Nov 14 8pm).
+   * `flowOf` is the flow the message was routed to, once intent detection has said.
+   */
+  function startAckTimer(event: IncomingEvent, user: User, hasSaid: () => boolean, flowOf: () => FlowName | null = () => null): () => void {
     const timer = setTimeout(async () => {
       if (hasSaid() || isStopped(user.id)) return;
+      const flow = flowOf();
+      if (!ackFits(event.text, { hasImage: event.images.length > 0, realFlow: !!flow && isRealRequest(flow) })) return;
       try {
         const adapter = deps.getAdapter();
-        if (adapter.capabilities().tapbacks && (await adapter.react(event.chatId, event.messageId, event.images.length ? "love" : "like"))) return;
+        if (adapter.capabilities().tapbacks && (await reactOnce(adapter, event.chatId, event.messageId, "like"))) return;
         if (hasSaid() || isStopped(user.id)) return;
         const ack = TEMPLATES.acks[ackTurn++ % TEMPLATES.acks.length]!;
         const line = plainTone(db, user.id) ? toPlain(ack) : ack;
@@ -866,6 +898,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     // Mid-example, a description that says "lost" or "broken" is still the description: the tour keeps it and
     // leaves by itself when they say it's for real. Nothing typed into the example may file a real report.
     if (open && state?.flow === TOUR && TOUR_HOLD_STEPS.has(state.step)) return open;
+    if (open && state?.flow === "lost_found" && LOST_FOUND_HOLD_STEPS.has(state.step)) return open;
     // The open flow keeps the conversation unless the model is sure this starts something else.
     const startsNew = intent.source === "ai" && intent.flow !== "smalltalk" && intent.flow !== state?.flow && !!wanted;
     if (open && !startsNew) return open;
@@ -1096,7 +1129,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     }
 
     const track = newTrack();
-    const cancelAck = startAckTimer(event, user, () => track.said);
+    let routed: FlowName | null = null;
+    const cancelAck = startAckTimer(event, user, () => track.said, () => routed);
     const before = state;
     try {
       // Typing shows while Troy works, but only once the read beat is over and only if nothing has gone out yet.
@@ -1132,6 +1166,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         }
       }
       const handler = pickHandler(intent, state);
+      routed = handler.name;
       // A real request ends the first-ten-minutes plan.
       if (isRealRequest(handler.name)) cancelFirstTen(db, user.id);
       await handler.handle(makeContext(user, event, intent, state, track.on, handler.name, turn));

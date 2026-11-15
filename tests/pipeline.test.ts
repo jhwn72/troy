@@ -12,7 +12,7 @@ import { FALLBACK_POOLS } from "../src/flows/smalltalk.ts";
 import { getFlowState } from "../src/db/index.ts";
 import * as brain from "../src/brain.ts";
 import * as topics from "../src/topics.ts";
-import { registerFlow } from "../src/flows/index.ts";
+import { getFlow, registerFlow } from "../src/flows/index.ts";
 import { TEMPLATES } from "../src/commands.ts";
 import { REFERENCE_LINES } from "../src/onboarding.ts";
 
@@ -353,9 +353,10 @@ test("separate sends in one turn are paced: a gap, then typing, before each one 
   const t = setup();
   await t.text("hey troy");
   const order = t.fake.calls.map((c) => c.method);
-  // welcome (4) + save my contact + contact card + the student-or-judge poll: 7 items.
+  // welcome (4) + save my contact + contact card + the student-or-judge poll + its one tap hint (this fake's polls
+  // are tap mode, and the provider adds no instruction of its own): 8 items.
   // One read beat, one typing wait per item, one gap between items. (Onboarding's own beat after the card is 0 under test.)
-  assert.equal(order.filter((m) => m === "wait").length, 1 + 7 + 6);
+  assert.equal(order.filter((m) => m === "wait").length, 1 + 8 + 7);
   const card = order.indexOf("sendContactCard");
   assert.deepEqual(order.slice(card - 4, card + 1), ["sendMessage", "wait", "startTyping", "wait", "sendContactCard"]);
   assert.equal(t.fake.texts()[4], "save my contact if u haven't so u know it's me");
@@ -611,7 +612,8 @@ test("typing is turned off after a poll, so the judge poll at the end of the wel
   s.fake.adapter.stopTyping = async () => void seen.push("off");
   s.fake.adapter.sendPoll = async (chatId, question, options) => (seen.push("poll"), sendPoll(chatId, question, options));
   await s.text("hey troy");
-  assert.deepEqual(seen.slice(-3), ["on", "poll", "off"]);
+  const at = seen.lastIndexOf("poll");
+  assert.deepEqual(seen.slice(at - 1, at + 2), ["on", "poll", "off"]);
 });
 
 // ---------- commands by meaning ----------
@@ -1138,4 +1140,54 @@ test("plain tone: someone else's words are passed along exactly as written, and 
   assert.equal(out[0], "from the finder: yo i found ur keys lol, they're by tommy trojan rn", "their words, untouched");
   assert.equal(out[1], "OK let me know when you have them.", "troy's own line is in plain english");
   assert.equal(out[2], "heads up, that shares ur contact info. ok?", "the contact-sharing warning is on the safety list");
+});
+
+// ---------- the acknowledgement tapback (John, second live test, Nov 14 8pm) ----------
+
+const slowDetect = (flow: Intent["flow"]) => async () => {
+  await sleep(80);
+  return { flow, action: "chat", details: {}, source: "fallback" } as Intent;
+};
+
+test("a slow reply to a statement gets no tapback at all: no thumbs up on a complaint or on something sad", async () => {
+  for (const said of ["the professors suck and are overpaid", "my dog died today", "lol nice"]) {
+    const t = setup({ verified: true, detect: slowDetect("smalltalk") as unknown as Detect });
+    await t.text(said);
+    await sleep(40);
+    assert.equal(t.fake.calls.filter((c) => c.method === "react").length, 0, said);
+    assert.ok(!t.fake.texts().some((x) => TEMPLATES.acks.includes(x)), `no "one sec" line either: ${said}`);
+  }
+});
+
+test("a slow reply to a request gets one thumbs up while the answer is coming, and only one tapback per message", async () => {
+  const t = setup({ verified: true, detect: slowDetect("smalltalk") as unknown as Detect });
+  await t.text("where can i print on campus?");
+  await sleep(40);
+  const reacts = t.fake.calls.filter((c) => c.method === "react");
+  assert.equal(reacts.length, 1);
+  assert.equal(reacts[0]!.text, "like");
+  assert.equal(reacts[0]!.id, "in-1");
+  assert.ok(t.fake.texts().length > 0, "the answer still came");
+});
+
+test("one tapback per exchange: a flow's second reaction on the same message is refused", async () => {
+  const name = "notes" as FlowHandler["name"];
+  const real = getFlow(name);
+  const results: boolean[] = [];
+  registerFlow({
+    name,
+    async handle(ctx) {
+      results.push(await ctx.adapter.react(ctx.event.chatId, ctx.event.messageId, "love"));
+      results.push(await ctx.adapter.react(ctx.event.chatId, ctx.event.messageId, "laugh"));
+      await ctx.say("ok");
+    },
+  });
+  try {
+    const t = setup({ verified: true, intent: { flow: name, action: "add_note", details: {}, source: "ai" } });
+    await t.text("remember i like short texts");
+    assert.deepEqual(results, [true, false]);
+    assert.equal(t.fake.calls.filter((c) => c.method === "react").length, 1);
+  } finally {
+    if (real) registerFlow(real);
+  }
 });

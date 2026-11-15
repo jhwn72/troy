@@ -1,12 +1,15 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
+import { existsSync, readFileSync } from "node:fs";
 import type { AdapterCapabilities, FlowContext, IncomingEvent, MessagingAdapter } from "../src/types.ts";
 import { openDb, getUserByHandle, getFlowState, setFlowState } from "../src/db/index.ts";
 import { createPipeline } from "../src/pipeline.ts";
 import {
   JUDGE_LINE,
   LOCATION_ASK,
+  LOCATION_GIF,
+  LOCATION_GIF_MAX_BYTES,
   QUICK_CHECK,
   REFERENCE_LINES,
   STUDENT_LINE,
@@ -26,6 +29,8 @@ import { plainTone } from "../src/judge.ts";
 
 const HANDLE = "+12135550100";
 const CHAT = "chat-1";
+/** The one instruction a tap-mode student or judge poll gets (the provider adds none of its own). */
+const WHO_TAP = /^heart (?:the one that's u|whichever one is u)$/;
 /** Any file that exists stands in for the how-to GIF. */
 const GIF = import.meta.filename;
 
@@ -243,15 +248,20 @@ test("student path: welcome, quick check, a silently fixed email, a spaced code,
     "send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'",
     "reply STOP anytime and i'll leave u alone until u want to talk again",
     "save my contact if u haven't so u know it's me",
+    welcome[5]!,
   ]);
+  // The poll is in tap mode here, so exactly one instruction follows it (the provider adds none of its own).
+  assert.match(welcome[5]!, WHO_TAP);
+  assert.equal(welcome.length, 6);
   const methods = t.fake.calls.map((c) => c.method);
   // "save my contact" is the bubble right before the card; then the longer beat; the quick check poll comes last.
   const card = methods.indexOf("sendContactCard");
   assert.equal(t.fake.calls[card - 1]!.text, "save my contact if u haven't so u know it's me");
   assert.equal(methods.filter((m) => m === "sendContactCard").length, 1);
   assert.deepEqual(brain.pauses, [1500]);
-  assert.equal(methods[methods.length - 1], "sendPoll");
-  assert.equal(t.fake.calls[methods.length - 1]!.text, `${QUICK_CHECK}: usc student / hackathon judge`);
+  const pollAt = methods.lastIndexOf("sendPoll");
+  assert.deepEqual(methods.slice(pollAt + 1).filter((m) => m === "sendMessage" || m === "sendPoll"), ["sendMessage"], "only the one tap hint after the poll");
+  assert.equal(t.fake.calls[pollAt]!.text, `${QUICK_CHECK}: usc student / hackathon judge`);
   assert.equal(QUICK_CHECK, "quick check, are u a usc student or a hackathon judge? (pls be honest)");
   assert.equal(methods.filter((m) => m === "onAllowed").length, 1);
   assert.equal(t.step(), "who");
@@ -450,7 +460,8 @@ test('"can we start over" at the email step restarts instead of a format error',
   await t.text("hey troy");
   await t.text("student");
   const reply = await t.text("can we start over");
-  assert.deepEqual(reply, ["sure, from the top"]);
+  assert.equal(reply[0], "sure, from the top");
+  assert.deepEqual(reply.slice(1).filter((l) => !WHO_TAP.test(l)), [], "then only the poll's one tap hint");
   assert.ok(!reply.join(" ").includes("@usc.edu"));
   assert.ok(!/doesn't look like/.test(reply.join(" ")));
   // The chat brain knew which step was open and which actions were real.
@@ -1211,6 +1222,15 @@ test("location ask: john's line, the gif, what is kept and how to erase it, then
   assert.ok(!/[→>—]/.test(ask.join(" ")), "no arrows or em dashes");
 });
 
+test("the real location gif is the small cut: it exists, is a gif, and stays under 500 KB", () => {
+  assert.match(LOCATION_GIF, /public\/assets\/share-location-small\.gif$/);
+  assert.ok(existsSync(LOCATION_GIF), "the small gif is in public/assets");
+  const bytes = readFileSync(LOCATION_GIF);
+  assert.equal(bytes.subarray(0, 6).toString("ascii").slice(0, 3), "GIF");
+  assert.ok(bytes.length < LOCATION_GIF_MAX_BYTES, `gif is ${bytes.length} bytes`);
+  assert.equal(LOCATION_GIF_MAX_BYTES, 500 * 1024);
+});
+
 test("location wording never suggests skip, in any variant or follow-up", async () => {
   const seen: string[] = [];
   for (let i = 0; i < 4; i++) {
@@ -1375,7 +1395,7 @@ test("with no model at all: starting over and a question about him still work, a
   const t = setup();
   await t.text("hey troy");
   await t.text("student");
-  const over = await t.text("can we start over");
+  const over = (await t.text("can we start over")).filter((l) => !WHO_TAP.test(l));
   assert.equal(over.length, 1);
   assert.ok(!over[0]!.includes("@usc.edu"));
   assert.equal(t.fake.polled().length, 2);
@@ -1481,6 +1501,9 @@ test("a judge is told once what is different for them and gets the one-tap tone 
   const taps = reply.filter((b) => TONE_TAPS.includes(b));
   assert.equal(taps.length, 1);
   assert.equal(reply.indexOf(taps[0]!), reply.length - 2, "the tap is the last bubble before the poll (the tap-mode hint follows the poll)");
+  // In tap mode the alerts poll gets no second tap instruction in this reply: only "pick as many as u want".
+  assert.doesNotMatch(reply.at(-1)!, /\b(?:heart|tap|thumbs up)\b/, "one tap instruction per message");
+  assert.match(reply.at(-1)!, /more than one|as many as/);
   assert.equal(t.fake.polled().length, 2);
   assert.equal(t.step(), "alerts");
   assert.equal(plainTone(t.db, t.user().id), false);

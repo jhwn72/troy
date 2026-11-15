@@ -349,3 +349,10 @@ test("matchListing: nothing for a missing, closed or candidate-less listing", as
   const closed = addFound(db, profile(), { status: "returned" });
   assert.deepEqual(await matchListing(db, closed, { useAi: false }), []);
 });
+
+test("footwear is its own kind on both sides, and goes with clothing", () => {
+  for (const w of ["flip flops", "sandals", "slides", "sneakers", "shoes", "crocs", "boots", "cleats", "heels", "footwear"]) assert.equal(normalizeCategory(w), "footwear", w);
+  assert.equal(categoriesCompatible("footwear", "footwear"), true);
+  assert.equal(categoriesCompatible("footwear", "clothing"), true);
+  assert.equal(categoriesCompatible("footwear", "phone"), false);
+});

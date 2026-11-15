@@ -372,7 +372,8 @@ export function createBluebubblesAdapter(
         return { optionMessageIds: none, mode: "tap" };
       }
       if (!(await privateApiOn())) {
-        await sendText(chatId, [question, ...options.map((o, i) => `${i + 1}. ${o}`), "reply with the number"].join("\n"));
+        // No instruction line: every caller adds exactly one hint of its own (never two in one message).
+        await sendText(chatId, [question, ...options.map((o, i) => `${i + 1}. ${o}`)].join("\n"));
         return { optionMessageIds: none, mode: "numbered" };
       }
       let questionSent = false;
@@ -384,8 +385,9 @@ export function createBluebubblesAdapter(
           return { optionMessageIds: options.map(() => poll.guid), mode: "native" };
         }
       }
-      // The question may already be out (the poll itself failed): don't say it twice.
-      await sendText(chatId, questionSent ? "tap ❤️ on ur pick" : `${question}\ntap ❤️ on ur pick`);
+      // The question may already be out (the poll itself failed): don't say it twice. No instruction line here:
+      // the caller adds its one hint ("heart the one u want"), never "tap ❤️ on ur pick" (John, second live test (5)).
+      if (!questionSent) await sendText(chatId, question);
       const optionMessageIds: (string | null)[] = [];
       for (const o of options) optionMessageIds.push((await sendText(chatId, o))?.messageId ?? null);
       return { optionMessageIds, mode: "tap" };

@@ -635,3 +635,22 @@ test("hasContactInfo: ordinary answers to where and when did u lose it pass", ()
     assert.equal(hasContactInfo(no), false, no);
   }
 });
+
+test("verdict: slides the photo read as clothing are not a 'wrong kind' when the owner calls them slides", async () => {
+  const slides: ItemProfile = {
+    category: "clothing",
+    title: "black slides",
+    brand: "Adidas",
+    color: "black",
+    publicSummary: "black adidas slides",
+    distinguishing: ["white stripe across the strap"],
+    nameOnItem: null,
+    isValuable: false,
+    isDangerous: false,
+  };
+  const owner = await scoreDescription(slides, "they're black adidas sandals with a white stripe", off);
+  assert.notEqual(owner.verdict, "contradiction", "footwear pairs with clothing, as in matching");
+  // A kind that doesn't pair is still a clash.
+  assert.equal((await scoreDescription(slides, "it's a black backpack", off)).verdict, "contradiction");
+  assert.equal((await scoreDescription(sunglasses, "they're black sneakers", off)).verdict, "contradiction", "footwear is not glasses");
+});

@@ -118,6 +118,8 @@ const COMPATIBLE: [Category, Category][] = [
   ["wallet", "id_card"],
   ["laptop", "tablet"],
   ["keys", "id_card"],
+  // Shoes, sandals and slides are sometimes read as clothing (a photo of them in a gym bag, "my slides").
+  ["footwear", "clothing"],
 ];
 
 function listingCategory(l: ListingRow): Category {

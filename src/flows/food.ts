@@ -12,6 +12,7 @@ import { canAlert } from "../quiet.ts";
 import { RELAY_COPY, activeRelayFor, endRelayByContext, startRelay as realStartRelay } from "../relay.ts";
 import { registerPendingHooks } from "../pending.ts";
 import { countServings as realCountServings } from "./lostfound/vision.ts";
+import { photoWords } from "../ai.ts";
 import type { Pools, Voice } from "./reports-shared.ts";
 import { makeVoice, unvoiced } from "./reports-shared.ts";
 import { DECISION, aside, simulateIfAlone, simulationTurn } from "../staff.ts";
@@ -1407,6 +1408,11 @@ export const food: FlowHandler = {
       return;
     }
 
+    // A photo of their own meal ("look at my sweetgreen bowl") is them sharing, never a free food post.
+    if (hasImage && photoWords(text) === "own") {
+      await passOn({ ...ctx, intent: { flow: "smalltalk", action: "chat", details: {}, source: ctx.intent.source } }, false);
+      return;
+    }
     if (action === "post_food" || (hasImage && action !== "claim" && action !== "report_fake" && !state?.step.startsWith("relay"))) {
       await startPost(ctx);
       return;

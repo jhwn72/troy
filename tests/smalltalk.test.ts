@@ -684,3 +684,177 @@ test("after two questions in a row, the hand-written line is never a third", asy
   await smalltalk.handle(fresh.ctx);
   assert.ok(FALLBACK_POOLS.unclear.includes(fresh.said[0]!));
 });
+
+// ---------- tapbacks, serious statements, one-tap offers (John, second live test, Nov 14 8pm) ----------
+
+import { REACTION_EVERY, ackFits, readReaction, seriousComplaint, seriousStatement } from "../src/flows/smalltalk.ts";
+import { OFFER_OPTIONS } from "../src/flows/usg.ts";
+import { NOBODY_ON, checkReply, othersOnTroy } from "../src/brain.ts";
+
+/** A context whose adapter records tapbacks and polls. */
+function withAdapter(s: ReturnType<typeof setup>, opts: { polls?: boolean } = {}) {
+  const reacts: { id: string; type: string }[] = [];
+  const polls: { question: string; options: string[]; id: string }[] = [];
+  let p = 0;
+  s.ctx.adapter = {
+    provider: "webchat",
+    capabilities: () => ({ tapbacks: true, typing: true, readReceipts: true, edits: false, effects: false, polls: !!opts.polls, groupChats: false, contactCard: false, liveLocation: false }),
+    react: async (_c: string, id: string, type: string) => (reacts.push({ id, type }), true),
+    sendPoll: async (_c: string, question: string, options: string[]) => {
+      const id = `poll-${++p}`;
+      polls.push({ question, options, id });
+      return { optionMessageIds: options.map(() => id), mode: "native" as const };
+    },
+  } as unknown as MessagingAdapter;
+  return { reacts, polls };
+}
+
+test("serious statements: complaints, distress and emergencies are serious; jokes and small talk are not", () => {
+  for (const t of ["the professors suck and are overpaid", "my ra won't do anything about the noise", "the village shuttles are always late and its ridiculous", "dining hall food is honestly disgusting"]) assert.equal(seriousComplaint(t), true, t);
+  for (const t of ["that exam killed me lol", "the professors suck lol", "i hate mondays", "whats the best dining hall", "nice", "my roommate is so funny 😂"]) assert.equal(seriousComplaint(t), false, t);
+  assert.equal(seriousStatement("my grandma passed away"), true);
+  assert.equal(seriousStatement("lol ok"), false);
+});
+
+test("the 'got it' acknowledgement fits only a request, never a statement or something serious", () => {
+  assert.equal(ackFits("where can i print on campus?"), true);
+  assert.equal(ackFits("can u find me a study group"), true);
+  assert.equal(ackFits("anything", { hasImage: true }), true);
+  assert.equal(ackFits("the light in taper is broken", { realFlow: true }), true);
+  assert.equal(ackFits("the professors suck and are overpaid"), false, "never a thumbs up on a complaint");
+  assert.equal(ackFits("the professors suck and are overpaid", { realFlow: true }), false);
+  assert.equal(ackFits("my dog died today"), false);
+  assert.equal(ackFits("lol nice"), false, "small talk gets no acknowledgement");
+  assert.equal(ackFits("how was ur day?"), false, "a casual question is small talk, not a request");
+  assert.equal(ackFits("whats ur favorite dining hall?"), false);
+  assert.equal(ackFits("would u rather fight one horse sized duck?"), false);
+  assert.equal(ackFits("can u believe this weather"), false);
+  assert.equal(ackFits("is there free food anywhere rn?"), true);
+  assert.equal(ackFits("how do i report a broken light"), true);
+});
+
+test("his own tapbacks: only heart, haha or !!, never a thumbs up, and the model's pick is read loosely", () => {
+  assert.equal(readReaction("love"), "love");
+  assert.equal(readReaction("haha"), "laugh");
+  assert.equal(readReaction("!!"), "emphasize");
+  assert.equal(readReaction("like"), null);
+  assert.equal(readReaction(null), null);
+  assert.match(chatSystem(), /"reaction": null/);
+});
+
+test("a heart lands on something kind alongside a real answer, and reactions stay rare", async () => {
+  const s = setup("ur honestly the best troy, thank u");
+  const { reacts } = withAdapter(s);
+  model(JSON.stringify({ bubbles: ["anytime, that's what i'm here for"], handoff: null, reaction: "love" }));
+  await smalltalk.handle(s.ctx);
+  assert.deepEqual(s.said, ["anytime, that's what i'm here for"]);
+  assert.deepEqual(reacts, [{ id: s.event.messageId, type: "love" }]);
+  // The very next message: he already reacted recently, so no second one even when the model asks.
+  for (let i = 0; i < REACTION_EVERY - 1; i++) {
+    const id = `in-more-${i}`;
+    saveMessage(s.db, { userId: s.user.id, chatId: CHAT, direction: "in", providerMessageId: id, text: "haha ok" });
+    s.ctx.event = { ...s.event, messageId: id, text: "haha ok" };
+    model(JSON.stringify({ bubbles: ["lol"], handoff: null, reaction: "laugh" }));
+    await smalltalk.handle(s.ctx);
+  }
+  assert.equal(reacts.length, 1, "rare: one per few messages");
+});
+
+test("no reaction instead of an answer, and none at all on a serious statement", async () => {
+  const s = setup("my grandpa is in the hospital and i can't focus");
+  const { reacts } = withAdapter(s);
+  model(JSON.stringify({ bubbles: ["i'm really sorry. that's a lot to hold while classes keep going"], handoff: null, reaction: "laugh" }));
+  await smalltalk.handle(s.ctx);
+  assert.equal(reacts.length, 0, "a haha never lands on something sad");
+  assert.ok(s.said.length > 0, "the answer still goes out");
+});
+
+test("a real complaint gets one line of acknowledgment and the ask-first offer, never a shrug or a thumbs up", async () => {
+  const s = setup("the professors suck and are overpaid");
+  const { reacts } = withAdapter(s);
+  // The model only shrugs and even picks a reaction: code does his job instead.
+  model(JSON.stringify({ bubbles: ["oof that would get to me too"], handoff: null, reaction: "emphasize" }));
+  await smalltalk.handle(s.ctx);
+  const all = s.said.join(" ");
+  assert.ok(!s.said.includes("oof that would get to me too"), all);
+  assert.match(all, /\?/);
+  assert.match(all, /pass|send|get this in front of|over to/);
+  assert.equal(getFlowState(s.db, s.user.id)?.flow, "usg");
+  assert.equal(getFlowState(s.db, s.user.id)?.step, "offer");
+  assert.equal(reacts.length, 0);
+  assert.equal((s.db.prepare("SELECT COUNT(*) AS n FROM reports").get() as { n: number }).n, 0, "nothing is filed without a yes");
+});
+
+test("a joke about professors is just chat: no offer", async () => {
+  const s = setup("the professors suck lol");
+  withAdapter(s);
+  model(reply(["lol which one"]));
+  await smalltalk.handle(s.ctx);
+  assert.deepEqual(s.said, ["lol which one"]);
+  assert.equal(getFlowState(s.db, s.user.id), null);
+});
+
+test("with polls the offer is one tap: name, anonymous or not now, and a vote files it", async () => {
+  const s = setup("the dining hall food is honestly disgusting every single day");
+  const { polls } = withAdapter(s, { polls: true });
+  model(reply(["ugh that's rough"]));
+  await smalltalk.handle(s.ctx);
+  assert.equal(polls.length, 1);
+  assert.deepEqual(polls[0]!.options, OFFER_OPTIONS);
+  assert.doesNotMatch(polls[0]!.question, /\btap\b|❤️/);
+  assert.match(polls[0]!.question, /\?/);
+  const state = getFlowState(s.db, s.user.id)!;
+  assert.equal(state.step, "offer");
+  const { usg } = await import("../src/flows/usg.ts");
+  s.ctx.event = { ...s.event, messageId: "vote-1", text: "", pollVote: { pollMessageId: polls[0]!.id, optionIndex: 1 } };
+  s.ctx.state = state;
+  s.ctx.intent = { flow: "usg", action: "poll_vote", details: {}, source: "fallback" };
+  await usg.handle(s.ctx);
+  const row = s.db.prepare("SELECT anonymous FROM reports WHERE kind = 'usg_concern'").get() as { anonymous: number } | undefined;
+  assert.ok(row, "filed on the tap");
+  assert.equal(row!.anonymous, 1);
+});
+
+test("status lines: 'nobody else is on here' is rejected unless the real count is 0", () => {
+  const db = openDb(":memory:");
+  const me = getOrCreateUser(db, "+12135558801", "c1");
+  assert.equal(othersOnTroy(db, me.id), 0);
+  const other = getOrCreateUser(db, "+12135558802", "c2");
+  updateUser(db, other.id, { verifiedAt: Date.now(), verifiedVia: "judge_skip" });
+  assert.equal(othersOnTroy(db, me.id), 1);
+  assert.ok(NOBODY_ON.test("nobody else is on me rn"));
+  const base = { allowText: "", echoText: "", askedCapabilities: false, askedIdentity: false, noEmoji: false };
+  assert.equal(checkReply(["nobody else is on me rn, it's a demo"], { ...base, others: 1 }).ok, false);
+  assert.equal(checkReply(["nobody else is on me rn, it's a demo"], { ...base, others: 0 }).ok, true);
+  assert.equal(checkReply(["nobody close by rn, but it's posted"], { ...base, others: 3 }).ok, true);
+});
+
+import { askPoll } from "../src/flows/reports-shared.ts";
+
+test("askPoll: once the poll went out it never returns null (so the question is not asked again in words)", async () => {
+  const db = openDb(":memory:");
+  const u = getOrCreateUser(db, "+12135550777", "chat-askpoll");
+  const said: string[] = [];
+  const ctxWith = (sendPoll: MessagingAdapter["sendPoll"]): FlowContext =>
+    ({
+      db,
+      user: u,
+      event: { provider: "webchat", userHandle: u.handle, chatId: u.chatId, isGroup: false, messageId: "m", text: "", images: [], receivedAt: Date.now() },
+      adapter: { capabilities: () => ({ polls: true }), sendPoll } as unknown as MessagingAdapter,
+      async say(...b: Bubble[]) {
+        for (const x of b) said.push(typeof x === "string" ? x : x.text);
+        return b.map(() => null);
+      },
+    }) as unknown as FlowContext;
+  // Native, but the provider gave back no ids: still a poll, with no poll id.
+  const noIds = await askPoll(ctxWith(async (_c, _q, o) => ({ optionMessageIds: o.map(() => null), mode: "native" })), "send it?", ["yes", "no"], "t1");
+  assert.ok(noIds, "the poll is out, so it is not null");
+  assert.equal(noIds.pollId, null);
+  // The send itself threw before anything went out: null, the caller asks in words.
+  assert.equal(await askPoll(ctxWith(async () => { throw new Error("down"); }), "send it?", ["yes", "no"], "t2"), null);
+  // Numbered: exactly one instruction of ours.
+  said.length = 0;
+  await askPoll(ctxWith(async (_c, _q, o) => ({ optionMessageIds: o.map(() => null), mode: "numbered" })), "send it?", ["yes", "no"], "t3");
+  assert.equal(said.length, 1);
+  assert.match(said[0]!, /number/);
+});

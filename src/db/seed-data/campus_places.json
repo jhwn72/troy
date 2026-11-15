@@ -2,7 +2,7 @@
   { "name": "Leavey Library", "nicknames": ["leavey", "leavey lib", "lvl"], "lat": 34.02177, "lng": -118.28288, "kind": "campus" },
   { "name": "Doheny Memorial Library", "nicknames": ["doheny", "doheny library", "dml"], "lat": 34.02017, "lng": -118.28373, "kind": "campus" },
   { "name": "Seaver Science Library", "nicknames": ["science library", "seaver library", "ssl"], "lat": 34.01958, "lng": -118.28876, "kind": "campus" },
-  { "name": "Tommy Trojan", "nicknames": ["tommy", "tommy trojan statue"], "lat": 34.02057, "lng": -118.28543, "kind": "campus" },
+  { "name": "Tommy Trojan", "nicknames": ["tommy", "tommy trojan statue", "the statue", "statue"], "lat": 34.02057, "lng": -118.28543, "kind": "campus" },
   { "name": "Ronald Tutor Campus Center", "nicknames": ["tcc", "tutor campus center", "campus center", "rtcc"], "lat": 34.02033, "lng": -118.28637, "kind": "campus" },
   { "name": "Student Union", "nicknames": ["usc student union", "the student union"], "lat": 34.02021, "lng": -118.28577, "kind": "campus" },
   { "name": "USC Bookstore", "nicknames": ["bookstore", "the bookstore", "usc bookstores", "campus bookstore"], "lat": 34.02065, "lng": -118.28657, "kind": "campus" },

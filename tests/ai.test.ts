@@ -2,7 +2,7 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { FlowState } from "../src/types.ts";
 import { config } from "../src/config.ts";
-import { askJson, chatModel, composeReply, detectIntent, extractJson, fallbackIntent, readSafety, setModelCall } from "../src/ai.ts";
+import { askJson, chatModel, composeReply, detectIntent, extractJson, fallbackIntent, pullDetails, readSafety, setModelCall } from "../src/ai.ts";
 import type { AskOpts } from "../src/ai.ts";
 import { chatModelSetting, explainMode, lookupOn } from "../src/config.ts";
 import { countEmoji, isDistress, limitEmoji, lowercase, pickVariant, polishBubbles, splitBubbles, youToU } from "../src/voice.ts";
@@ -297,4 +297,23 @@ test("settings: chat runs on the smart model by default, explain is detailed, lo
       else process.env[k] = v;
     }
   }
+});
+
+// ---------- the flip-flop intake (live database, Nov 14 10:45pm) ----------
+
+test("flip flops and other shoes are footwear, with color and brand pulled", () => {
+  assert.deepEqual(pullDetails("I lost my black flip flops"), { category: "footwear", color: "black" });
+  assert.equal(pullDetails("yo troy i lost my flip flops").category, "footwear");
+  for (const t of ["lost my sandals", "my slides", "left my sneakers at lyon", "lost my running shoes", "my crocs are gone", "cleats", "lost my heels"]) assert.equal(pullDetails(t).category, "footwear", t);
+  assert.deepEqual(pullDetails("they're brown olu kai with green camp straps"), { color: "brown", brand: "olu kai" });
+});
+
+test("campus brands that were missing are known", () => {
+  for (const [t, brand] of [["my olukai sandals", "olukai"], ["hoka running shoes", "hoka"], ["white on cloud sneakers", "on cloud"], ["birkenstocks", "birkenstocks"], ["my teva sandals", "teva"], ["brown uggs", "uggs"]] as const) assert.equal(pullDetails(t).brand, brand, t);
+});
+
+test("a place said with 'around' is a place, and a time word is not", () => {
+  assert.equal(pullDetails("not sure maybe around the statue").place, "statue");
+  assert.equal(pullDetails("around noon").place, undefined);
+  assert.equal(pullDetails("yesterday in the morning").place, undefined);
 });

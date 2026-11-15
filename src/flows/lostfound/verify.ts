@@ -4,6 +4,7 @@
 import { randomInt } from "node:crypto";
 import { askJson } from "../../ai.ts";
 import type { Category, ItemProfile } from "./types.ts";
+import { categoriesCompatible } from "./match.ts";
 import { brandsIn, canHaveSeveral, canonTokens, canonWord, clampInt, colorsIn, generalWord, isColorWord, isCommonFeature, isGenericWord, normalizeCategory, squash, textFacts, wordMatch } from "./types.ts";
 
 export const THRESHOLDS = { verify: 80, clarify: 50, descriptionPass: 70, maxAttempts: 2 };
@@ -379,7 +380,7 @@ function statedKinds(answer: string): Set<Category> {
 
 /** Nouns that can only be the name of a kind of thing. Short or two-way words ("id", "card", "ring", "key", "watch") are left out. */
 const KIND_NOUNS = new Set(
-  "wallet wallets phone phones iphone iphones laptop laptops macbook macbooks tablet tablets ipad ipads airpods airpod earbuds headphones backpack backpacks purse tote bottle hydroflask tumbler jacket hoodie sweater hat umbrella scooter skateboard bike charger textbook notebook sunglasses glasses necklace bracelet passport keys".split(
+  "wallet wallets phone phones iphone iphones laptop laptops macbook macbooks tablet tablets ipad ipads airpods airpod earbuds headphones backpack backpacks purse tote bottle hydroflask tumbler jacket hoodie sweater hat umbrella scooter skateboard bike charger textbook notebook sunglasses glasses necklace bracelet passport keys sneakers sandals crocs cleats".split(
     " ",
   ),
 );
@@ -433,7 +434,8 @@ const shapeFamiliesIn = (words: Iterable<string>): Set<number> => {
 function extraContradiction(profile: ItemProfile, ownerAnswer: string): boolean {
   const category = normalizeCategory(profile.category);
   const kinds = namedKinds(ownerAnswer);
-  if (category !== "other" && kinds.size && !kinds.has(category)) return true;
+  // A kind matching would pair with this item is not a clash: slides the photo read as clothing, an id with a wallet.
+  if (category !== "other" && kinds.size && ![...kinds].some((k) => categoriesCompatible(k, category))) return true;
   const { asserted } = saidAndDenied(ownerAnswer);
   const onFile = new Set(canonTokens([profile.title, profile.publicSummary, ...profile.distinguishing].join(" ")));
   // A round one where the item is rectangular (or the other way around). Only when both sides say a shape.

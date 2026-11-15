@@ -12,8 +12,13 @@
 // FINDER
 // step            | Troy asked                               | accepts                    | goes to
 // ----------------|------------------------------------------|----------------------------|------------------------------------------
-// (none)          | -                                        | photo, or "found a ..."    | dangerous: saved for dps, done. no item named: found_what.
+// (none)          | -                                        | photo, or "found a ..."    | a photo is sorted first (photoWords, then firstLook): free food goes to
+//                 |                                          |                            | the food flow, something broken to repair (which offers before filing),
+//                 |                                          |                            | their own thing ("look at my lunch") to chat, unclear: photo_what.
+//                 |                                          |                            | a found item: dangerous: saved for dps, done. no item named: found_what.
 //                 |                                          |                            | no place: found_place. else listing saved, matching runs.
+// photo_what      | "is this up for grabs, or did u find it?" | found / up for grabs /    | found: the found report above, with the photo. grabs: food flow.
+//                 | (a poll when polls work)                 |   broken / mine, or a vote | broken: repair's offer. mine or anything else: chat. asked once, never again.
 // found_what      | "what is it?"                            | free text (new photo: restart) | found_place, or listing saved
 // found_place     | "where'd u find it?"                     | a place, or idk            | found_marks, or listing saved, matching runs
 // found_marks     | "anything on it only the owner would know?" | free text, or idk       | listing saved, matching runs. only asked when no photo could be
@@ -36,8 +41,11 @@
 // ----------------|------------------------------------------|----------------------------|------------------------------------------
 // (none)          | -                                        | "lost my ..."              | lost_category / lost_place / lost_time, one at a time, then saved + matched
 // lost_category   | "what'd u lose?"                         | the item, or idk           | next missing question, or saved
-// lost_place      | "where do u think u lost it?"            | a place, or idk            | next missing question, or saved
+// lost_place      | "where do u think u lost it?"            | a place, or idk            | next missing question, or saved. "not sure, maybe leavey" is a place.
+//                 |                                          |                            | words about the item instead ("they're brown olukai"): added to the
+//                 |                                          |                            | report (description, brand, color) and the place asked once more.
 // lost_time       | "when'd u last have it?"                 | a rough time, or idk       | saved. a fit on kind, color, brand, place and time: verify_describe. else stays open.
+//                 |                                          |                            | a place said here ("maybe around the statue") is kept as the place.
 // verify_describe | "describe it for me in ur own words"     | free text                  | pass: verified, handoff. miss with tries left: stays. out of tries:
 //                 | (plain item: asks brand, shape or style, |                            | item at dps: dps in person, match rejected. finder has it: proof.
 //                 |  where and when instead of marks)        |                            | PLAIN ITEM and the description fits (nothing contradicts, no hidden
@@ -92,21 +100,23 @@
 // The finder is the only one who is ever shown the other person's description.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Bubble, FlowContext, FlowHandler, FlowState, IncomingImage, MessagingAdapter, User } from "../../types.ts";
-import { getFlowState, getSetting, getUserById, setFlowState, setSetting } from "../../db/index.ts";
+import type { Bubble, FlowContext, FlowHandler, FlowName, FlowState, IncomingImage, Intent, MessagingAdapter, User } from "../../types.ts";
+import { getFlowState, getSetting, getUserById, saveMessage, setFlowState, setSetting } from "../../db/index.ts";
 import type { SweepIo } from "../../pending.ts";
 import { dropPending, isBusy, isProtected, onSweep, onUserGone, parkAsk, registerPendingHooks } from "../../pending.ts";
-import { pullDetails } from "../../ai.ts";
+import { photoWords, pullDetails } from "../../ai.ts";
 import { findPlace, walkingMinutes } from "../../places.ts";
 import { RELAY_COPY, endRelayByContext, hasContactInfo, onRelayEnd, startRelay } from "../../relay.ts";
 import type { Pools, Voice } from "../reports-shared.ts";
-import { makeVoice } from "../reports-shared.ts";
+import { makeVoice, POLL_NUMBER_HINT, POLL_TAP_HINT } from "../reports-shared.ts";
+import { pickVariant } from "../../voice.ts";
 import type { Category, ItemProfile, LostReport } from "./types.ts";
 import { canonTokens, isColorWord, isGenericWord, normalizeCategory } from "./types.ts";
 import type { MatchResult } from "./match.ts";
 import { findCandidates, loadListing, matchListing, publicScore } from "./match.ts";
 import { THRESHOLDS, generatePickupCode, isPlainItem, nameMatches, saidNothingToCheck, scoreDescription } from "./verify.ts";
-import { profileItem, sameItem, sanitizeProfile } from "./vision.ts";
+import { firstLook, profileItem, sameItem, sanitizeProfile } from "./vision.ts";
+import type { PhotoKind } from "./vision.ts";
 import type { AsideNote } from "../../staff.ts";
 import { DECISION, aside, ctxAs, simulateIfAlone, simulationTurn } from "../../staff.ts";
 
@@ -114,6 +124,8 @@ import { DECISION, aside, ctxAs, simulateIfAlone, simulationTurn } from "../../s
 
 export const COPY = {
   askWhat: "what is it?",
+  /** One question when the first read of a photo can't tell what it is. Asked once, never a "where'd u find it?". */
+  photoWhat: "is this up for grabs, or did u find it?",
   askFoundPlace: "where'd u find it?",
   notedDetail: "noted, that helps",
   askMarks: "anything on it only the owner would know? stickers, marks, a case, a name. that part stays between us",
@@ -274,6 +286,7 @@ const T = {
 export const LF_POOLS: Pools = {
   // finder: reporting
   askWhat: [COPY.askWhat, "what'd u find?", "what kind of thing is it?"],
+  photoWhat: [COPY.photoWhat, "did u find this, or is it up for grabs?", "is this something u found, or something ur giving away?", "wait, is this up for grabs or did u find it somewhere?"],
   askFoundPlace: [COPY.askFoundPlace, "where was it?", "where'd u spot it?", "whereabouts did u find it?"],
   askMarks: [
     COPY.askMarks,
@@ -545,6 +558,7 @@ export const PROOF_MIN_CONFIDENCE = 70;
 type Data = Record<string, unknown>;
 type Row = Record<string, unknown>;
 type Step =
+  | "photo_what"
   | "found_what"
   | "found_place"
   | "found_marks"
@@ -568,9 +582,9 @@ const TAP_STEPS = new Set<string>(["finder_check", "gc_consent", "await_pickup"]
 /** Open questions about a match. Another flow can't clear these, and a new question for the same person waits behind them. */
 const ASK_STEPS = new Set<string>(["finder_check", "finder_decide", "finder_ask", "answer_finder", "handoff_choice", "gc_consent", "verify_describe", "proof"]);
 /** Intake questions and the thank-you ask go stale: an answer hours later is a new message, not an answer. */
-const INTAKE_STEPS = new Set<string>(["found_what", "found_place", "found_marks", "lost_category", "lost_place", "lost_time"]);
+const INTAKE_STEPS = new Set<string>(["photo_what", "found_what", "found_place", "found_marks", "lost_category", "lost_place", "lost_time"]);
 /** Every step this flow opens. Any other open step under this flow is a simulation's (src/simulate.ts). */
-const OWN_STEPS: ReadonlySet<string> = new Set<Step>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "finder_ask", "answer_finder", "handoff_choice", "gc_consent", "lost_category", "lost_place", "lost_time", "verify_describe", "proof", "await_finder", "await_pickup", "thanks_note"]);
+const OWN_STEPS: ReadonlySet<string> = new Set<Step>(["photo_what", "found_what", "found_place", "found_marks", "finder_check", "finder_decide", "finder_ask", "answer_finder", "handoff_choice", "gc_consent", "lost_category", "lost_place", "lost_time", "verify_describe", "proof", "await_finder", "await_pickup", "thanks_note"]);
 export const INTAKE_TTL_MS = 60 * 60 * 1000;
 export const THANKS_TTL_MS = 30 * 60 * 1000;
 /** A claim the claimant isn't moving is let go after this long once someone else is waiting on the item. */
@@ -582,7 +596,7 @@ export const MAX_ASKS = 2;
 /** IDs and cards are checked by the name printed on them. Anything else with a name on it is described like any other item. */
 const NAME_CHECKED = new Set<Category>(["id_card", "wallet"]);
 /** Steps where a photo can't be an answer, so it starts a new found report. */
-const PHOTO_IS_NEW = new Set<string>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "finder_ask", "handoff_choice", "gc_consent", "await_finder", "await_pickup", "thanks_note"]);
+const PHOTO_IS_NEW = new Set<string>(["photo_what", "found_what", "found_place", "found_marks", "finder_check", "finder_decide", "finder_ask", "handoff_choice", "gc_consent", "await_finder", "await_pickup", "thanks_note"]);
 const CHOICE_STEPS = new Set<string>(["finder_check", "finder_decide", "handoff_choice", "gc_consent", "await_finder", "await_pickup"]);
 
 function word(text: string): string {
@@ -965,7 +979,7 @@ const REPORT_WORDS = wordSet(
 );
 /** Names for the kind of thing. Saying "airpods" tells the owner check nothing a stranger wouldn't know. */
 const KIND_WORDS = wordSet(
-  "airpods airpod earbuds headphones beats iphone phone android pixel macbook laptop ipad tablet chromebook wallet cardholder keys key keychain water bottle flask hydroflask tumbler backpack bag tote purse pouch jacket hoodie sweater sweatshirt coat hat cap beanie scarf shirt umbrella glasses sunglasses charger cable watch ring necklace bracelet calculator notebook textbook book planner skateboard scooter bike card id usc student pro max mini air case pair set",
+  "airpods airpod earbuds headphones beats iphone phone android pixel macbook laptop ipad tablet chromebook wallet cardholder keys key keychain water bottle flask hydroflask tumbler backpack bag tote purse pouch jacket hoodie sweater sweatshirt coat hat cap beanie scarf shirt umbrella glasses sunglasses charger cable watch ring necklace bracelet calculator notebook textbook book planner skateboard scooter bike card id usc student pro max mini air case pair set shoe shoes sneaker sneakers sandal sandals flip flop flops slides croc crocs boot boots cleat cleats heels slipper slippers footwear",
 );
 
 /** True when the finder's words give the verifier nothing only the owner would know (just the kind of item and where). */
@@ -1058,9 +1072,21 @@ async function continueFound(ctx: FlowContext, io: LostFoundIo, draft: FoundDraf
   }
 }
 
-async function reportFound(ctx: FlowContext, io: LostFoundIo, keptSpot: Spot | null = null): Promise<void> {
-  const text = (ctx.event.text ?? "").trim();
-  const photo = ctx.event.images[0] ?? null;
+interface FoundStart {
+  /** The photo, when it came with an earlier message (the answer to photo_what). Defaults to this message's. */
+  photo?: IncomingImage | null;
+  /** The words that go with it. Defaults to this message's text. */
+  text?: string;
+  /** True once the photo is known to be a found item, so it is not sorted again. */
+  sorted?: boolean;
+}
+
+async function reportFound(ctx: FlowContext, io: LostFoundIo, keptSpot: Spot | null = null, start: FoundStart = {}): Promise<void> {
+  const text = (start.text ?? ctx.event.text ?? "").trim();
+  const photo = start.photo !== undefined ? start.photo : (ctx.event.images[0] ?? null);
+  // A photo is read before any question: only a found item goes on from here. A place they already gave for a
+  // find ("found this near the statue", then the photo) means it is one.
+  if (photo && !start.sorted && !keptSpot && (await sortPhoto(ctx, io, photo, text)) !== "found_item") return;
   const seen = photo ? await profileItem(photo, text) : null;
   const profile = seen ?? profileFromText(text, false);
   const spot = spotFrom(io.db, text, ctx.intent.details.place ?? pullDetails(text).place) ?? keptSpot;
@@ -1070,6 +1096,104 @@ async function reportFound(ctx: FlowContext, io: LostFoundIo, keptSpot: Spot | n
     return;
   }
   await continueFound(ctx, io, { photo, profile, spot, fromText: !seen });
+}
+
+// ---------- a photo, read before any question ----------
+
+/** Poll options for photo_what, in order. The answers they stand for are in PHOTO_PICKS. */
+const PHOTO_OPTIONS = ["i found it", "it's up for grabs", "neither, just sharing"];
+type PhotoPick = "found_item" | "free_food" | "broken" | "own";
+const PHOTO_PICKS: PhotoPick[] = ["found_item", "free_food", "own"];
+
+/**
+ * What a photo is, read before Troy asks anything about it (John, 8pm lessons (4)). The words sent with it decide
+ * when they settle it ("found this at leavey", "free pizza come grab", "look at my lunch"), so no model is called
+ * for those. Otherwise the first look decides. When the look can't be had, the old path runs: it is read as an item.
+ * Returns the kind; anything but "found_item" has already been handled here.
+ */
+async function sortPhoto(ctx: FlowContext, io: LostFoundIo, photo: IncomingImage, text: string): Promise<PhotoKind | "own" | "handled"> {
+  const said = photoWords(text);
+  // Words that name a kind of item ("airpods at leavey") mean it is one. Food words are not items.
+  const namesItem = normalizeCategory(pullDetails(text).category) !== "other";
+  let kind: PhotoKind | "own" | null = said === "own" ? "own" : said === "found" || (!said && namesItem) ? "found_item" : said === "food" ? "free_food" : said === "broken" ? "broken" : null;
+  kind ??= (await firstLook(photo, text).catch(() => null)) ?? "found_item";
+  if (kind === "found_item") return kind;
+  if (kind === "unclear") {
+    await askWhatPhoto(ctx, io, photo, text);
+    return kind;
+  }
+  await photoTo(ctx, io, kind, photo, text);
+  return "handled";
+}
+
+/** Hand a sorted photo to the flow it belongs to. Nothing is saved here, and nothing is filed without the other flow's own ask. */
+async function photoTo(ctx: FlowContext, io: LostFoundIo, kind: Exclude<PhotoPick, "found_item">, photo: IncomingImage, text: string): Promise<void> {
+  io.setState(ctx.user.id, null);
+  if (kind === "own") return toSmalltalk(ctx);
+  const { getFlow } = await import("../index.ts");
+  const flow: FlowName = kind === "free_food" ? "food" : "repair";
+  const target = getFlow(flow);
+  if (!target) return toSmalltalk(ctx);
+  // Something broken goes in as the photo's word alone, so repair offers first and files nothing without a yes
+  // (John, 7pm lessons (1)). Free food goes to the food flow's own post questions.
+  const intent: Intent = kind === "free_food" ? { flow, action: "post_food", details: pullDetails(text), source: ctx.intent.source } : { flow, action: "report", details: { unconfirmed: true }, source: ctx.intent.source };
+  await target.handle({ ...ctx, state: null, intent, event: { ...ctx.event, text, images: [photo] } });
+}
+
+/** The one question for a photo the first look couldn't place. A native poll when the phone takes polls, else a text. */
+async function askWhatPhoto(ctx: FlowContext, io: LostFoundIo, photo: IncomingImage, text: string): Promise<void> {
+  const me = ctx.user.id;
+  const data: Data = { photo, text: text.slice(0, 300) };
+  const question = LF_VOICE.line(io.db, me, COPY.photoWhat);
+  if (ctx.adapter.capabilities().polls) {
+    const poll = await ctx.adapter.sendPoll(ctx.user.chatId, question, PHOTO_OPTIONS).catch(() => null);
+    if (poll) {
+      const save = (id: string | null, t: string) => saveMessage(io.db, { userId: me, chatId: ctx.user.chatId, direction: "out", providerMessageId: id, text: t });
+      if (poll.mode === "native") save(poll.optionMessageIds.find((id) => !!id) ?? null, `[poll] ${question}: ${PHOTO_OPTIONS.join(" / ")}`);
+      else {
+        save(null, question);
+        PHOTO_OPTIONS.forEach((t, i) => save(poll.optionMessageIds[i] ?? null, t));
+      }
+      io.setState(me, "photo_what", { ...data, pollMode: poll.mode, optionIds: poll.optionMessageIds });
+      // A tap or numbered poll gets exactly one instruction; the provider adds none of its own.
+      if (poll.mode !== "native") {
+        const hint = pickVariant(io.db, me, `lf:photo_what:${poll.mode}`, [...(poll.mode === "tap" ? POLL_TAP_HINT : POLL_NUMBER_HINT)]);
+        await ctx.say(hint);
+      }
+      return;
+    }
+  }
+  io.setState(me, "photo_what", data);
+  await io.say(me, COPY.photoWhat);
+}
+
+/** Their answer to photo_what, in words. Null when it says none of them. */
+export function photoAnswer(text: string, numbered = false): PhotoPick | null {
+  const w = word(text);
+  if (!w) return null;
+  if (numbered && /^(?:option |number |#)?[123]$/.test(w)) return PHOTO_PICKS[Number(w.slice(-1)) - 1]!;
+  if (/\b(?:broken|broke|leak\w*|out of order|doesnt work|isnt working|not working|busted|cracked|clogged|flooded|needs fixing)\b/.test(w)) return "broken";
+  if (/\b(?:found|find it|picked (?:it |them |this )?up|someone (?:left|dropped|forgot)|somebody (?:left|dropped|forgot)|someones|someone elses|not mine|isnt mine|arent mine|lost and found|turn (?:it |them )?in|on the (?:floor|ground|table|bench))\b/.test(w)) return "found_item";
+  if (/\b(?:up for grabs|grabs|free|giving (?:it |them |this |these )?away|give (?:it |them )?away|leftovers?|extra|anyone can|for anyone|for everyone|come (?:get|grab)|take (?:it|them|some))\b/.test(w)) return "free_food";
+  if (/\b(?:mine|my (?:own|lunch|dinner|breakfast|food|meal|order|plate|bowl)|its my|thats my|neither|just (?:sharing|showing|a pic|a photo|cause|because|wanted)|nah|no|nope|nothing|lol|lmao|haha|i ate|im eating|eating it|i made)\b/.test(w)) return "own";
+  return null;
+}
+
+/** The answer to photo_what: a vote, a tapback on a tap-to-pick option, or words. Asked once; anything else is chat. */
+async function answerPhoto(ctx: FlowContext, io: LostFoundIo, data: Data, pick: PhotoPick | null, text: string): Promise<void> {
+  const photo = (data.photo as IncomingImage | null) ?? null;
+  const said = [typeof data.text === "string" ? data.text : "", text].filter(Boolean).join(". ").trim();
+  io.setState(ctx.user.id, null);
+  if (!photo) return toSmalltalk(ctx);
+  if (pick === "found_item") return reportFound(ctx, io, null, { photo, text: said, sorted: true });
+  if (pick === "free_food" || pick === "broken" || pick === "own") return photoTo(ctx, io, pick, photo, said);
+  // Not an answer in words we know. The pipeline keeps this turn here (photo_what holds), so a message the router
+  // gave to food or repair takes the stored photo with it instead of starting over without it; another flow gets
+  // the message itself (staying silent lets the pipeline hand it on); the rest is chat.
+  if (ctx.intent.flow === "food") return photoTo(ctx, io, "free_food", photo, said);
+  if (ctx.intent.flow === "repair") return photoTo(ctx, io, "broken", photo, said);
+  if (ctx.intent.flow !== "lost_found" && ctx.intent.flow !== "smalltalk") return;
+  await toSmalltalk(ctx);
 }
 
 // ---------- owner: reporting a loss ----------
@@ -1082,6 +1206,19 @@ interface LostDraft {
   spot: Spot | null;
   happenedAt: number | null;
   asked: { category?: boolean; place?: boolean; time?: boolean };
+  /** True once an answer to "where" described the item instead and the place was asked again. */
+  detailNoted?: boolean;
+}
+
+/** More words about a lost item: kept with the report, and brand, color and kind filled in where they were missing. */
+function addToReport(d: LostDraft, text: string, pulled: Record<string, unknown>): void {
+  d.text = `${d.text}. ${text}`.slice(0, 900);
+  d.brand ??= str(pulled.brand);
+  d.color ??= str(pulled.color);
+  if (!d.category || d.category === "other") {
+    const kind = str(pulled.category) ? normalizeCategory(pulled.category) : null;
+    if (kind && kind !== "other") d.category = kind;
+  }
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -1208,15 +1345,31 @@ async function answerLost(ctx: FlowContext, io: LostFoundIo, step: Step, data: D
       d.happenedAt ??= parseWhen(text);
     }
   } else if (step === "lost_place") {
-    if (!unsure) {
-      const spot = spotFrom(io.db, text, pulled.place);
-      if (elsewhere && !spot) return;
-      d.spot = spot ?? { text: text.slice(0, 80), lat: null, lng: null };
-      d.happenedAt ??= parseWhen(text);
+    const spot = spotFrom(io.db, text, pulled.place);
+    // Asked where, they said more about the item instead ("they're brown olukai with green camp straps"). That is
+    // not a place: it goes on the report (the words, and brand and color if missing) and the place is asked once
+    // more. A second answer like it is taken as the place, so this never loops. Mirrors the finder's found_place.
+    const saysWhat = /^(?:its|it s|it is|theyre|they re|they are|these are|those are|thats|that s|that is|mine is|mine are)\b/.test(w) || !!pulled.brand || !!pulled.color || !!pulled.category;
+    if (!spot && !unsure && saysWhat && d.detailNoted !== true) {
+      addToReport(d, text, pulled);
+      d.detailNoted = true;
+      io.setState(ctx.user.id, "lost_place", { draft: d });
+      await io.say(ctx.user.id, COPY.notedDetail, COPY.askLostPlace);
+      return;
     }
+    // "not sure, maybe leavey" names a place even though it starts unsure.
+    if (spot) d.spot = spot;
+    else if (!unsure) {
+      if (elsewhere) return;
+      d.spot = { text: text.slice(0, 80), lat: null, lng: null };
+    }
+    if (spot || !unsure) d.happenedAt ??= parseWhen(text);
   } else {
-    if (!unsure) {
-      const when = parseWhen(text);
+    const when = parseWhen(text);
+    // "not sure maybe around the statue": asked when, they gave where. The place is kept, the time stays unknown.
+    const spot = when === null ? spotFrom(io.db, text, pulled.place) : null;
+    if (spot) d.spot ??= spot;
+    else if (!unsure) {
       if (elsewhere && when === null) return;
       d.happenedAt = when;
     }
@@ -2521,9 +2674,20 @@ async function handle(ctx: FlowContext): Promise<void> {
   const io = ioFrom(ctx);
   const me = ctx.user.id;
   const { event } = ctx;
+  const open: FlowState | null = ctx.state?.flow === "lost_found" ? ctx.state : null;
+  // A vote on the photo question, or a tapback on one of its tap-to-pick options. Nothing else is a vote here.
+  if (open?.step === "photo_what" && (event.pollVote || event.reaction)) {
+    const ids = Array.isArray(open.data.optionIds) ? (open.data.optionIds as (string | null)[]) : [];
+    let index = -1;
+    if (event.pollVote && open.data.pollMode === "native" && ids.includes(event.pollVote.pollMessageId)) index = event.pollVote.optionIndex;
+    else if (event.reaction && !event.reaction.removed && open.data.pollMode === "tap" && (event.reaction.type === "like" || event.reaction.type === "love")) index = ids.indexOf(event.reaction.targetMessageId);
+    const pick = PHOTO_PICKS[index];
+    if (pick) await answerPhoto(ctx, io, open.data, pick, "");
+    return;
+  }
   if (event.pollVote) return;
 
-  const state: FlowState | null = ctx.state?.flow === "lost_found" ? ctx.state : null;
+  const state: FlowState | null = open;
   // An intake question or the thank-you ask that sat too long is over: this message is a new one, not an answer.
   if (state && ((INTAKE_STEPS.has(state.step) && Date.now() - state.updatedAt > INTAKE_TTL_MS) || (state.step === "thanks_note" && Date.now() - state.updatedAt > THANKS_TTL_MS))) {
     io.setState(me, null);
@@ -2615,6 +2779,8 @@ async function handle(ctx: FlowContext): Promise<void> {
   const elsewhere = ctx.intent.flow !== "lost_found";
 
   switch (step as Step) {
+    case "photo_what":
+      return answerPhoto(ctx, io, data, photoAnswer(text, data.pollMode === "numbered" || data.pollMode === "tap"), text);
     case "found_what": {
       if (!text) {
         await io.say(me, COPY.askWhat);

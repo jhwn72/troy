@@ -37,6 +37,7 @@ import { readYesNo } from "./yes.ts";
 import { atStep, inHisWords, isNeutral, relax, saysDone } from "./firstten.ts";
 import type { Brief } from "./firstten.ts";
 import { CANCEL } from "./flows/reports-shared.ts";
+import { othersOnTroy } from "./brain.ts";
 import { normalizeCategory } from "./flows/lostfound/types.ts";
 import type { ItemProfile } from "./flows/lostfound/types.ts";
 import { THRESHOLDS, generatePickupCode, scoreDescription } from "./flows/lostfound/verify.ts";
@@ -51,6 +52,8 @@ const KINDS: readonly SimKind[] = ["lost_found_owner", "lost_found_finder", "foo
 export const SIM_OFFER_STEP = "sim_offer";
 export const SIM_PICK_STEP = "sim_finder_pick";
 export const SHOW_ME = "show me";
+/** The poll's second option: a native poll needs two, and a pick-one ask is one tap either way. */
+export const NOT_NOW = "not now";
 
 /** How long the example person "takes" before each of their messages. Tests set pause to nothing. */
 export const BEATS = { short: 1500, reply: 3500 } as const;
@@ -125,8 +128,39 @@ const WHAT: Record<SimKind, string> = {
   topics: "other students answering",
 };
 
-/** The honest line before the offer. The same for a judge and a student. */
-function offerBrief(kind: SimKind): Brief {
+/**
+ * What is actually true about the other side right now, when other people ARE on troy: the caller found nobody for
+ * this one (John, second live test: status lines are true to the moment, and "nobody else is on me" only when it
+ * literally is).
+ */
+const NONE_FOR: Record<SimKind, string> = {
+  lost_found_owner: "nothing like it has been turned in yet",
+  lost_found_finder: "nobody has reported losing anything like it yet",
+  food: "no students who get food texts are close enough right now",
+  repair: "no technician for that is on here yet",
+  usg: "no student government member is on here yet",
+  rides: "no open rides match yet",
+  topics: "nobody who follows that is close by right now",
+};
+
+/**
+ * The honest line before the offer. The same for a judge and a student. `others` is the real count of other people
+ * on troy: only at 0 does he say nobody else is on here.
+ */
+function offerBrief(kind: SimKind, others: number): Brief {
+  if (others > 0) {
+    const none = NONE_FOR[kind];
+    return {
+      goal: `be straight with them: ${none}, so there is no real ${PEOPLE[kind].replace(/^example /, "")} to connect them with yet. it's a hackathon demo. the flow itself works. offer to show how it would play out (${WHAT[kind]}). one or two short texts, and don't ask a question: a poll follows. other people are on troy, so never say nobody else is on here`,
+      mustCover: [none, "this is a demo", "the flow itself works", "he can show them how it would play out"],
+      facts: { "what is true right now": none },
+      fallback: [
+        [`real talk: ${none}. it's a demo, so that's normal`, "the flow itself works tho. i can show u how it would play out"],
+        [`gotta be honest, ${none}. this is a hackathon demo`, "everything behind it works. i can play the other side so u see how it goes"],
+        [`straight up: ${none}, it's a demo`, "the flow is real tho, and i can show u exactly how it plays out"],
+      ],
+    };
+  }
   return {
     goal: `be straight with them: there's nobody else on troy right now because this is a hackathon demo, so there is no real ${PEOPLE[kind].replace(/^example /, "")} to connect them with yet. the flow itself works. offer to show how it would play out (${WHAT[kind]}). one or two short texts, and don't ask a question: a poll follows`,
     mustCover: ["nobody else is on here right now because this is a demo", "the flow itself works", "he can show them how it would play out"],
@@ -138,8 +172,10 @@ function offerBrief(kind: SimKind): Brief {
   };
 }
 
-const OFFER_QUESTION = ["want to see it play out? tap it", "wanna watch how it goes? tap it", "see it in action? one tap"];
-const OFFER_TAP_HINT = ["heart or thumbs up that to start", "thumbs up that one and i'll run it"];
+// One tap instruction at most per message: the question itself names no way to tap (a native poll needs none),
+// and only the tap fallback adds one hint.
+const OFFER_QUESTION = ["want to see it play out?", "wanna watch how it goes?", "want to see it in action?"];
+const OFFER_TAP_HINT = ["heart the one u want", "heart or thumbs up one of those"];
 const OFFER_NUMBER_HINT = ['reply "show me" and i\'ll run it', 'text "show me" to start'];
 
 const OFFER_NO: Brief = {
@@ -314,26 +350,30 @@ export async function offerSimulation(ctx: FlowContext, kind: SimKind, context: 
   } catch {
     // The offer still goes out.
   }
-  const lines = await say(ctx, `offer:${kind}`, offerBrief(kind));
+  const lines = await say(ctx, `offer:${kind}`, offerBrief(kind, othersOnTroy(db, user.id)));
   const question = pick(ctx, "offer:question", OFFER_QUESTION);
-  const none = { optionMessageIds: [null] as (string | null)[], mode: "numbered" as const };
-  const poll = await ctx.adapter.sendPoll(user.chatId, question, [SHOW_ME]).catch(() => none);
+  const options = [SHOW_ME, NOT_NOW];
+  const none = { optionMessageIds: options.map(() => null) as (string | null)[], mode: "numbered" as const };
+  const poll = await ctx.adapter.sendPoll(user.chatId, question, options).catch(() => none);
   const save = (providerMessageId: string | null, text: string) => saveMessage(db, { userId: user.id, chatId: user.chatId, direction: "out", providerMessageId, text });
   let pollId: string | null = null;
   let optionId: string | null = null;
+  let noId: string | null = null;
   let qid: string | null = lastId(lines);
   if (poll.mode === "native") {
     pollId = poll.optionMessageIds.find((id) => !!id) ?? null;
-    save(pollId, `[poll] ${question}: ${SHOW_ME}`);
+    save(pollId, `[poll] ${question}: ${options.join(" / ")}`);
   } else {
     optionId = poll.optionMessageIds[0] ?? null;
+    noId = poll.optionMessageIds[1] ?? null;
     save(null, question);
     save(optionId, SHOW_ME);
+    save(noId, NOT_NOW);
     qid = lastId(await ctx.say(pick(ctx, `offer:${poll.mode}`, poll.mode === "tap" ? OFFER_TAP_HINT : OFFER_NUMBER_HINT))) ?? qid;
   }
   const safe: Record<string, string> = {};
   for (const [k, v] of Object.entries(context ?? {})) if (typeof v === "string" && v.trim()) safe[k] = v.trim().slice(0, 200);
-  ctx.setState({ flow: TOUR, step: SIM_OFFER_STEP, data: { kind, context: safe, pollId, optionId, qid } });
+  ctx.setState({ flow: TOUR, step: SIM_OFFER_STEP, data: { kind, context: safe, pollId, optionId, noId, qid } });
   return true;
 }
 
@@ -711,19 +751,23 @@ async function onOffer(ctx: FlowContext, data: Record<string, unknown>): Promise
   if (event.pollVote) {
     if (data.pollId && event.pollVote.pollMessageId && event.pollVote.pollMessageId !== data.pollId) return "none";
     go = event.pollVote.optionIndex === 0;
-    if (!go) return "open";
+    no = event.pollVote.optionIndex === 1;
+    if (!go && !no) return "open";
   } else if (event.reaction) {
     const r = event.reaction;
-    const ours = r.targetMessageId === data.optionId || r.targetMessageId === data.qid;
+    // A heart or thumbs up on "not now" is a no, the same as a thumbs down on "show me".
+    const onNo = !!data.noId && r.targetMessageId === data.noId;
+    const ours = onNo || r.targetMessageId === data.optionId || r.targetMessageId === data.qid;
     if (!ours || r.removed) return "open";
-    go = r.type === "love" || r.type === "like";
-    no = r.type === "dislike";
+    const positive = r.type === "love" || r.type === "like";
+    go = positive && !onNo;
+    no = r.type === "dislike" || (positive && onNo);
     if (!go && !no) return "open";
   } else {
     const t = event.text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     const answer = readYesNo({ event, questionMessageId: null });
     go = answer === "yes" || /^(?:ok |okay |yes |sure |bet )*(?:show me|1|run it|play it|do it|lets see(?: it)?|go)$/.test(t);
-    no = !go && (answer === "no" || CANCEL.test(event.text));
+    no = !go && (answer === "no" || CANCEL.test(event.text) || /^(?:not now|not rn|maybe later|later)$/.test(t));
   }
   if (go) {
     await play(ctx, kind, context);
