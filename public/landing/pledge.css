@@ -181,7 +181,7 @@
   position: absolute;
   z-index: 3;
   left: calc(var(--rod-over) + var(--sheet-pad) - 4px);
-  bottom: 8px;
+  bottom: 52px;
   width: 104px;
   height: 104px;
   border-radius: 47% 53% 51% 49% / 52% 48% 53% 47%;
@@ -249,10 +249,10 @@
 
 /* ---------- Motion: the scroll unrolls once, then the seal is pressed in ---------- */
 @media (prefers-reduced-motion: no-preference) {
-  .scroll-mover { animation: pledge-unroll 720ms cubic-bezier(0.3, 0.1, 0.2, 1) 120ms both; }
-  .scroll-inner { animation: pledge-hold 720ms cubic-bezier(0.3, 0.1, 0.2, 1) 120ms both; }
-  .sheet > :not(.sheet-paper) { animation: pledge-ink 720ms ease-out 120ms both; }
-  .seal { animation: pledge-press 460ms cubic-bezier(0.3, 0, 0.3, 1) 800ms both; }
+  .scroll-mover { animation: pledge-unroll 2200ms cubic-bezier(0.3, 0.1, 0.2, 1) 200ms both; }
+  .scroll-inner { animation: pledge-hold 2200ms cubic-bezier(0.3, 0.1, 0.2, 1) 200ms both; }
+  .sheet > :not(.sheet-paper) { animation: pledge-ink 2200ms ease-out 200ms both; }
+  .seal { animation: pledge-press 460ms cubic-bezier(0.3, 0, 0.3, 1) 2350ms both; }
 }
 @keyframes pledge-unroll { from { transform: translateY(-100%); } to { transform: translateY(0); } }
 @keyframes pledge-hold { from { transform: translateY(100%); } to { transform: translateY(0); } }
