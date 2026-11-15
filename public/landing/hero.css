@@ -223,3 +223,26 @@
   .hero-link-pulse { stroke-width: 14; }
   .hero-dots { margin-top: 4px; }
 }
+
+/* The distance between the two people, shown on the gold line at the moment they connect. */
+.hero-link-fact {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: calc(var(--troy-top) + var(--troy-w) * 0.62 + (var(--hero-gap) + 28px) * 0.1);
+  transform: translate(-50%, 6px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font: 600 13px/1.2 Inter, system-ui, sans-serif;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+  pointer-events: none;
+}
+.hero-link-walk { margin-right: 2px; }
+.convo.is-live.is-linked > .hero-link-fact { opacity: 1; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .hero-link-fact { opacity: 1; transform: translate(-50%, 0); } }
+@media (max-width: 767px) { .hero-link-fact { font-size: 11px; padding: 3px 8px; } }
