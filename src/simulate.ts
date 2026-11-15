@@ -461,7 +461,10 @@ async function scoreOf(sim: LostSim, text: string): Promise<{ passed: boolean; s
     const said = ` ${text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ")} `;
     const kindWords = `${sim.profile.title} ${sim.profile.category.replace(/_/g, " ")}`.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && w !== "item" && w !== "other");
     const namesIt = kindWords.some((w) => said.includes(` ${w}`)) || rules.reasons.some((r) => /color matches|brand matches/.test(r));
-    return { passed: !contradicts && namesIt, source: modelReady() ? "ai" : "fallback" };
+    // An example item with no details has no real owner to protect: anything that doesn't contradict it passes
+    // ("my photo is on it" for an ID). Only a clear contradiction or a non-answer fails.
+    void namesIt;
+    return { passed: !contradicts, source: modelReady() ? "ai" : "fallback" };
   }
   const result = await scoreDescription(sim.profile, text, { useAi: modelReady() });
   return { passed: result.score >= THRESHOLDS.descriptionPass, source: result.source };
