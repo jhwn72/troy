@@ -1,0 +1,17 @@
+/* Troy landing: small widget states that widgets.js drives (engine examples).
+   The static look of both is in page.css. Only opacity and transform move. */
+
+/* Engine: the example fades in and out. */
+@media (prefers-reduced-motion: no-preference) {
+  .engine-example { transition: opacity 0.18s ease-out; }
+}
+
+/* On touch screens a tap leaves :hover stuck on the last thing touched, so there the example
+   follows .is-open (set by a tap) and keyboard focus only. That keeps one open at a time. */
+@media (hover: none) {
+  .engine-step:hover:not(.is-open):not(:focus-within) .engine-example { opacity: 0; }
+}
+@media (hover: none) and (max-width: 767px) {
+  .engine-step:hover:not(.is-open):not(:focus-within) .engine-example { display: none; }
+}
+

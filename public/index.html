@@ -2,175 +2,56 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Troy. He knows a guy.</title>
-<meta name="description" content="Troy is an AI you text on iMessage that connects Trojans to the right person, office or item. Hackathon prototype, not an official USC service.">
-<meta name="robots" content="noindex">
-<link rel="icon" type="image/svg+xml" href="assets/troy-avatar.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Troy</title>
+<meta name="description" content="ChatGPT gives you information. Troy gets you connected.">
+<!-- Troy's number. The build fills these in; with both empty the page asks the local server (api/landing). -->
+<meta name="troy-number" content="">
+<meta name="troy-sms" content="">
+<meta name="theme-color" content="#FAF7F2">
+<link rel="icon" href="assets/troy-avatar.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --paper: #FAF7F2; --ink: #1C1917; --stone: #78716C; --line: #E7E2DA;
-    --cardinal: #990000; --gold: #FFCC00; --laurel: #4D7C5B; --amber: #B7791F; --white: #FFFFFF;
-    --me-bubble: #0A84FF; --troy-bubble: #E9E9EB;
-    --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
-  }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--paper); color: var(--ink); font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.5; overflow-x: hidden; }
-  a { color: inherit; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
-
-  /* Painted backdrop: layered gradients plus grain, CSS only. */
-  .hero { position: relative; isolation: isolate; overflow: hidden; border-bottom: 1px solid var(--line); }
-  .hero::before { content: ""; position: absolute; inset: -40px; z-index: -2; filter: blur(28px) saturate(1.05);
-    background:
-      radial-gradient(38% 46% at 78% 30%, rgba(255, 204, 0, .34), transparent 70%),
-      radial-gradient(34% 40% at 88% 78%, rgba(153, 0, 0, .22), transparent 70%),
-      radial-gradient(42% 50% at 60% 92%, rgba(183, 121, 31, .26), transparent 72%),
-      radial-gradient(40% 44% at 12% 14%, rgba(77, 124, 91, .18), transparent 70%),
-      radial-gradient(50% 60% at 30% 80%, rgba(214, 190, 150, .45), transparent 75%),
-      linear-gradient(160deg, #FBF6EA 0%, #F3E7D0 55%, #EBD9BC 100%); }
-  .hero::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .34; mix-blend-mode: multiply; pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .27 0 0 0 0 .18 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E"); }
-
-  nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
-  .brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--serif); font-size: 26px; text-decoration: none; }
-  .brand img { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--white); }
-  .chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, .8); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--stone); }
-  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
-
-  .hero-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 32px; align-items: center; padding: 24px 0 72px; }
-  h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(56px, 10vw, 112px); line-height: .95; letter-spacing: -.01em; margin: 0 0 20px; }
-  .lede { font-size: clamp(17px, 2.2vw, 21px); max-width: 30em; margin: 0 0 28px; color: #44403C; }
-  .cta-row { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 60px; padding: 0 34px; border-radius: 999px; border: 0; background: var(--cardinal); color: var(--white); font: 600 19px Inter, system-ui, sans-serif; text-decoration: none; cursor: pointer; box-shadow: 0 10px 24px -10px rgba(153, 0, 0, .7); transition: transform .15s ease, box-shadow .15s ease; }
-  .btn:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -10px rgba(153, 0, 0, .75); }
-  .btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
-  .btn[aria-disabled="true"] { background: #D6CFC4; color: #57534E; box-shadow: none; cursor: not-allowed; pointer-events: none; }
-  .btn svg { width: 22px; height: 22px; }
-  .cta-note { font-size: 14px; color: var(--stone); margin: 14px 0 0; min-height: 21px; }
-  .cta-note b { color: var(--ink); font-weight: 600; }
-  .qr { display: none; align-items: center; gap: 14px; background: rgba(255, 255, 255, .85); border: 1px solid var(--line); border-radius: 24px; padding: 12px 16px 12px 12px; }
-  .qr img { width: 104px; height: 104px; display: block; border-radius: 12px; }
-  .qr span { font-size: 13px; color: var(--stone); max-width: 9.5em; line-height: 1.35; }
-  .qr b { display: block; color: var(--ink); font-weight: 600; }
-  @media (min-width: 760px) { .qr.ready { display: flex; } }
-
-  /* Mascot */
-  .stage { position: relative; display: grid; place-items: center; aspect-ratio: 1; max-width: 440px; width: 100%; margin: 0 auto; }
-  .stage::before { content: ""; position: absolute; inset: 4%; border-radius: 50%; border: 1px solid rgba(28, 25, 23, .08);
-    background: radial-gradient(60% 60% at 35% 30%, rgba(255, 255, 255, .85), rgba(255, 244, 214, .55) 55%, rgba(235, 200, 140, .35) 100%); }
-  .stage::after { content: ""; position: absolute; left: 30%; right: 30%; bottom: 13%; height: 5%; border-radius: 50%; background: rgba(28, 25, 23, .22); filter: blur(8px); animation: troy-shadow 4.2s ease-in-out infinite; }
-  .troy { position: relative; z-index: 1; width: 74%; height: auto; overflow: visible; animation: troy-bob 4.2s ease-in-out infinite; }
-  .troy-helmet { transform-box: fill-box; transform-origin: 50% 80%; animation: troy-tilt 8.4s ease-in-out infinite; }
-  .troy-eye { transform-box: fill-box; transform-origin: 50% 55%; animation: troy-blink 5.2s infinite; }
-  @keyframes troy-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.2%); } }
-  @keyframes troy-shadow { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.88); opacity: .7; } }
-  @keyframes troy-tilt { 0%, 40%, 100% { transform: rotate(0deg); } 50%, 80% { transform: rotate(-2.5deg); } 90% { transform: rotate(.8deg); } }
-  @keyframes troy-blink { 0%, 44%, 48%, 92%, 96%, 100% { transform: scaleY(1); } 46%, 94% { transform: scaleY(.08); } }
-  @media (prefers-reduced-motion: reduce) {
-    .troy, .troy-helmet, .troy-eye, .stage::after { animation: none; }
-    .btn { transition: none; }
-    .btn:hover { transform: none; }
-  }
-
-  section { padding: 72px 0; }
-  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--stone); margin: 0 0 10px; }
-  h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; margin: 0 0 12px; }
-  .sub { color: var(--stone); max-width: 36em; margin: 0 0 36px; }
-
-  .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .card { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 22px 20px 20px; display: flex; flex-direction: column; gap: 6px; }
-  .card h3 { font-family: var(--serif); font-weight: 400; font-size: 27px; line-height: 1.1; margin: 0; }
-  .card p { margin: 0 0 12px; font-size: 14px; color: var(--stone); }
-  .dot { width: 12px; height: 12px; border-radius: 50%; margin-bottom: 8px; }
-  .thread { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
-  .thread small { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--stone); }
-  .bubble { max-width: 92%; padding: 9px 14px; border-radius: 20px; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
-  .bubble.me { align-self: flex-end; background: var(--me-bubble); color: var(--white); border-bottom-right-radius: 6px; }
-  .bubble.troy { align-self: flex-start; background: var(--troy-bubble); color: var(--ink); border-bottom-left-radius: 6px; }
-
-  .hello { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; padding-bottom: 56px; }
-  .hello .sub { margin-bottom: 0; }
-  .hello .thread { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 22px 20px; margin: 0; gap: 8px; }
-  .hello .bubble { font-size: 16px; max-width: 86%; }
-  .fine { color: var(--stone); font-size: 14px; max-width: 46em; margin: 28px 0 0; }
-  .privacy { margin: 16px 0 0; background: var(--white); border: 1px solid var(--line); border-radius: 24px; padding: 18px 20px; font-size: 15px; color: #44403C; }
-  .privacy b { color: var(--ink); font-weight: 600; }
-
-  .how { background: var(--white); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; counter-reset: step; list-style: none; padding: 0; margin: 0; }
-  .steps li { counter-increment: step; position: relative; padding-top: 68px; }
-  .steps li::before { content: counter(step); position: absolute; top: 0; left: 0; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--paper); font-family: var(--serif); font-size: 28px; }
-  .steps li:not(:last-child)::after { content: ""; position: absolute; top: 26px; left: 64px; right: -16px; border-top: 2px dotted var(--line); }
-  .steps h3 { font-family: var(--serif); font-weight: 400; font-size: 27px; line-height: 1.1; margin: 0 0 6px; }
-  .steps p { margin: 0; color: var(--stone); font-size: 15px; }
-
-  .trust { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; list-style: none; padding: 0; margin: 0; }
-  .trust li { display: flex; gap: 14px; align-items: flex-start; background: var(--white); border: 1px solid var(--line); border-radius: 24px; padding: 18px 20px; }
-  .trust .tick { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--laurel); display: grid; place-items: center; }
-  .trust .tick svg { width: 16px; height: 16px; }
-  .trust b { display: block; font-weight: 600; }
-  .trust span { color: var(--stone); font-size: 15px; }
-
-  .partners { text-align: center; padding: 64px 0 80px; }
-  .partners blockquote { font-family: var(--serif); font-size: clamp(30px, 4.6vw, 48px); line-height: 1.1; margin: 0 0 22px; }
-  .pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 0; margin: 0 0 16px; list-style: none; }
-  .pills li { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 500; }
-  .partners p { color: var(--stone); font-size: 14px; max-width: 40em; margin: 0 auto; }
-
-  footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--stone); font-size: 13px; }
-  footer .wrap { display: flex; gap: 14px; align-items: center; }
-  footer img { width: 48px; height: 48px; border-radius: 50%; flex: none; }
-  footer p { margin: 0; }
-
-  @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hello { gap: 24px; } }
-  @media (max-width: 759px) {
-    .hero-grid { grid-template-columns: 1fr; gap: 8px; padding: 0 0 48px; }
-    .stage { order: -1; max-width: 260px; }
-    .btn { width: 100%; }
-    section { padding: 52px 0; }
-    .steps { grid-template-columns: 1fr; gap: 28px; }
-    .steps li { padding: 0 0 0 68px; min-height: 52px; }
-    .steps li:not(:last-child)::after { display: none; }
-    .trust { grid-template-columns: 1fr; }
-    .hello { grid-template-columns: 1fr; gap: 20px; padding-bottom: 36px; }
-  }
-  @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } .chip { display: none; } }
-</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="landing/tokens.css">
+<link rel="stylesheet" href="landing/page.css">
+<link rel="stylesheet" href="landing/phone.css">
+<link rel="stylesheet" href="landing/chat.css">
+<link rel="stylesheet" href="landing/map.css">
+<link rel="stylesheet" href="landing/widgets.css">
+<link rel="stylesheet" href="landing/scene.css">
+<noscript><style>.chip{opacity:1!important}.replay{display:none!important}.repair-steps li::before{background-color:var(--laurel)!important;border-color:var(--laurel)!important}.engine-example{opacity:1!important}@media (max-width:767px){.stage .phone{height:auto!important;min-height:460px}.stage.has-steps .phone{height:560px!important}.repair-steps{top:612px!important}}</style></noscript>
+<script type="module" src="landing/config.js"></script>
+<script type="module" src="landing/map.js"></script>
+<script type="module" src="landing/widgets.js"></script>
+<script type="module" src="landing/scene.js"></script>
+<script type="module" src="landing/chat.js"></script>
 </head>
 <body>
 
-<header class="hero">
-  <div class="wrap">
-    <nav>
-      <a class="brand" href="./" aria-label="Troy home"><img src="assets/troy-avatar.svg" alt="" width="40" height="40">Troy</a>
-      <span class="chip"><i></i>Hackathon prototype</span>
-    </nav>
-    <div class="hero-grid">
-      <div>
-        <h1>He knows a guy.</h1>
-        <p class="lede">Troy is an AI you text on iMessage. He connects Trojans to the right person, office or item.</p>
-        <div class="cta-row">
-          <a class="btn" id="text-troy" role="link" aria-disabled="true">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3c5 0 9 3.4 9 7.6s-4 7.6-9 7.6c-.9 0-1.8-.1-2.6-.3L5 20.500l1.1-3.600C4.2 15.5 3 13.2 3 10.6 3 6.4 7 3 12 3z" fill="currentColor"/></svg>
-            <span id="text-troy-label">Text Troy</span>
-          </a>
-          <div class="qr" id="qr">
-            <img id="qr-img" alt="QR code that opens a text to Troy with hey troy filled in" width="104" height="104">
-            <span><b>On a laptop?</b>Scan with your phone camera to text Troy.</span>
-          </div>
-        </div>
-        <p class="cta-note" id="cta-note" aria-live="polite">Checking for Troy's number...</p>
-      </div>
-      <div class="stage">
-        <svg class="troy" viewBox="0 0 320 320" role="img" aria-label="Troy, a round black character with white pill eyes wearing a gold Trojan helmet with a cardinal crest"><defs>
-    <linearGradient id="t-gold" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FFE066"/><stop offset=".45" stop-color="#FFCC00"/><stop offset="1" stop-color="#D99A00"/></linearGradient>
-    <linearGradient id="t-crest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B80F0F"/><stop offset="1" stop-color="#990000"/></linearGradient>
+<div id="sky" aria-hidden="true">
+  <img id="sky-day" alt="" src="img/campus-day-1600.webp" srcset="img/campus-day-1600.webp 1600w, img/campus-day.webp 2560w" sizes="(max-width: 767px) 533px, 100vw" fetchpriority="high">
+  <img id="sky-golden" alt="" src="img/campus-golden-1600.webp" srcset="img/campus-golden-1600.webp 1600w, img/campus-golden.webp 2560w" sizes="(max-width: 767px) 533px, 100vw" decoding="async">
+  <img id="sky-night" alt="" src="img/campus-night-1600.webp" srcset="img/campus-night-1600.webp 1600w, img/campus-night.webp 2560w" sizes="(max-width: 767px) 533px, 100vw" decoding="async">
+</div>
+
+<main>
+
+  <section id="hero" aria-labelledby="hero-h">
+    <div class="hero-copy on-painting">
+      <h1 id="hero-h">He knows a guy.</h1>
+      <p class="hero-sub">ChatGPT gives you information. Troy gets you connected.</p>
+    </div>
+    <div class="hero-cta">
+      <a class="btn" data-sms="hey troy">Text Troy</a>
+      <img id="qr" src="qr.svg" alt="QR code that opens a text to Troy" width="76" height="76">
+    </div>
+    <div class="hero-phone">
+      <div id="troy-hero">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Troy">
+  <defs>
+    <linearGradient id="gold" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FFE066"/><stop offset=".45" stop-color="#FFCC00"/><stop offset="1" stop-color="#D99A00"/></linearGradient>
+    <linearGradient id="crest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B80F0F"/><stop offset="1" stop-color="#990000"/></linearGradient>
   </defs>
   <g class="troy-body">
     <circle cx="160" cy="200" r="100" fill="#141210"/>
@@ -182,10 +63,10 @@
   </g>
   <g class="troy-helmet">
     <g class="troy-crest">
-      <path d="M81.2 118.4L45.0 90.1A146 146 0 0 1 275.0 90.1L238.8 118.4A100 100 0 0 0 81.2 118.4Z" fill="url(#t-crest)" stroke="#5E0000" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M81.2 118.4L45.0 90.1A146 146 0 0 1 275.0 90.1L238.8 118.4A100 100 0 0 0 81.2 118.4Z" fill="url(#crest)" stroke="#5E0000" stroke-width="3" stroke-linejoin="round"/>
       <g stroke="#5E0000" stroke-width="2.5" stroke-linecap="round" opacity=".55"><path d="M76.6 96.6L61.7 81.7"/><path d="M90.6 84.5L78.3 67.5"/><path d="M106.4 74.9L96.9 56.2"/><path d="M123.5 67.8L117.0 47.8"/><path d="M141.5 63.5L138.3 42.7"/><path d="M160.0 62.0L160.0 41.0"/><path d="M178.5 63.5L181.7 42.7"/><path d="M196.5 67.8L203.0 47.8"/><path d="M213.6 74.9L223.1 56.2"/><path d="M229.4 84.5L241.7 67.5"/><path d="M243.4 96.6L258.3 81.7"/></g>
     </g>
-    <path d="M54 180A106 106 0 0 1 266 180L266 204Q262 236 240 246Q231 216 234 184Q200 164 172 172L171 204Q160 213 149 204L148 172Q120 164 86 184Q89 216 80 246Q58 236 54 204Z" fill="url(#t-gold)" stroke="#8A6400" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M54 180A106 106 0 0 1 266 180L266 204Q262 236 240 246Q231 216 234 184Q200 164 172 172L171 204Q160 213 149 204L148 172Q120 164 86 184Q89 216 80 246Q58 236 54 204Z" fill="url(#gold)" stroke="#8A6400" stroke-width="3" stroke-linejoin="round"/>
     <path d="M160 76V166" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
     <path d="M62 170Q112 144 160 161Q208 144 258 170" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
     <path d="M68 154Q112 128 160 146Q208 128 252 154" fill="none" stroke="#FFE98A" stroke-width="2.5" stroke-linecap="round" opacity=".9"/>
@@ -197,183 +78,470 @@
   </g>
 </svg>
       </div>
-    </div>
-  </div>
-</header>
-
-<main>
-  <section>
-    <div class="wrap">
-      <div class="hello">
-        <div>
-          <p class="eyebrow">Say hey</p>
-          <h2>Start with &ldquo;hey troy&rdquo;.</h2>
-          <p class="sub">That first text is how Troy knows you want to talk. This is what he says back.</p>
-        </div>
-        <div class="thread" aria-label="Troy's first messages">
-          <div class="bubble me">hey troy</div>
-          <div class="bubble troy">hey i'm troy</div>
-          <div class="bubble troy">i'm an ai, but i know a guy for everything</div>
-          <div class="bubble troy">send me a photo of anything on campus and i'll get it to the right person. or just text me like 'lost my airpods at leavey'</div>
-        </div>
-      </div>
-
-      <p class="eyebrow">What to text</p>
-      <h2>Say it like you'd text a friend.</h2>
-      <p class="sub">No app and no forms. A lot of answers are one tap, with a tapback or a poll. The messages below are examples.</p>
-      <div class="cards">
-        <article class="card">
-          <i class="dot" style="background: var(--laurel)"></i>
-          <h3>Found something</h3>
-          <p>Send a photo and where you found it. Troy logs it and texts you when the owner turns up.</p>
-          <div class="thread"><small>Example</small>
-            <div class="bubble me">found these airpods at leavey</div>
-            <div class="bubble troy">anything on it only the owner would know? that part stays between us</div>
+      <div class="convo" data-convo="hero-1" data-convo-loop="hero-1 hero-2 hero-3 hero-4">
+          <div class="phone" data-phone="hero" role="group" aria-label="A student&#x27;s phone, texting Troy">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-me tail"><span class="sr-only">Student: </span>find me people tryna go to lax first day of break</div>
+                <div class="bubble from-them"><span class="sr-only">Troy: </span>on it 👀</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>3 trojans flying out of lax on the 19th around noon. want a group chat to split a ride?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Student: </span>yes pls</div>
+                <div class="msg-status">Read</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>done. say hi 👋</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
           </div>
-        </article>
-        <article class="card">
-          <i class="dot" style="background: var(--amber)"></i>
-          <h3>Lost something</h3>
-          <p>Say what it is and where you last had it. Troy checks what's been found and asks you to describe it.</p>
-          <div class="thread"><small>Example</small>
-            <div class="bubble me">lost my airpods at leavey</div>
-            <div class="bubble troy">on it. checking what's been turned in</div>
-          </div>
-        </article>
-        <article class="card">
-          <i class="dot" style="background: var(--gold)"></i>
-          <h3>Free food</h3>
-          <p>Leftovers after an event? Troy texts Trojans nearby who asked for food alerts. A tapback claims one.</p>
-          <div class="thread"><small>What they get</small>
-            <div class="bubble troy">yo acm is giving away free chipotle at leavey, about 3 bowls left</div>
-            <div class="bubble troy">react if u want one</div>
-          </div>
-        </article>
-        <article class="card">
-          <i class="dot" style="background: var(--cardinal)"></i>
-          <h3>Something's broken</h3>
-          <p>Troy logs it for the office that handles it and texts you when the status changes.</p>
-          <div class="thread"><small>Example</small>
-            <div class="bubble me">the light is out on the 2nd floor of taper hall</div>
-            <div class="bubble troy">reported to fms ✅ i'll text u when it moves.</div>
-          </div>
-        </article>
-        <article class="card">
-          <i class="dot" style="background: var(--ink)"></i>
-          <h3>Ask USG</h3>
-          <p>Club funding, the LAX shuttle, thrift, dining hours. When Troy doesn't have this year's dates confirmed, he says so and points you to USG.</p>
-          <div class="thread"><small>Example</small>
-            <div class="bubble me">how does my club get funding</div>
-            <div class="bubble troy">recognized student orgs and usc undergrads can apply for usg funding on engagesc.</div>
-          </div>
-        </article>
-        <article class="card">
-          <i class="dot" style="background: var(--stone)"></i>
-          <h3>Your rules</h3>
-          <p>Tell Troy how you want to be reached and he sticks to it.</p>
-          <div class="thread"><small>Example</small>
-            <div class="bubble me">don't add me to group chats</div>
-            <div class="bubble troy">got it. i won't add u to group chats</div>
-          </div>
-        </article>
       </div>
     </div>
   </section>
 
-  <section class="how">
-    <div class="wrap">
-      <p class="eyebrow">How it works</p>
-      <h2>Three steps, then he's out of the way.</h2>
-      <p class="sub">Troy connects you and steps back. The people and offices do the rest.</p>
-      <ol class="steps">
-        <li><h3>Text a photo</h3><p>Or just say what's going on, in your own words.</p></li>
-        <li><h3>Troy matches and verifies</h3><p>He finds the likely person or office and runs a quick check first.</p></li>
-        <li><h3>He hands you off</h3><p>Once it checks out, Troy hands off and steps back.</p></li>
+  <section id="problem" aria-labelledby="problem-h">
+    <div class="panel">
+      <h2 id="problem-h">The person you need is probably five minutes away. Neither of you knows it.</h2>
+      <p class="sub">Campus runs on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it.</p>
+      <ul class="pairs">
+        <li class="pair">
+          <p class="pair-card">You need a ride to LAX.</p>
+          <span class="pair-line" aria-hidden="true"></span>
+          <p class="pair-card">Three people in your building do too.</p>
+        </li>
+        <li class="pair">
+          <p class="pair-card">You found someone's AirPods.</p>
+          <span class="pair-line" aria-hidden="true"></span>
+          <p class="pair-card">The owner is in the next building.</p>
+        </li>
+        <li class="pair">
+          <p class="pair-card">A club has 40 extra burritos.</p>
+          <span class="pair-line" aria-hidden="true"></span>
+          <p class="pair-card">40 hungry students are a block away.</p>
+        </li>
+        <li class="pair">
+          <p class="pair-card">Your door won't lock.</p>
+          <span class="pair-line" aria-hidden="true"></span>
+          <p class="pair-card">A technician is five minutes away.</p>
+        </li>
+      </ul>
+      <p class="lead">Troy finds the person and makes the intro.</p>
+    </div>
+  </section>
+
+  <section id="lost-found" aria-labelledby="lost-found-h">
+    <div class="panel">
+      <h2 id="lost-found-h"><span class="s">Lost something?</span> <span class="s">He knows who found it.</span></h2>
+      <div class="stage">
+        <div class="convo" data-convo="lost-found">
+          <div class="phone" data-phone="left" role="group" aria-label="The finder&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-me is-image" data-image="airpods" role="img" aria-label="Finder: Photo of AirPods"></div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>got it. where&#39;d u find them?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Finder: </span>leavey 2nd floor</div>
+                <div class="bubble from-them"><span class="sr-only">Troy: </span>thanks 🙏 i&#39;ll find the owner</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>found the owner ✅ want to meet them or drop it at DPS?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Finder: </span>meet</div>
+                <div class="msg-status">Read</div>
+                <div class="msg-note">Group chat: The finder and the owner</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>handing u off. you two got it from here 🤝</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+          <div class="phone" data-phone="right" role="group" aria-label="The owner&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-me tail"><span class="sr-only">Owner: </span>lost my airpods near leavey 😭</div>
+                <div class="bubble from-them"><span class="sr-only">Troy: </span>on it 👀</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>someone found airpods near leavey. quick check: what&#39;s on the case?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Owner: </span>a little trojan sticker</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>that&#39;s them 🙌 asking the finder how they want to hand it off</div>
+                <div class="msg-note">Group chat: The finder and the owner</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>handing u off. you two got it from here 🤝</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Troy checks it's really yours before anyone shares anything.</p>
+      <div class="pair-foot">
+        <span class="chip">Connected you to: the student who found it</span>
+        <button class="replay" type="button" data-replay="lost-found" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="concern" aria-labelledby="concern-h">
+    <div class="panel">
+      <h2 id="concern-h"><span class="s">Say it once.</span> <span class="s">The right people hear it.</span></h2>
+      <p class="sub">Troy groups students with the same issue and brings them to the people who can fix it.</p>
+      <div class="stage">
+        <div class="convo" data-convo="concern">
+          <div class="phone" data-phone="left" role="group" aria-label="A student&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-me tail"><span class="sr-only">Student: </span>the late shuttle to the village is always late</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>that goes to USG&#39;s transportation committee. send it with ur name or anonymously?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Student: </span>with my name</div>
+                <div class="msg-status">Read</div>
+                <div class="msg-note">Group chat: USG transportation</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>meet Alex from USG transportation. she wants to hear what&#39;s going on 🙌</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+          <div class="phone" data-phone="right" role="group" aria-label="A USG committee member&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>5 trojans raised late village shuttles this week. 2 want to talk. want a group chat with them?</div>
+                <div class="bubble from-me tail"><span class="sr-only">USG member: </span>yes</div>
+                <div class="msg-status">Read</div>
+                <div class="msg-note">Group chat: USG transportation</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>meet Alex from USG transportation. she wants to hear what&#39;s going on 🙌</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Anonymous concerns still count. Troy shares the summary, never the name.</p>
+      <div class="pair-foot">
+        <span class="chip">Connected you to: USG and 4 students with the same issue</span>
+        <button class="replay" type="button" data-replay="concern" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="food" aria-labelledby="food-h">
+    <div class="panel">
+      <h2 id="food-h">Free food finds the people closest to it.</h2>
+      <div class="stage has-map">
+        <div class="convo" data-convo="food">
+          <div class="phone" data-phone="left" role="group" aria-label="A club officer&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-me is-image" data-image="food-trays" role="img" aria-label="Club officer: Photo of food trays"></div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>looks like 20 bowls, right?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Club officer: </span>yep, at leavey till 2</div>
+                <div class="msg-status">Read</div>
+                <div class="bubble from-them"><span class="sr-only">Troy: </span>sending it to trojans nearby 🌯</div>
+                <div class="bubble from-them count tail"><span class="sr-only">Troy: </span>6 left</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+        </div>
+        <figure class="map-figure">
+          <div id="food-map">
+            <svg class="map" viewBox="0 0 400 400" aria-hidden="true" focusable="false">
+              <g class="map-buildings"><rect x="20" y="22" width="70" height="44" rx="8"/><rect x="104" y="22" width="28" height="90" rx="8"/><rect x="20" y="80" width="70" height="32" rx="8"/><rect x="170" y="20" width="110" height="36" rx="8"/><rect x="170" y="72" width="48" height="40" rx="8"/><rect x="232" y="72" width="48" height="40" rx="8"/><rect x="318" y="20" width="64" height="92" rx="8"/><rect x="18" y="150" width="50" height="120" rx="8"/><rect x="84" y="150" width="48" height="52" rx="8"/><rect x="84" y="218" width="48" height="52" rx="8"/><rect x="176" y="170" width="98" height="80" rx="8"/><rect x="318" y="150" width="64" height="52" rx="8"/><rect x="318" y="218" width="64" height="52" rx="8"/><rect x="20" y="310" width="112" height="34" rx="8"/><rect x="20" y="358" width="50" height="30" rx="8"/><rect x="84" y="358" width="48" height="30" rx="8"/><rect x="170" y="310" width="50" height="74" rx="8"/><rect x="234" y="310" width="46" height="74" rx="8"/><rect x="318" y="310" width="64" height="74" rx="8"/></g>
+              <g class="map-paths"><path d="M150 -10V410"/><path d="M300 -10V410"/><path d="M-10 130H410"/><path d="M-10 290H410"/></g>
+              <circle class="map-range" cx="225" cy="205" r="125"/>
+              <g class="map-out"><circle cx="80" cy="100" r="4.5"/><circle cx="16" cy="170" r="4.5"/><circle cx="369" cy="271" r="4.5"/><circle cx="266" cy="34" r="4.5"/><circle cx="339" cy="311" r="4.5"/><circle cx="53" cy="250" r="4.5"/><circle cx="37" cy="39" r="4.5"/><circle cx="140" cy="34" r="4.5"/><circle cx="52" cy="149" r="4.5"/></g>
+              <g class="map-dot" style="--i:0"><circle class="map-dot-off" cx="188" cy="194" r="4.5"/><circle class="map-dot-on" cx="188" cy="194" r="4.5"/><path class="map-bubble" d="M181 173a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:1"><circle class="map-dot-off" cx="262" cy="222" r="4.5"/><circle class="map-dot-on" cx="262" cy="222" r="4.5"/><path class="map-bubble" d="M255 201a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:2"><circle class="map-dot-off" cx="269" cy="193" r="4.5"/><circle class="map-dot-on" cx="269" cy="193" r="4.5"/><path class="map-bubble" d="M262 172a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:3"><circle class="map-dot-off" cx="260" cy="161" r="4.5"/><circle class="map-dot-on" cx="260" cy="161" r="4.5"/><path class="map-bubble" d="M253 140a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:4"><circle class="map-dot-off" cx="218" cy="149" r="4.5"/><circle class="map-dot-on" cx="218" cy="149" r="4.5"/><path class="map-bubble" d="M211 128a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:5"><circle class="map-dot-off" cx="170" cy="222" r="4.5"/><circle class="map-dot-on" cx="170" cy="222" r="4.5"/><path class="map-bubble" d="M163 201a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:6"><circle class="map-dot-off" cx="185" cy="157" r="4.5"/><circle class="map-dot-on" cx="185" cy="157" r="4.5"/><path class="map-bubble" d="M178 136a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:7"><circle class="map-dot-off" cx="164" cy="191" r="4.5"/><circle class="map-dot-on" cx="164" cy="191" r="4.5"/><path class="map-bubble" d="M157 170a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:8"><circle class="map-dot-off" cx="293" cy="231" r="4.5"/><circle class="map-dot-on" cx="293" cy="231" r="4.5"/><path class="map-bubble" d="M286 210a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:9"><circle class="map-dot-off" cx="228" cy="283" r="4.5"/><circle class="map-dot-on" cx="228" cy="283" r="4.5"/><path class="map-bubble" d="M221 262a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:10"><circle class="map-dot-off" cx="258" cy="276" r="4.5"/><circle class="map-dot-on" cx="258" cy="276" r="4.5"/><path class="map-bubble" d="M251 255a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:11"><circle class="map-dot-off" cx="198" cy="130" r="4.5"/><circle class="map-dot-on" cx="198" cy="130" r="4.5"/><path class="map-bubble" d="M191 109a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:12"><circle class="map-dot-off" cx="161" cy="261" r="4.5"/><circle class="map-dot-on" cx="161" cy="261" r="4.5"/><path class="map-bubble" d="M154 240a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:13"><circle class="map-dot-off" cx="141" cy="219" r="4.5"/><circle class="map-dot-on" cx="141" cy="219" r="4.5"/><path class="map-bubble" d="M134 198a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:14"><circle class="map-dot-off" cx="249" cy="121" r="4.5"/><circle class="map-dot-on" cx="249" cy="121" r="4.5"/><path class="map-bubble" d="M242 100a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:15"><circle class="map-dot-off" cx="190" cy="295" r="4.5"/><circle class="map-dot-on" cx="190" cy="295" r="4.5"/><path class="map-bubble" d="M183 274a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:16"><circle class="map-dot-off" cx="138" cy="250" r="4.5"/><circle class="map-dot-on" cx="138" cy="250" r="4.5"/><path class="map-bubble" d="M131 229a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:17"><circle class="map-dot-off" cx="125" cy="189" r="4.5"/><circle class="map-dot-on" cx="125" cy="189" r="4.5"/><path class="map-bubble" d="M118 168a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:18"><circle class="map-dot-off" cx="282" cy="115" r="4.5"/><circle class="map-dot-on" cx="282" cy="115" r="4.5"/><path class="map-bubble" d="M275 94a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g class="map-dot" style="--i:19"><circle class="map-dot-off" cx="151" cy="128" r="4.5"/><circle class="map-dot-on" cx="151" cy="128" r="4.5"/><path class="map-bubble" d="M144 107a4.5 4.5 0 0 1 4.5 -4.5h5a4.5 4.5 0 0 1 0 9h-3.5l-3.5 3v-3.4a4.5 4.5 0 0 1 -2.5 -4.1z"/></g>
+              <g transform="translate(225 205)"><g class="map-pin"><path d="M0 0C-4 -7 -9 -11 -9 -18a9 9 0 1 1 18 0C9 -11 4 -7 0 0Z"/><circle cx="0" cy="-18" r="3.2"/></g></g>
+            </svg>
+            <p class="map-text sr-only">20 students within a 15-minute walk get the alert.</p>
+          </div>
+          <figcaption>Only students within a 15-minute walk get the text. Everyone else is left alone.</figcaption>
+        </figure>
+      </div>
+      <div class="pair-foot">
+        <span class="chip">Connected you to: 20 trojans within a 15-minute walk</span>
+        <button class="replay" type="button" data-replay="food" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="broken" aria-labelledby="broken-h">
+    <div class="panel">
+      <h2 id="broken-h"><span class="s">Report it once.</span> <span class="s">Hear back when it's fixed.</span></h2>
+      <div class="stage has-steps">
+        <div class="convo" data-convo="broken">
+          <div class="phone" data-phone="left" role="group" aria-label="The student&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-me is-image" data-image="broken-door" role="img" aria-label="Student: Photo of a broken door"></div>
+                <div class="bubble from-me tail"><span class="sr-only">Student: </span>the door to my building won&#39;t lock</div>
+                <div class="msg-status">Read</div>
+                <div class="bubble from-them"><span class="sr-only">Troy: </span>got it. letting facilities know now. i&#39;ll text u when it&#39;s fixed.</div>
+                <div class="bubble from-them"><span class="sr-only">Troy: </span>facilities is on it 🔧</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>fixed ✅ thanks for flagging it</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+          <div class="phone" data-phone="right" role="group" aria-label="An FMS technician&#x27;s phone">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>someone reported a door that won&#39;t lock at new north, about a 5 minute walk from u. can u take it?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Technician: </span>on it</div>
+                <div class="bubble from-me is-image" data-image="fixed-door" role="img" aria-label="Technician: Photo of the fixed door"></div>
+                <div class="bubble from-me tail"><span class="sr-only">Technician: </span>done</div>
+                <div class="msg-status">Read</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+        </div>
+        <ol class="repair-steps">
+          <li data-step="reported">Reported</li>
+          <li data-step="on-it">On it</li>
+          <li data-step="fixed">Fixed</li>
+        </ol>
+      </div>
+      <div class="pair-foot">
+        <span class="chip">Connected you to: the closest technician</span>
+        <button class="replay" type="button" data-replay="broken" aria-label="Replay this conversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5.25 4.5v3.75H9"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="why" aria-labelledby="why-h">
+    <div class="panel">
+      <h2 id="why-h">Why it feels different</h2>
+      <ul class="why-grid">
+        <li>
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.25"/></svg></span>
+          <h3>Knows who's nearby.</h3>
+          <p>Troy only pings people close enough to act, so alerts stay useful instead of spammy.</p>
+        </li>
+        <li>
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg></span>
+          <h3>Nothing to download.</h3>
+          <p>No app, no account page, no forms. Text a number and you're in.</p>
+        </li>
+        <li>
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5c-4.4 0-8 3-8 6.75 0 2.1 1.1 3.95 2.9 5.2L6.25 19.5l3.6-1.75c.7.15 1.4.25 2.15.25 4.4 0 8-3 8-6.75S16.4 4.5 12 4.5z"/><circle class="dot" cx="8.75" cy="11.25" r=".9"/><circle class="dot" cx="12" cy="11.25" r=".9"/><circle class="dot" cx="15.25" cy="11.25" r=".9"/></svg></span>
+          <h3>Feels like texting a friend.</h3>
+          <p>Typing, reactions, live counts and group chats, all inside iMessage.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="engine" aria-labelledby="engine-h">
+    <div class="panel">
+      <h2 id="engine-h">One engine behind every connection.</h2>
+      <ol class="engine-steps">
+        <li class="engine-step">
+          <button class="engine-circle" type="button" aria-describedby="engine-ex-1"><span class="sr-only">Step </span>1</button>
+          <h3>Understand.</h3>
+          <p>Reads your text or photo and figures out what you need.</p>
+          <p class="engine-example" id="engine-ex-1">Example: a photo of trays becomes "20 bowls of chipotle".</p>
+        </li>
+        <li class="engine-step">
+          <button class="engine-circle" type="button" aria-describedby="engine-ex-2"><span class="sr-only">Step </span>2</button>
+          <h3>Find.</h3>
+          <p>Looks for the right person or office by need, time and distance.</p>
+          <p class="engine-example" id="engine-ex-2">Example: Trojans within a 15-minute walk.</p>
+        </li>
+        <li class="engine-step">
+          <button class="engine-circle" type="button" aria-describedby="engine-ex-3"><span class="sr-only">Step </span>3</button>
+          <h3>Check.</h3>
+          <p>Makes sure it's a real match before anyone is connected.</p>
+          <p class="engine-example" id="engine-ex-3">Example: the owner describes the case before seeing the photo.</p>
+        </li>
+        <li class="engine-step">
+          <span class="engine-circle"><span class="sr-only">Step </span>4</span>
+          <h3>Connect.</h3>
+          <p>Starts the group chat, sends the alert or routes it to the right office.</p>
+        </li>
+        <li class="engine-step">
+          <span class="engine-circle"><span class="sr-only">Step </span>5</span>
+          <h3>Follow up.</h3>
+          <p>Texts you when something changes, so you never have to chase anyone.</p>
+        </li>
       </ol>
-      <p class="fine">The first time you text, Troy asks for your USC email to make sure you're a Trojan. Hackathon judges get a skip. That skip is for this demo only and wouldn't exist in a real campus version.</p>
+      <p class="engine-after">Rides, lost items, free food, repairs and student concerns all run on these same five steps. New uses are just new connections.</p>
     </div>
   </section>
 
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">Trust</p>
-      <h2>Careful by default.</h2>
-      <p class="sub">Troy says he's an AI up front, and the rules below are written in code.</p>
-      <ul class="trust">
-        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Quick check before any handoff</b><span>An owner has to describe the item before anything changes hands.</span></div></li>
-        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Contact info only when both say yes</b><span>A group chat shares contact info, so Troy asks you both first. Say no and he passes messages along instead.</span></div></li>
-        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Dangerous items go to DPS</b><span>Troy doesn't match those between students. He routes them to DPS.</span></div></li>
-        <li><i class="tick"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.500l3.2 3.200L13 4.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Reply STOP anytime</b><span>One word and Troy leaves you alone until you want to talk again.</span></div></li>
+  <section id="safe" aria-labelledby="safe-h">
+    <div class="panel">
+      <h2 id="safe-h">Built to be safe from the first text.</h2>
+      <ul class="safe-grid">
+        <li class="safe-card">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><path d="M4.25 7.5l7.75 5.75 7.75-5.75"/></svg></span>
+          <h3>Only Trojans.</h3>
+          <p>Every student verifies a USC email before Troy connects them to anyone.</p>
+        </li>
+        <li class="safe-card">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.25 4.25L18.5 8"/></svg></span>
+          <h3>Nothing shared without a yes.</h3>
+          <p>Phone numbers and names are only shared when both sides agree.</p>
+        </li>
+        <li class="safe-card">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.25"/></svg></span>
+          <h3>Your location stays yours.</h3>
+          <p>Troy keeps the last spot you share so walking times are right. It's never shown to another student, and 'forget my location' erases it.</p>
+        </li>
+        <li class="safe-card">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1-3.6 3.8-5.25 7-5.25s6 1.65 7 5.25"/></svg></span>
+          <h3>You choose how you show up.</h3>
+          <p>Send concerns with your name or anonymously.</p>
+        </li>
+        <li class="safe-card">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l7 2.6v5.4c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.1l7-2.6z"/><path d="M9 12l2.25 2.25L15.25 10"/></svg></span>
+          <h3>Checked before connected.</h3>
+          <p>Lost items are verified before a handoff. Dangerous items go straight to DPS.</p>
+        </li>
+        <li class="safe-card">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5l1.5-1.5z"/><path d="M10.25 20.25a2 2 0 0 0 3.5 0"/><path d="M4 4l16 16"/></svg></span>
+          <h3>No spam, ever.</h3>
+          <p>Only alerts close enough to matter, limits on everything else, and STOP works anytime. People who misuse it get removed.</p>
+        </li>
       </ul>
-      <p class="privacy" id="privacy"><b>Privacy.</b> Troy only answers people who text him first. He keeps the last location you share so alerts are accurate, and other students never see it. Text &ldquo;forget my location&rdquo; to erase it, or &ldquo;delete my data&rdquo; to erase everything.</p>
     </div>
   </section>
 
-  <section class="partners">
-    <div class="wrap">
-      <blockquote>Troy is the front door. The offices stay in charge.</blockquote>
-      <ul class="pills">
-        <li>DPS Lost &amp; Found</li>
-        <li>FMS</li>
-        <li>USC Housing maintenance</li>
-        <li>USG</li>
-      </ul>
-      <p>Troy routes to these offices. In this prototype the office and committee handoffs are mocked, so nothing is filed with them, and none of these offices has reviewed or endorsed it.</p>
+  <section id="next" aria-labelledby="next-h">
+    <div class="panel">
+      <h2 id="next-h">Same engine. Endless connections.</h2>
+      <div class="next-rows">
+        <div>
+          <h3>Nearby, right now</h3>
+          <ul class="pills">
+            <li>pickup basketball at Lyon Center</li>
+            <li>study buddies in Leavey tonight</li>
+            <li>extra event tickets at the door</li>
+            <li>free furniture on move-out day</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Two people who need each other</h3>
+          <ul class="pills">
+            <li>class help from students who aced it</li>
+            <li>roommates</li>
+            <li>ride shares home</li>
+            <li>ticket swaps</li>
+            <li>thrift and textbook trades</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Closing the loop with offices</h3>
+          <ul class="pills">
+            <li>housing requests</li>
+            <li>new classes that fit you</li>
+            <li>financial aid deadlines</li>
+            <li>advising openings</li>
+          </ul>
+        </div>
+        <div>
+          <h3>A photo is enough</h3>
+          <ul class="pills">
+            <li>sell or give away anything with one picture</li>
+            <li>report anything with one picture</li>
+          </ul>
+        </div>
+      </div>
+      <p class="lead">If two Trojans need each other, Troy can find them.</p>
     </div>
   </section>
+
+  <section id="faq" aria-labelledby="faq-h">
+    <div class="panel">
+      <h2 id="faq-h">FAQ</h2>
+      <div class="faq">
+        <details>
+          <summary>Do I need an app?</summary>
+          <p>No. Troy lives in iMessage. Text the number and you're in.</p>
+        </details>
+        <details>
+          <summary>How does Troy know I'm a student?</summary>
+          <p>He asks for your USC email in the chat and sends you a code.</p>
+        </details>
+        <details>
+          <summary>Who sees my info?</summary>
+          <p>Only people you say yes to. Troy never shares your number or name without both sides agreeing.</p>
+        </details>
+        <details>
+          <summary>Does Troy track my location?</summary>
+          <p>Only if you share it. He keeps the last spot you shared to work out walking distance, never shows it to anyone, and 'forget my location' erases it.</p>
+        </details>
+        <details>
+          <summary>Will I get spammed?</summary>
+          <p>No. You only get alerts close enough to matter, and you choose what you hear about. Text STOP anytime.</p>
+        </details>
+        <details>
+          <summary>Is this run by USC?</summary>
+          <p>No. A student built it at a hackathon. It isn't an official USC service yet.</p>
+        </details>
+      </div>
+      <div class="faq-more">
+        <p>Any other questions?</p>
+        <a class="btn" data-sms="hey troy, i have a question">Just text Troy</a>
+      </div>
+    </div>
+  </section>
+
 </main>
 
-<footer>
-  <div class="wrap">
-    <img src="assets/troy-avatar.svg" alt="" width="48" height="48">
-    <p>Troy is a hackathon prototype built Nov 14 to 15, 2026 for the AI@USC Hackathon. It is not an official USC service.</p>
+<footer id="footer">
+  <div class="footer-sleep" aria-hidden="true">
+    <div id="troy-sleep">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="gold-sleep" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FFE066"/><stop offset=".45" stop-color="#FFCC00"/><stop offset="1" stop-color="#D99A00"/></linearGradient>
+    <linearGradient id="crest-sleep" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B80F0F"/><stop offset="1" stop-color="#990000"/></linearGradient>
+  </defs>
+  <g class="troy-body">
+    <circle cx="160" cy="200" r="100" fill="#141210"/>
+    <path d="M92 262a100 100 0 0 0 136 0" fill="none" stroke="#2E2A26" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+  </g>
+  <g class="troy-eyes" fill="#fff">
+    <rect class="troy-eye" x="109" y="190" width="26" height="48" rx="13"/>
+    <rect class="troy-eye" x="185" y="190" width="26" height="48" rx="13"/>
+  </g>
+  <g class="troy-helmet">
+    <g class="troy-crest">
+      <path d="M81.2 118.4L45.0 90.1A146 146 0 0 1 275.0 90.1L238.8 118.4A100 100 0 0 0 81.2 118.4Z" fill="url(#crest-sleep)" stroke="#5E0000" stroke-width="3" stroke-linejoin="round"/>
+      <g stroke="#5E0000" stroke-width="2.5" stroke-linecap="round" opacity=".55"><path d="M76.6 96.6L61.7 81.7"/><path d="M90.6 84.5L78.3 67.5"/><path d="M106.4 74.9L96.9 56.2"/><path d="M123.5 67.8L117.0 47.8"/><path d="M141.5 63.5L138.3 42.7"/><path d="M160.0 62.0L160.0 41.0"/><path d="M178.5 63.5L181.7 42.7"/><path d="M196.5 67.8L203.0 47.8"/><path d="M213.6 74.9L223.1 56.2"/><path d="M229.4 84.5L241.7 67.5"/><path d="M243.4 96.6L258.3 81.7"/></g>
+    </g>
+    <path d="M54 180A106 106 0 0 1 266 180L266 204Q262 236 240 246Q231 216 234 184Q200 164 172 172L171 204Q160 213 149 204L148 172Q120 164 86 184Q89 216 80 246Q58 236 54 204Z" fill="url(#gold-sleep)" stroke="#8A6400" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M160 76V166" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
+    <path d="M62 170Q112 144 160 161Q208 144 258 170" fill="none" stroke="#B38600" stroke-width="3" stroke-linecap="round"/>
+    <path d="M68 154Q112 128 160 146Q208 128 252 154" fill="none" stroke="#FFE98A" stroke-width="2.5" stroke-linecap="round" opacity=".9"/>
+    <path d="M84 126Q104 90 142 80" fill="none" stroke="#FFF3B8" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+    <path d="M251 192Q254 216 245 232M69 192Q66 216 75 232" fill="none" stroke="#B38600" stroke-width="2.5" stroke-linecap="round"/>
+    <g fill="#8A6400"><circle cx="250" cy="181" r="3.5"/><circle cx="70" cy="181" r="3.5"/><circle cx="160" cy="195" r="3"/></g>
+    <path d="M67.7 120.1A110 110 0 0 1 252.3 120.1" fill="none" stroke="#8A6400" stroke-width="13" stroke-linecap="round"/>
+    <path d="M67.7 120.1A110 110 0 0 1 252.3 120.1" fill="none" stroke="#F2B800" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
+    </div>
+    <div class="sleep-bubble"><svg viewBox="0 0 220 96" aria-hidden="true"><path d="M60 4H172A40 40 0 0 1 172 84H60C46 84 36 91 14 92C24 86 23 70 22 56A40 40 0 0 1 60 4Z"/></svg></div>
   </div>
+  <p class="footer-line on-painting">Every connection on campus. Just text him.</p>
+  <a class="btn" data-sms="hey troy">Text Troy</a>
 </footer>
 
-<script>
-(function () {
-  // The static build (scripts/build-landing.ts) swaps this null for { smsLink, number }.
-  var baked = /*TROY_BAKED*/null/*END_TROY_BAKED*/;
-  var btn = document.getElementById("text-troy");
-  var label = document.getElementById("text-troy-label");
-  var note = document.getElementById("cta-note");
-  var qr = document.getElementById("qr");
-  var qrImg = document.getElementById("qr-img");
-
-  function pretty(n) {
-    var m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(n);
-    return m ? "(" + m[1] + ") " + m[2] + "-" + m[3] : n;
-  }
-  function valid(data) {
-    return !!data && typeof data.smsLink === "string" && data.smsLink.indexOf("sms:") === 0 && typeof data.number === "string";
-  }
-  function comingSoon() {
-    btn.removeAttribute("href");
-    btn.setAttribute("aria-disabled", "true");
-    label.textContent = "Text Troy";
-    note.textContent = "number coming soon";
-    qr.classList.remove("ready");
-  }
-  function ready(data) {
-    btn.setAttribute("href", data.smsLink);
-    btn.removeAttribute("aria-disabled");
-    note.textContent = "";
-    note.append("Opens Messages with “hey troy” filled in. Or text it to ");
-    var b = document.createElement("b");
-    b.textContent = pretty(data.number);
-    note.append(b, ".");
-    qrImg.addEventListener("load", function () { qr.classList.add("ready"); });
-    qrImg.src = "qr.svg";
-  }
-
-  if (valid(baked)) { ready(baked); return; }
-
-  // Local server: the number comes from TROY_NUMBER at request time.
-  fetch("/api/landing", { headers: { Accept: "application/json" } })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (data) { if (valid(data)) ready(data); else comingSoon(); })
-    .catch(comingSoon);
-})();
-</script>
 </body>
 </html>

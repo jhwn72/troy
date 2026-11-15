@@ -4,22 +4,37 @@
 // The number is baked into index.html and qr.svg, so the output needs no server.
 // This script never reads .env. Pass the number as an argument or set TROY_NUMBER in the shell.
 // The output publishes that phone number to anyone who opens the page.
+//
+// Only the landing page is copied: index.html, landing/, and the img/ and assets/ files the page
+// actually refers to. webchat.html, dashboard.html, panel.html and everything else stay behind.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import QRCode from "qrcode";
 import { smsLink, troyNumber } from "../src/web/landing.ts";
 
 const ROOT = join(import.meta.dirname, "..");
-const BAKED_MARK = "/*TROY_BAKED*/null/*END_TROY_BAKED*/";
-const BUTTON_OFF = '<a class="btn" id="text-troy" role="link" aria-disabled="true">';
-const NOTE_OFF = "Checking for Troy's number...";
+const TEXT_FILE = /\.(?:html|css|js|json|svg)$/;
+// A reference to a file the page uses: landing/x.css, img/x.webp, assets/x.svg
+const LOCAL_REF = /\b(?:landing|img|assets)\/[A-Za-z0-9_.-]+\.[A-Za-z0-9]+/g;
 
-export type LandingBuild = { outDir: string; number: string; smsLink: string; files: string[] };
+export type LandingBuild = {
+  outDir: string;
+  number: string;
+  /** The Text Troy link (body "hey troy"). The hero button, the footer button and the QR all use it. */
+  smsLink: string;
+  /** Every sms link on the page, in page order. */
+  smsLinks: string[];
+  version: string;
+  files: string[];
+};
 
-/** vercel.json for a plain static site: clean URLs, short caches (file names are not hashed), basic security headers. */
+/** vercel.json for a plain static site: clean URLs, a long cache for versioned files, none for the page itself. */
 export function vercelConfig(): Record<string, unknown> {
+  const year = "public, max-age=31536000, immutable";
+  const fresh = "public, max-age=0, must-revalidate";
   return {
     $schema: "https://openapi.vercel.sh/vercel.json",
     cleanUrls: true,
@@ -35,27 +50,28 @@ export function vercelConfig(): Record<string, unknown> {
         ],
       },
       // The page and the QR carry the number, so a rebuild must show up right away.
-      { source: "/", headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }] },
-      { source: "/qr.svg", headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }] },
-      { source: "/assets/(.*)", headers: [{ key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=86400" }] },
+      { source: "/", headers: [{ key: "Cache-Control", value: fresh }] },
+      { source: "/qr.svg", headers: [{ key: "Cache-Control", value: fresh }] },
+      // index.html asks for these with ?v=<build>, so a rebuild gets new addresses and the old ones can be kept.
+      { source: "/landing/(.*)", headers: [{ key: "Cache-Control", value: year }] },
+      { source: "/img/(.*)", headers: [{ key: "Cache-Control", value: year }] },
+      { source: "/assets/(.*)", headers: [{ key: "Cache-Control", value: year }] },
     ],
   };
-}
-
-function pretty(number: string): string {
-  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(number);
-  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : number;
 }
 
 function replaceOnce(html: string, find: string, put: string): string {
   const at = html.indexOf(find);
   if (at < 0 || html.indexOf(find, at + find.length) >= 0) {
-    throw new Error(`build-landing: expected exactly one "${find}" in public/index.html. the page and this script are out of step.`);
+    throw new Error(`build-landing: expected exactly one ${find} in public/index.html. the page and this script are out of step.`);
   }
   return html.slice(0, at) + put + html.slice(at + find.length);
 }
 
-/** Writes index.html, qr.svg, assets/ and vercel.json into outDir. Leaves anything else there alone (for example .vercel/). */
+const attr = (s: string): string => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+const unattr = (s: string): string => s.replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, "&");
+
+/** Writes index.html, qr.svg, landing/, img/, assets/ and vercel.json into outDir. Leaves anything else there alone (for example .vercel/). */
 export async function buildLanding(opts: { number: string | undefined; outDir?: string; publicDir?: string }): Promise<LandingBuild> {
   const number = troyNumber(opts.number ?? "");
   if (!number) {
@@ -68,11 +84,42 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
   const link = smsLink(number);
 
   let html = readFileSync(join(publicDir, "index.html"), "utf8");
-  // Only "+" and digits can be in the number, so the JSON is safe inside the script tag.
-  html = replaceOnce(html, BAKED_MARK, JSON.stringify({ smsLink: link, number }));
-  // Bake the link into the markup too, so the button works before (or without) the script.
-  html = replaceOnce(html, BUTTON_OFF, `<a class="btn" id="text-troy" href="${link.replace(/&/g, "&amp;")}">`);
-  html = replaceOnce(html, NOTE_OFF, `Opens Messages with “hey troy” filled in. Or text it to <b>${pretty(number)}</b>.`);
+
+  // Which files the page uses: everything in landing/, plus whatever index.html and landing/ refer to in img/ and assets/.
+  const landingFiles = readdirSync(join(publicDir, "landing")).filter((name) => statSync(join(publicDir, "landing", name)).isFile());
+  const used = new Set<string>(landingFiles.map((name) => `landing/${name}`));
+  const texts = [html, ...landingFiles.filter((name) => TEXT_FILE.test(name)).map((name) => readFileSync(join(publicDir, "landing", name), "utf8"))];
+  for (const text of texts) {
+    for (const ref of text.match(LOCAL_REF) ?? []) {
+      if (existsSync(join(publicDir, ref))) used.add(ref);
+    }
+  }
+  const files = [...used].sort();
+
+  // One version for the whole build, from the number and the bytes of every file.
+  const hash = createHash("sha256").update(number).update(html);
+  for (const file of files) hash.update(file).update(readFileSync(join(publicDir, file)));
+  const version = hash.digest("hex").slice(0, 10);
+
+  // 1. The number, in the two meta tags landing/config.js reads.
+  html = replaceOnce(html, '<meta name="troy-number" content="">', `<meta name="troy-number" content="${number}">`);
+  html = replaceOnce(html, '<meta name="troy-sms" content="">', `<meta name="troy-sms" content="sms:${number}">`);
+
+  // 2. The links themselves, so the buttons work before (or without) the script.
+  const smsLinks: string[] = [];
+  html = html.replace(/<a ([^>]*?)data-sms="([^"]*)"/g, (_all, before: string, body: string) => {
+    const href = smsLink(number, unattr(body));
+    smsLinks.push(href);
+    return `<a ${before}href="${attr(href)}" data-sms="${body}"`;
+  });
+  if (!smsLinks.length) throw new Error("build-landing: found no a[data-sms] in public/index.html. the page and this script are out of step.");
+
+  // 3. Search engines are asked not to list a page with a phone number on it.
+  html = replaceOnce(html, '<meta name="theme-color"', '<meta name="robots" content="noindex">\n<meta name="theme-color"');
+
+  // 4. Version every local file address so they can be cached for a long time.
+  html = html.replace(LOCAL_REF, (ref) => (used.has(ref) ? `${ref}?v=${version}` : ref));
+  html = html.replace(/"qr\.svg"/g, `"qr.svg?v=${version}"`);
 
   const qr = await QRCode.toString(link, {
     type: "svg",
@@ -82,21 +129,25 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
   });
 
   mkdirSync(outDir, { recursive: true });
-  rmSync(join(outDir, "assets"), { recursive: true, force: true });
-  if (existsSync(join(publicDir, "assets"))) cpSync(join(publicDir, "assets"), join(outDir, "assets"), { recursive: true });
+  for (const dir of ["landing", "img", "assets"]) rmSync(join(outDir, dir), { recursive: true, force: true });
+  for (const file of files) {
+    mkdirSync(dirname(join(outDir, file)), { recursive: true });
+    cpSync(join(publicDir, file), join(outDir, file));
+  }
   writeFileSync(join(outDir, "index.html"), html);
   writeFileSync(join(outDir, "qr.svg"), qr);
   writeFileSync(join(outDir, "vercel.json"), JSON.stringify(vercelConfig(), null, 2) + "\n");
 
-  return { outDir, number, smsLink: link, files: ["index.html", "qr.svg", "vercel.json", "assets/"] };
+  return { outDir, number, smsLink: link, smsLinks, version, files: ["index.html", "qr.svg", "vercel.json", ...files] };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const built = await buildLanding({ number: process.argv[2] ?? process.env.TROY_NUMBER });
     console.log(`built ${built.outDir}`);
-    console.log(`  ${built.files.join(", ")}`);
-    console.log(`  the button and the qr code open: ${built.smsLink}`);
+    for (const file of built.files) console.log(`  ${file}`);
+    console.log("  links on the page:");
+    for (const href of built.smsLinks) console.log(`    ${href}`);
     console.log("  heads up: this page publishes that phone number. see docs/deploy-landing.md to deploy.");
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));

@@ -1,0 +1,164 @@
+/* Troy landing: scene motion. Day to night, problem lines, Troy in the hero and footer, chips, stars.
+   Only opacity and transform are animated. */
+
+/* ---------- Day to night ---------- */
+
+#sky img { will-change: opacity; }
+
+/* Reduced motion: the paintings swap with a simple fade instead of following the scroll. */
+@media (prefers-reduced-motion: reduce) {
+  #sky img { transition: opacity 0.8s linear; }
+}
+
+/* Stars over the night painting. The layer's opacity follows the night painting's opacity (set by scene.js). */
+#sky-stars {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  will-change: opacity;
+}
+#sky-stars i {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--white);
+  animation: star-twinkle 3.6s ease-in-out infinite alternate;
+}
+@keyframes star-twinkle {
+  from { opacity: 0.15; }
+  to { opacity: 1; }
+}
+
+/* ---------- Problem section: the line Troy completes ---------- */
+
+.pair-line-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--gold);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 0.6s ease-in-out var(--line-delay, 0s);
+}
+.pair-line::before,
+.pair-line::after {
+  transition: opacity 0.3s linear var(--line-delay, 0s);
+}
+.pair-line.is-connected::before,
+.pair-line.is-connected::after { opacity: 0; }
+.pair-line.is-connected .pair-line-fill { transform: none; }
+
+@media (max-width: 767px) {
+  .pair-line-fill {
+    width: 2px;
+    height: 100%;
+    transform: scaleY(0);
+    transform-origin: 50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pair-line-fill {
+    transform: none;
+    opacity: 0;
+    transition: opacity 0.3s linear;
+  }
+  .pair-line.is-connected .pair-line-fill { opacity: 1; }
+}
+
+/* ---------- Connection chips ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .chip { transition: opacity 0.5s linear; }
+}
+
+/* ---------- Troy: eyes ---------- */
+
+.troy-eye {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+
+/* ---------- Troy in the hero: drop in, land, then bob and blink ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  #troy-hero {
+    animation: troy-drop 1s 0.5s both;
+  }
+  #troy-hero svg {
+    animation: troy-bob 4.5s 1.6s ease-in-out infinite alternate;
+  }
+  #troy-hero .troy-eye {
+    animation: troy-blink 5.5s 2.5s infinite;
+  }
+}
+
+@keyframes troy-drop {
+  0%   { transform: translateY(-220px); opacity: 0; animation-timing-function: ease-in; }
+  15%  { opacity: 1; }
+  55%  { transform: translateY(0); opacity: 1; animation-timing-function: ease-out; }
+  72%  { transform: translateY(-14px); animation-timing-function: ease-in; }
+  86%  { transform: translateY(0); animation-timing-function: ease-out; }
+  93%  { transform: translateY(-4px); animation-timing-function: ease-in; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes troy-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-5px); }
+}
+@keyframes troy-blink {
+  0%, 95%, 100% { transform: scaleY(1); }
+  97.5% { transform: scaleY(0.1); }
+}
+
+/* ---------- Troy in the footer: asleep on the chat bubble ---------- */
+
+/* The pose: the whole mascot leans to one side, the helmet slips a little further, the eyes are closed. */
+#troy-sleep svg {
+  transform: rotate(-12deg);
+  transform-origin: 50% 94%;
+}
+#troy-sleep .troy-helmet {
+  transform: rotate(-3deg) translateY(4px);
+  transform-origin: 160px 200px;
+}
+#troy-sleep .troy-eye { transform: scaleY(0.14); }
+
+@media (prefers-reduced-motion: no-preference) {
+  #troy-sleep {
+    transform-origin: 50% 94%;
+    animation: troy-breathe 3.8s ease-in-out infinite alternate;
+  }
+  #troy-sleep .troy-eye { transition: transform 0.18s ease-out; }
+  /* One eye opens while the visitor is on the footer button. */
+  #footer.is-peek #troy-sleep .troy-eye:last-child { transform: scaleY(1); }
+}
+@keyframes troy-breathe {
+  from { transform: scale(1, 1); }
+  to { transform: scale(1.02, 1.045); }
+}
+
+/* The floating z's (added by scene.js when motion is allowed) */
+.sleep-z {
+  position: absolute;
+  left: 142px;
+  top: 6px;
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--white);
+  opacity: 0;
+  animation: sleep-z 4.5s linear infinite;
+}
+.sleep-z:nth-of-type(2) { animation-delay: 1.5s; }
+.sleep-z:nth-of-type(3) { animation-delay: 3s; }
+@keyframes sleep-z {
+  0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  20%  { opacity: 0.9; }
+  70%  { opacity: 0.6; }
+  100% { transform: translate(26px, -64px) scale(1.15); opacity: 0; }
+}

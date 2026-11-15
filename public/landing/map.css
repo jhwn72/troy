@@ -1,0 +1,85 @@
+/* Troy landing: the free food map (#food-map). A drawn campus in the page palette, not real map tiles.
+   With no class on #food-map this is the finished picture (no JavaScript, reduced motion).
+   map.js adds .is-armed (everything waits) and then .is-playing (the sequence runs). Only opacity and transform move. */
+
+#food-map { padding: 0; }
+#food-map .map {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.map-buildings rect { fill: var(--stone); opacity: 0.16; }
+.map-paths path {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 9;
+}
+
+/* The 15-minute walk */
+.map-range {
+  fill: rgba(var(--ink-rgb), 0.03);
+  stroke: var(--stone);
+  stroke-opacity: 0.35;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* People. Outside the circle they stay gray. Inside, a gold dot sits on top of the gray one. */
+.map-out circle,
+.map-dot-off { fill: var(--stone); opacity: 0.55; }
+.map-dot-on { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
+/* A tiny chat bubble pops above each dot as its text lands, then fades. The finished map shows the gold dots only. */
+.map-bubble {
+  fill: var(--bubble-gray);
+  stroke: var(--stone);
+  stroke-width: 0.75;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+/* The food spot */
+.map-pin path { fill: var(--cardinal); }
+.map-pin circle { fill: var(--paper); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Waiting */
+  #food-map.is-armed:not(.is-playing) .map-pin,
+  #food-map.is-armed:not(.is-playing) .map-range,
+  #food-map.is-armed:not(.is-playing) .map-dot-on { opacity: 0; }
+
+  /* Pin drops, circle spreads for 1.5 seconds, then the dots light up one by one, nearest first. */
+  #food-map.is-playing .map-pin { animation: map-pin-drop 0.45s cubic-bezier(0.3, 0, 0.4, 1) both; }
+  #food-map.is-playing .map-range { animation: map-spread 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) 0.5s both; }
+  #food-map.is-playing .map-dot-on {
+    animation: map-fade 0.25s ease-out both;
+    animation-delay: calc(2.1s + var(--i) * 0.14s);
+  }
+  #food-map.is-playing .map-bubble {
+    animation: map-pop 1.3s ease-out both;
+    animation-delay: calc(2.15s + var(--i) * 0.14s);
+  }
+}
+
+@keyframes map-pin-drop {
+  from { opacity: 0; transform: translateY(-48px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes map-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes map-spread {
+  from { opacity: 0; transform: scale(0); }
+  20% { opacity: 1; }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes map-pop {
+  0% { opacity: 0; transform: scale(0); }
+  20% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}

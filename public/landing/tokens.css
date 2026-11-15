@@ -1,0 +1,54 @@
+/* Troy landing: design tokens. Colors, fonts, sizes, radii and shadows come from docs/landing-design-reference.md. */
+:root {
+  /* Colors (the reference's table, plus the two it names in prose: Troy's bubble gray and white text) */
+  --ink: #1C1917;
+  --paper: #FAF7F2;
+  --stone: #78716C;
+  --line: #E7E2DA;
+  --cardinal: #990000;
+  --gold: #FFCC00;
+  --laurel: #4D7C5B;
+  --amber: #B7791F;
+  --imessage-blue: #0A84FF;
+  --bubble-gray: #E9E9EB;
+  --white: #FFFFFF;
+
+  --ink-rgb: 28, 25, 23;
+  --paper-rgb: 250, 247, 242;
+
+  /* Fonts */
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Type scale */
+  --fs-hero: clamp(3rem, 6.4vw, 5.75rem);      /* 48px on phones, up to 92px */
+  --fs-h2: clamp(2.5rem, 4vw, 3.5rem);         /* 40 to 56px */
+  --fs-h3: 1.25rem;                            /* 20px */
+  --fs-lead: clamp(1.75rem, 2.6vw, 2.25rem);   /* closing lines in serif */
+  --fs-body: 1.125rem;                         /* 18px */
+  --fs-small: 0.9375rem;                       /* 15px */
+  --lh-body: 1.5;
+  --lh-head: 1.05;
+
+  /* Radii */
+  --r-panel: 32px;
+  --r-card: 24px;
+  --r-pill: 999px;
+
+  /* Shadows: soft and low */
+  --shadow-soft: 0 1px 2px rgba(var(--ink-rgb), 0.04), 0 6px 20px rgba(var(--ink-rgb), 0.06);
+  --shadow-phone: 0 2px 6px rgba(var(--ink-rgb), 0.10), 0 16px 36px rgba(var(--ink-rgb), 0.14);
+
+  /* Layout */
+  --panel-max: 1200px;
+  --panel-gap: 100px;       /* painting visible between panels */
+  --panel-alpha: 0.94;
+  --tap: 44px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --fs-body: 1.0625rem;   /* 17px */
+    --panel-gap: 80px;
+  }
+}

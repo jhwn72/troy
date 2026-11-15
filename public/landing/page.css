@@ -1,0 +1,739 @@
+/* Troy landing: layout, panels, sections, cards, buttons, chips, FAQ. No animation lives here. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p, ul, ol, figure { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+img, svg { display: block; }
+
+h1, h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: var(--lh-head);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+h2 { font-size: var(--fs-h2); }
+h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+#hero :focus-visible, #footer :focus-visible { outline-color: var(--white); }
+
+/* ---------- The painting layer ---------- */
+
+#sky {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100lvh;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+#sky img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 50%;
+}
+#sky-golden, #sky-night { opacity: 0; }
+
+/* Around 38% keeps Bovard's tower in frame on phones; 44% puts its roof beside Troy instead of behind him. */
+@media (max-width: 767px) {
+  #sky img { object-position: 44% 50%; }
+}
+
+main, #footer { position: relative; z-index: 1; }
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 30px;
+  border-radius: var(--r-pill);
+  background: var(--cardinal);
+  color: var(--white);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn[aria-disabled="true"] {
+  background: var(--stone);
+  cursor: default;
+}
+
+/* ---------- Hero ---------- */
+
+#hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: clamp(32px, 5vh, 72px) 16px var(--panel-gap);
+  text-align: center;
+  overflow-x: clip;
+}
+
+/* The soft dark patch behind white text on the painting */
+.on-painting {
+  position: relative;
+  color: var(--white);
+}
+.on-painting::before {
+  content: "";
+  position: absolute;
+  inset: -56px -72px;
+  z-index: -1;
+  /* The least that keeps white text at 4.5:1 over the brightest cloud, blurred wide so it has no edge. */
+  background: rgba(var(--ink-rgb), var(--scrim, 0.54));
+  border-radius: 96px;
+  filter: blur(36px);
+}
+
+#hero h1 { font-size: var(--fs-hero); line-height: 1; }
+.hero-sub {
+  margin-top: 16px;
+  font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
+  font-weight: 500;
+}
+
+.hero-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+#qr {
+  width: 76px;
+  height: 76px;
+  padding: 6px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+#qr[hidden] { display: none; }
+@media (max-width: 767px) {
+  #qr { display: none; }
+}
+
+.hero-phone {
+  position: relative;
+  margin-top: 126px;
+}
+/* The hero phone is as tall as the first screen allows, so its input bar is in view (429px sits above it and 16px below).
+   480px is the least that shows scenario 1 in full without the list scrolling. */
+#hero .phone { height: clamp(480px, calc(100vh - 429px), 640px); height: clamp(480px, calc(100svh - 429px), 640px); }
+/* Troy sits on top of the hero phone. Positioned without transform so a script is free to animate transform. */
+#troy-hero {
+  position: absolute;
+  left: calc(50% - 70px);
+  bottom: 100%;
+  width: 140px;
+  margin-bottom: -10px;
+  z-index: 1;
+}
+#troy-hero svg { width: 100%; height: auto; overflow: visible; }
+
+/* ---------- Panels ---------- */
+
+main > section:not(#hero) {
+  padding: 0 clamp(12px, 8.33vw, 120px);
+  margin-bottom: var(--panel-gap);
+}
+
+.panel {
+  max-width: var(--panel-max);
+  margin: 0 auto;
+  padding: clamp(48px, 7vw, 88px) clamp(20px, 5vw, 72px);
+  background: rgba(var(--paper-rgb), var(--panel-alpha));
+  border-radius: var(--r-panel);
+  text-align: center;
+}
+
+.panel > h2 { max-width: 26ch; margin: 0 auto; }
+/* A headline of two sentences breaks between them. */
+h2 .s { display: inline-block; }
+
+.sub {
+  max-width: 34em;
+  margin: 20px auto 0;
+  text-wrap: balance;
+}
+
+.lead {
+  font-family: var(--font-serif);
+  font-size: var(--fs-lead);
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.note {
+  max-width: 34em;
+  margin: 32px auto 0;
+  text-wrap: balance;
+}
+
+/* ---------- Circle icons ---------- */
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+}
+.icon svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon svg .dot { fill: currentColor; stroke: none; }
+
+/* ---------- Problem ---------- */
+
+.pairs {
+  display: grid;
+  gap: 20px;
+  max-width: 800px;
+  margin: 48px auto;
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 112px 1fr;
+  align-items: center;
+}
+.pair-card {
+  padding: 20px 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-soft);
+  text-wrap: balance;
+}
+/* Dotted line with a gap in the middle: it never connects. */
+.pair-line {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 2px;
+}
+.pair-line::before,
+.pair-line::after {
+  content: "";
+  width: 38%;
+  border-top: 2px dotted var(--stone);
+}
+
+@media (max-width: 767px) {
+  main > section:not(#hero) { padding: 0 12px; }
+  .pairs { gap: 32px; }
+  .pair { grid-template-columns: 1fr; }
+  .pair-line {
+    flex-direction: column;
+    width: 2px;
+    height: 44px;
+    margin: 0 auto;
+  }
+  .pair-line::before,
+  .pair-line::after {
+    width: 0;
+    height: 38%;
+    border-top: 0;
+    border-left: 2px dotted var(--stone);
+  }
+}
+
+/* ---------- Two-screen sections ---------- */
+
+.stage {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(40px, 7vw, 96px);
+  margin-top: 48px;
+}
+.convo {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: clamp(40px, 7vw, 96px);
+}
+.stage .convo .phone[data-phone="left"] { order: 1; }
+.stage .convo .phone[data-phone="right"] { order: 3; }
+/* The small arrow between stacked screens on phones */
+.stage .convo::before {
+  content: "\2192";
+  order: 2;
+  display: none;
+  font-size: 24px;
+  line-height: 44px;
+  color: var(--stone);
+}
+
+/* Free food: phone and map */
+.map-figure {
+  flex: 0 1 420px;
+  min-width: 0;
+}
+#food-map {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  padding: 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.map-figure figcaption {
+  margin-top: 16px;
+  font-size: var(--fs-small);
+}
+
+/* Broken things: Reported, On it, Fixed between the phones */
+.stage.has-steps .convo { gap: 220px; }
+.repair-steps {
+  position: absolute;
+  left: calc(50% - 70px);
+  top: calc(50% - 72px);
+  width: 140px;
+  display: grid;
+  gap: 28px;
+  text-align: left;
+}
+.repair-steps li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+/* The joining line */
+.repair-steps li + li::after {
+  content: "";
+  position: absolute;
+  left: 15px;
+  bottom: 100%;
+  width: 1px;
+  height: 28px;
+  background: var(--stone);
+}
+/* The round marker. Done is laurel. */
+.repair-steps li::before {
+  content: "";
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--laurel);
+  border: 1px solid var(--laurel);
+}
+
+/* Under each pair: chip and replay */
+.pair-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 8px 18px 8px 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink);
+  text-align: left;
+}
+.chip::before {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+.replay {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--ink);
+  cursor: pointer;
+}
+.replay svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* States that scripts drive. With motion allowed, chips wait for .is-shown and repair steps wait for .is-done.
+   With reduced motion or no JavaScript, everything shows in its finished state and replay is hidden. */
+@media (prefers-reduced-motion: no-preference) {
+  .chip:not(.is-shown) { opacity: 0; }
+  .repair-steps li:not(.is-done)::before {
+    background: var(--paper);
+    border-color: var(--stone);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .replay { display: none; }
+}
+
+@media (max-width: 767px) {
+  .stage { flex-direction: column; gap: 8px; }
+  .convo { flex-direction: column; align-items: center; gap: 0; }
+  .stage .convo::before { display: block; }
+  .stage.has-map .convo::before { content: "\2192"; }
+  .map-figure { flex: none; width: 100%; max-width: 420px; }
+
+  .stage.has-steps .convo { gap: 0; }
+  .stage.has-steps .convo::before { margin-top: 64px; }
+  /* The replay button comes first, so the room kept for the chip is at the bottom and never reads as a hole. */
+  .pair-foot { flex-direction: column-reverse; }
+  .repair-steps {
+    left: 0;
+    right: 0;
+    top: 512px;           /* label space 36 + phone 460 + 16 */
+    width: auto;
+    grid-auto-flow: column;
+    justify-content: center;
+    gap: 28px;
+  }
+  .repair-steps li { gap: 8px; }
+  @media (prefers-reduced-motion: reduce) {
+    .repair-steps { top: 612px; }   /* label space 36 + phone 560 + 16 */
+  }
+  .repair-steps li + li::after {
+    left: -22px;
+    bottom: 50%;
+    width: 16px;
+    height: 1px;
+  }
+}
+
+/* ---------- Why it feels different ---------- */
+
+.why-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 40px;
+  margin-top: 56px;
+}
+.why-grid li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.why-grid h3 { margin-top: 20px; }
+.why-grid p { margin-top: 8px; max-width: 20em; }
+
+/* ---------- Engine ---------- */
+
+.engine-steps {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-top: 56px;
+  padding-bottom: 84px;   /* room for the example under a step */
+}
+/* The thin line joining the five circles */
+.engine-steps::before {
+  content: "";
+  position: absolute;
+  top: 32px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: var(--stone);
+}
+.engine-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.engine-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  border-radius: 50%;
+  font-family: var(--font-serif);
+  font-size: 30px;
+  line-height: 1;
+  color: var(--ink);
+}
+button.engine-circle { cursor: pointer; }
+.engine-step h3 { margin-top: 20px; }
+.engine-step p { margin-top: 8px; font-size: 1.0625rem; }
+.engine-step p.engine-example { margin-top: 12px; font-size: var(--fs-small); }
+/* The tiny example. On wide screens it shows just under its step, in room the row keeps free for it. */
+.engine-example {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.engine-step:hover .engine-example,
+.engine-step:focus-within .engine-example,
+.engine-step.is-open .engine-example {
+  opacity: 1;
+}
+.engine-after { margin: 24px auto 0; max-width: 36em; text-wrap: balance; }
+
+/* ---------- Safe by design ---------- */
+
+.safe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-top: 56px;
+  text-align: left;
+}
+.safe-card {
+  padding: 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-soft);
+}
+.safe-card h3 { margin-top: 16px; text-wrap: balance; }
+.safe-card p { margin-top: 6px; font-size: 1.0625rem; }
+
+/* ---------- What's next ---------- */
+
+.next-rows {
+  display: grid;
+  gap: 32px;
+  margin: 56px auto 0;
+  max-width: 900px;
+}
+.next-rows h3 { font-size: var(--fs-small); }
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.pills li {
+  padding: 9px 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: 1.0625rem;
+  line-height: 1.3;
+}
+#next .lead { margin-top: 56px; }
+#problem .lead { margin-top: 0; }
+
+/* ---------- FAQ ---------- */
+
+.faq {
+  max-width: 760px;
+  margin: 40px auto 0;
+  text-align: left;
+  border-top: 1px solid var(--line);
+}
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 14px 4px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-right: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  transform: translateY(-3px) rotate(45deg);
+}
+.faq details[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+.faq details p { padding: 0 4px 20px; max-width: 38em; }
+
+.faq-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  margin-top: 56px;
+}
+
+/* ---------- Footer ---------- */
+
+#footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: var(--panel-gap) 16px;
+  text-align: center;
+  overflow-x: clip;
+  --scrim: 0.42;          /* the night painting is already dark; this covers the lit windows */
+}
+.footer-line {
+  font-family: var(--font-serif);
+  font-size: var(--fs-h2);
+  line-height: var(--lh-head);
+  text-wrap: balance;
+  max-width: 22ch;
+}
+/* Troy asleep on a chat bubble */
+.footer-sleep {
+  position: relative;
+  width: 220px;
+  padding-top: 118px;
+}
+#troy-sleep {
+  position: absolute;
+  left: calc(50% - 70px);
+  top: 0;
+  width: 140px;
+  z-index: 1;
+}
+#troy-sleep svg { width: 100%; height: auto; overflow: visible; }
+.sleep-bubble svg { width: 100%; height: auto; fill: var(--bubble-gray); }
+
+/* ---------- Narrow screens ---------- */
+
+@media (max-width: 1023px) {
+  .safe-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 767px) {
+  #hero { padding-top: 40px; --scrim: 0.5; }
+  .hero-phone { margin-top: 122px; }
+  /* 357px sits above the hero phone here. */
+  #hero .phone { height: clamp(480px, calc(100vh - 365px), 640px); height: clamp(480px, calc(100svh - 365px), 640px); }
+
+  .why-grid { grid-template-columns: 1fr; gap: 36px; }
+
+  .engine-steps { grid-template-columns: 1fr; gap: 28px; padding-bottom: 0; text-align: left; }
+  .engine-after { margin-top: 40px; }
+  .engine-steps::before { display: none; }
+  .engine-step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 32px;
+    top: 64px;
+    bottom: -28px;
+    width: 1px;
+    background: var(--stone);
+  }
+  .engine-step {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    column-gap: 16px;
+    align-items: start;
+  }
+  .engine-circle { grid-row: 1 / span 3; }
+  .engine-step h3 { margin-top: 6px; }
+  .engine-step p { margin-top: 4px; }
+  /* On phones the example is in the flow, so it is removed until it is asked for. */
+  .engine-example {
+    position: static;
+    display: none;
+    grid-column: 2;
+    margin-top: 8px;
+  }
+  .engine-step:hover .engine-example,
+  .engine-step:focus-within .engine-example,
+  .engine-step.is-open .engine-example {
+    display: block;
+  }
+
+  .safe-grid { grid-template-columns: 1fr; }
+  .pills { gap: 8px; }
+}

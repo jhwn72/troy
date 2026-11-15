@@ -1,0 +1,432 @@
+/* Troy landing: the static look of the phone. No animation lives here.
+
+   Markup (do not rename):
+   <div class="phone" data-phone="left|right|hero">
+     <div class="phone-screen">
+       <header class="msg-header"><img class="msg-avatar"><span class="msg-name"></span></header>
+       <div class="msg-list"></div>
+       <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+     </div>
+   </div>
+
+   Inside .msg-list:
+   .bubble.from-me | .bubble.from-them, plus .tail on the last bubble of a group
+   .bubble.is-image[data-image="airpods|food-trays|broken-door|fixed-door"]  (drawn in CSS, no image file)
+   .bubble.from-them.count   the live count line
+   .typing > i*3             typing dots
+   .msg-status               "Delivered" or "Read"
+   .tapback                  inside the bubble it reacts to
+   .msg-note                 centered system line (used for "Group chat: ...")
+*/
+
+.phone {
+  position: relative;
+  flex: none;
+  width: 300px;
+  height: 640px;
+  padding: 10px;
+  background: var(--ink);
+  border-radius: 48px;
+  box-shadow: var(--shadow-phone);
+  text-align: left;
+}
+
+.phone-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--white);
+  border-radius: 38px;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+/* Dynamic island */
+.phone-screen::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 84px;
+  height: 24px;
+  margin-left: -42px;
+  background: var(--ink);
+  border-radius: var(--r-pill);
+  z-index: 2;
+}
+
+/* Messages header: round avatar with the name under it */
+.msg-header {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 42px 12px 7px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+
+.msg-avatar {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--line);
+  object-fit: cover;
+}
+
+.msg-name {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+/* Message area. Top aligned like a new chat; scrolls (no scrollbar) if a script adds more than fits. */
+.msg-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 6px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.msg-list::-webkit-scrollbar { display: none; }
+
+/* Bubbles */
+.bubble {
+  position: relative;
+  max-width: 78%;
+  padding: 7px 12px;
+  border-radius: 18px;
+  overflow-wrap: break-word;
+}
+
+.bubble.from-me {
+  align-self: flex-end;
+  background: var(--imessage-blue);
+  color: var(--white);
+}
+
+.bubble.from-them {
+  align-self: flex-start;
+  background: var(--bubble-gray);
+  color: var(--ink);
+}
+
+/* A little more air when the speaker changes */
+.bubble.from-me + .bubble.from-them,
+.bubble.from-them + .bubble.from-me,
+.msg-status + .bubble,
+.msg-status + .typing,
+.msg-note + .bubble,
+.bubble + .typing,
+.typing + .bubble.from-me {
+  margin-top: 8px;
+}
+
+/* Tails: only on the last bubble of a group */
+.bubble.tail:not(.is-image)::before,
+.bubble.tail:not(.is-image)::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 16px;
+}
+.bubble.from-me.tail:not(.is-image)::before {
+  right: -6px;
+  width: 18px;
+  background: var(--imessage-blue);
+  border-bottom-left-radius: 14px 12px;
+  z-index: -1;
+}
+.bubble.from-me.tail:not(.is-image)::after {
+  right: -10px;
+  width: 10px;
+  background: var(--white);
+  border-bottom-left-radius: 9px;
+  z-index: -1;
+}
+.bubble.from-them.tail:not(.is-image)::before {
+  left: -6px;
+  width: 18px;
+  background: var(--bubble-gray);
+  border-bottom-right-radius: 14px 12px;
+  z-index: -1;
+}
+.bubble.from-them.tail:not(.is-image)::after {
+  left: -10px;
+  width: 10px;
+  background: var(--white);
+  border-bottom-right-radius: 9px;
+  z-index: -1;
+}
+/* The tail pieces sit behind the bubble, so the list needs its own stacking context */
+.msg-list { position: relative; z-index: 0; }
+
+/* Live count line (free food) */
+.bubble.count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Typing indicator */
+.typing {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 11px 12px;
+  background: var(--bubble-gray);
+  border-radius: 18px;
+}
+.typing i {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stone);
+}
+
+/* Delivered / Read */
+.msg-status {
+  align-self: flex-end;
+  margin: 1px 2px 0 0;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--stone);
+}
+
+/* Centered system line */
+.msg-note {
+  align-self: center;
+  margin: 10px 0 2px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--stone);
+  text-align: center;
+}
+
+/* Tapback: a small round badge on the corner of the bubble it reacts to */
+.tapback {
+  position: absolute;
+  top: -15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--white);
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+}
+.bubble.from-them .tapback { right: -12px; background: var(--imessage-blue); }
+.bubble.from-me .tapback { left: -12px; background: var(--bubble-gray); }
+.bubble:has(.tapback) { margin-top: 16px; }
+
+/* Input bar */
+.msg-input {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  margin: 4px 12px 14px;
+  padding: 3px 4px 3px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--white);
+}
+.msg-input-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+.msg-input-text:empty::before {
+  content: "iMessage";
+  color: var(--stone);
+}
+.msg-send {
+  position: relative;
+  flex: none;
+  align-self: flex-end;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--imessage-blue);
+  pointer-events: none;
+}
+/* Up arrow, drawn */
+.msg-send::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-top: 2px solid var(--white);
+  border-left: 2px solid var(--white);
+  transform: rotate(45deg);
+}
+.msg-send::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 2px;
+  height: 11px;
+  margin-left: -1px;
+  background: var(--white);
+  border-radius: 1px;
+}
+
+/* Photo bubbles. No image files: each "photo" is a plain drawing in the page palette.
+   Set data-image and an aria-label; the drawing comes from here. */
+.bubble.is-image {
+  width: 168px;
+  height: 126px;
+  max-width: 78%;
+  padding: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--line);
+}
+.bubble.is-image::before,
+.bubble.is-image::after {
+  content: "";
+  position: absolute;
+  inset: auto;
+  z-index: auto;
+  border-radius: 0;
+  background: none;
+}
+
+/* AirPods case: a rounded case with its lid line and a small light */
+.bubble.is-image[data-image="airpods"]::before {
+  left: 54px;
+  top: 30px;
+  width: 60px;
+  height: 66px;
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  border-radius: 18px;
+}
+.bubble.is-image[data-image="airpods"]::after {
+  left: 54px;
+  top: 52px;
+  width: 60px;
+  height: 14px;
+  border-top: 1px solid var(--stone);
+  background: radial-gradient(circle at 50% 7px, var(--stone) 0 2px, transparent 2.5px);
+}
+
+/* Food trays: six round bowls seen from above */
+.bubble.is-image[data-image="food-trays"]::before {
+  left: 21px;
+  top: 20px;
+  width: 38px;
+  height: 38px;
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  border-radius: 50%;
+  box-shadow:
+    44px 0 0 -1px var(--paper), 44px 0 0 0 var(--stone), 88px 0 0 -1px var(--paper), 88px 0 0 0 var(--stone),
+    0 48px 0 -1px var(--paper), 0 48px 0 0 var(--stone), 44px 48px 0 -1px var(--paper), 44px 48px 0 0 var(--stone),
+    88px 48px 0 -1px var(--paper), 88px 48px 0 0 var(--stone);
+}
+.bubble.is-image[data-image="food-trays"]::after {
+  left: 29px;
+  top: 28px;
+  width: 22px;
+  height: 22px;
+  background: var(--stone);
+  border-radius: 50%;
+  box-shadow: 44px 0 0 0 var(--stone), 88px 0 0 0 var(--stone), 0 48px 0 0 var(--stone), 44px 48px 0 0 var(--stone), 88px 48px 0 0 var(--stone);
+}
+
+/* Doors: a frame with a door in it. Broken hangs open at an angle; fixed sits straight with a green latch. */
+.bubble.is-image[data-image="broken-door"],
+.bubble.is-image[data-image="fixed-door"] {
+  background:
+    linear-gradient(var(--ink), var(--ink)) 50% 18px / 62px 108px no-repeat,
+    var(--line);
+}
+.bubble.is-image[data-image="broken-door"]::before,
+.bubble.is-image[data-image="fixed-door"]::before {
+  left: 55px;
+  top: 20px;
+  width: 58px;
+  height: 106px;
+  background: var(--stone);
+  border: 1px solid var(--ink);
+}
+.bubble.is-image[data-image="broken-door"]::before {
+  transform-origin: 0 50%;
+  transform: perspective(160px) rotateY(-38deg);
+}
+.bubble.is-image[data-image="broken-door"]::after,
+.bubble.is-image[data-image="fixed-door"]::after {
+  top: 70px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.bubble.is-image[data-image="broken-door"]::after {
+  left: 88px;
+  background: var(--paper);
+}
+.bubble.is-image[data-image="fixed-door"]::after {
+  left: 98px;
+  background: var(--laurel);
+  box-shadow: 0 0 0 2px var(--paper);
+}
+
+/* On narrow screens the two phones stack, so they are shorter: more of the pair fits on one screen.
+   The conversation scrolls inside the list when it is longer than the phone. */
+@media (max-width: 767px) {
+  .stage .phone { height: 460px; }
+}
+/* With no animation the whole conversation is on the page at once, so the phone grows to hold it. */
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .stage .phone { height: auto; min-height: 460px; }
+  /* Broken things keeps a set height, because the repair steps are placed under the first phone. */
+  .stage.has-steps .phone { height: 560px; }
+}
+
+/* Emoji draw a little wider than the room they are given, which swallows the space after them. */
+.bubble .emo { margin-right: 0.14em; }
+
+/* Who each phone belongs to. Written here, keyed by conversation, so the label survives
+   when a script rebuilds the phones. conversations.json carries the same text as "label". */
+.stage .phone { margin-top: 36px; }
+.stage .phone::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 10px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  text-align: center;
+}
+.convo[data-convo="lost-found"] .phone[data-phone="left"]::after { content: "The finder"; }
+.convo[data-convo="lost-found"] .phone[data-phone="right"]::after { content: "The owner"; }
+.convo[data-convo="concern"] .phone[data-phone="left"]::after { content: "A student"; }
+.convo[data-convo="concern"] .phone[data-phone="right"]::after { content: "A USG committee member"; }
+.convo[data-convo="food"] .phone[data-phone="left"]::after { content: "A club officer"; }
+.convo[data-convo="broken"] .phone[data-phone="left"]::after { content: "The student"; }
+.convo[data-convo="broken"] .phone[data-phone="right"]::after { content: "An FMS technician"; }
