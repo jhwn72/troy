@@ -1,0 +1,114 @@
+/* Troy landing: font switcher. A small review tool, bottom left, for trying headline and body fonts live.
+   Shown on localhost, or anywhere with ?fonts=1 (see fontswitch.js). Colors come from tokens.css. */
+
+/* Headline weight and tracking follow the chosen font (page.css sets 400 and -0.01em, which are the defaults). */
+h1, h2, .lead, .footer-line {
+  font-weight: var(--display-weight, 400);
+  letter-spacing: var(--display-tracking, -0.01em);
+}
+/* Wide and capitals-only fonts have long words: let them break instead of pushing the page sideways. */
+:root[data-display-wide] :is(h1, h2, .lead, .footer-line) { overflow-wrap: anywhere; }
+
+.fontswitch {
+  position: fixed;
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 90;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--ink);
+  text-align: left;
+}
+
+.fontswitch-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: var(--shadow-soft);
+  font: 600 15px/1 "Inter", system-ui, sans-serif;
+  color: var(--ink);
+  cursor: pointer;
+}
+.fontswitch-toggle[aria-expanded="true"] { border-color: var(--ink); }
+
+.fontswitch :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+.fontswitch-panel {
+  position: absolute;
+  left: 0;
+  bottom: 54px;
+  width: min(272px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 14px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: var(--shadow-soft);
+  transform-origin: 0 100%;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.fontswitch-panel[hidden] { display: none; }
+.fontswitch-panel.is-closed { opacity: 0; transform: translateY(6px) scale(0.98); }
+
+.fontswitch fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.fontswitch fieldset + fieldset { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.fontswitch legend {
+  padding: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--stone);
+}
+
+.fontswitch-opt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.fontswitch-opt:hover { background: var(--line); }
+.fontswitch-opt input {
+  flex: none;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--cardinal);
+  transform: translateY(2px);
+}
+.fontswitch-opt .fs-name { font-weight: 500; }
+.fontswitch-opt .fs-note { margin-left: auto; font-size: 12px; color: var(--stone); text-align: right; }
+.fontswitch-opt:has(input:checked) .fs-name { color: var(--cardinal); font-weight: 600; }
+
+.fontswitch-copy {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 0 14px;
+  background: var(--cardinal);
+  border: 0;
+  border-radius: 999px;
+  font: 600 13px/1 "Inter", system-ui, sans-serif;
+  color: var(--white);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fontswitch-panel { transition: none; }
+}
+
+@media print {
+  .fontswitch { display: none !important; }
+}

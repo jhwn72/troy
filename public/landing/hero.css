@@ -1,0 +1,142 @@
+/* Troy landing: the hero layout. Two phones, one on each side, and Troy between them as the connection.
+   Loaded after page.css and overrides its hero rules. Markup is in index.html; chat.js plays the scenarios
+   and adds .is-linked to the .convo at the moment the two people are connected.
+   scene.js writes a transform on #hero .convo, so nothing here sets one on it. */
+
+#hero {
+  --hero-gap: clamp(120px, 17vw, 240px);                             /* the space between the phones */
+  --troy-w: clamp(96px, calc(var(--hero-gap) - 60px), 140px);        /* Troy fits the space */
+  --troy-top: 56px;                                                  /* from the top of the phones: their upper third */
+  --hero-tilt: 3.5deg;
+}
+
+#hero .hero-phone { margin-top: 52px; }
+
+#hero .hero-phone .convo {
+  position: relative;
+  isolation: isolate;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--hero-gap);
+}
+
+/* 372px sits above the phones, so their input bars are in view on the first screen. */
+#hero .hero-phone .phone {
+  height: clamp(480px, calc(100vh - 372px), 620px);
+  height: clamp(480px, calc(100svh - 372px), 620px);
+}
+/* Each phone leans toward the middle. */
+#hero .hero-phone .phone[data-phone="left"] { transform: rotate(var(--hero-tilt)); }
+#hero .hero-phone .phone[data-phone="right"] { transform: rotate(calc(var(--hero-tilt) * -1)); }
+
+/* Troy sits in the space between the phones. Placed without transform so scene.js is free to animate it. */
+#hero #troy-hero {
+  left: calc(50% - var(--troy-w) / 2);
+  top: var(--troy-top);
+  bottom: auto;
+  width: var(--troy-w);
+  margin-bottom: 0;
+}
+
+/* The connection: a line from one phone to the other that dips behind Troy. Dotted until the two
+   people are connected, then it draws in gold. Its ends tuck behind the phones. */
+.hero-link {
+  position: absolute;
+  z-index: -1;
+  left: calc(50% - var(--hero-gap) / 2 - 14px);
+  top: calc(var(--troy-top) + var(--troy-w) * 0.62 - (var(--hero-gap) + 28px) * 0.24);
+  width: calc(var(--hero-gap) + 28px);
+  height: auto;
+  overflow: visible;
+  pointer-events: none;
+}
+.hero-link path {
+  fill: none;
+  stroke-linecap: round;
+}
+.hero-link-rest {
+  stroke: rgba(var(--paper-rgb), 0.8);
+  stroke-width: 2;
+  stroke-dasharray: 0.1 7;
+}
+.hero-link-shade {
+  stroke: rgba(var(--ink-rgb), 0.22);
+  stroke-width: 6;
+}
+.hero-link-gold {
+  stroke: var(--gold);
+  stroke-width: 3.5;
+}
+/* Without chat.js (no JavaScript, reduced motion) the phones show the finished scenario, so the line is drawn. */
+.convo:not(.is-live) > .hero-link .hero-link-rest { opacity: 0; }
+/* Live: hidden until connected, then drawn from the left phone to the right. It fades when the chat clears. */
+.convo.is-live > .hero-link .hero-link-shade,
+.convo.is-live > .hero-link .hero-link-gold {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  opacity: 0;
+  transition: opacity 0.22s ease-in-out, stroke-dashoffset 0s 0.22s;
+}
+.convo.is-live.is-linked > .hero-link .hero-link-shade,
+.convo.is-live.is-linked > .hero-link .hero-link-gold {
+  stroke-dashoffset: 0;
+  opacity: 1;
+  transition: opacity 0.1s linear, stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.convo.is-live > .hero-link .hero-link-rest { transition: opacity 0.3s linear; }
+.convo.is-live.is-linked > .hero-link .hero-link-rest { opacity: 0; }
+
+/* ---------- Narrow screens: the phones stay side by side, smaller, with Troy above the space between them ---------- */
+@media (max-width: 767px) {
+  #hero {
+    --hero-gap: 14px;
+    --hp-w: min(calc((100vw - 46px) / 2), 200px);    /* two phones and the gap inside the 16px page padding */
+    --troy-w: 84px;
+    --troy-top: -62px;
+    --hero-tilt: 1.5deg;
+  }
+  #hero .hero-phone { margin-top: 78px; }
+
+  #hero .hero-phone .phone {
+    width: var(--hp-w);
+    height: calc(var(--hp-w) * 2.1);
+    padding: 6px;
+    border-radius: 30px;
+  }
+  #hero .hero-phone .phone-screen { border-radius: 24px; font-size: 11.5px; }
+  #hero .hero-phone .phone-screen::before { top: 6px; width: 50px; height: 14px; margin-left: -25px; }
+  #hero .hero-phone .msg-header { gap: 2px; padding: 24px 6px 5px; }
+  #hero .hero-phone .msg-header > .msg-avatar { width: 26px; height: 26px; }
+  #hero .hero-phone .msg-name { font-size: 9px; }
+  #hero .hero-phone .msg-group { height: 26px; }
+  #hero .hero-phone .msg-group > * { width: 26px; height: 26px; }
+  #hero .hero-phone .msg-group > i::before { top: 4px; width: 8px; height: 8px; margin-left: -4px; }
+  #hero .hero-phone .msg-group > i::after { top: 14px; width: 18px; height: 14px; margin-left: -9px; }
+  #hero .hero-phone .msg-list { padding: 7px 8px 4px; }
+  #hero .hero-phone .bubble { max-width: 90%; padding: 5px 9px; border-radius: 14px; }
+  #hero .hero-phone .bubble.is-image { width: 104px; height: 78px; padding: 0; }
+  #hero .hero-phone .typing { gap: 3px; padding: 8px 9px; border-radius: 14px; }
+  #hero .hero-phone .typing i { width: 5px; height: 5px; }
+  #hero .hero-phone .msg-status,
+  #hero .hero-phone .msg-note,
+  #hero .hero-phone .msg-sender { font-size: 8.5px; }
+  #hero .hero-phone .msg-sender { margin-left: 9px; }
+  #hero .hero-phone .tapback { top: -13px; width: 24px; height: 24px; font-size: 11px; }
+  #hero .hero-phone .bubble.from-them .tapback { right: -8px; }
+  #hero .hero-phone .msg-input { gap: 4px; min-height: 26px; margin: 3px 7px 9px; padding: 2px 3px 2px 9px; border-radius: 14px; }
+  #hero .hero-phone .msg-send { width: 20px; height: 20px; }
+  #hero .hero-phone .msg-send::before { top: 6px; width: 6px; height: 6px; margin-left: -3px; }
+  #hero .hero-phone .msg-send::after { top: 6px; height: 9px; }
+
+  /* The line arches up over the space between the phones, behind Troy. */
+  .hero-link {
+    left: calc(50% - 56px);
+    top: -24px;
+    width: 112px;
+    transform: scaleY(-1);
+  }
+  .hero-link-rest { stroke-width: 3; stroke-dasharray: 0.1 9; }
+  .hero-link-shade { stroke-width: 9; }
+  .hero-link-gold { stroke-width: 6; }
+}

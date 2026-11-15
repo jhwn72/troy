@@ -1,7 +1,8 @@
 // Troy landing: scene motion.
 // Day to night crossfade, the problem section's lines, connection chips, the mouse depth effect,
-// and Troy himself: one traveling mascot that lands on the hero phone, perches on each section as
-// it comes into view, and falls asleep on the footer's chat bubble.
+// and Troy himself: one traveling mascot that lands in the hero, perches on each section as
+// it comes into view, and falls asleep on the footer's chat bubble. Between perches he travels along
+// the gold thread (thread.js) and rides just behind its drawing tip.
 // Only opacity and transform are written. Under reduced motion everything is static.
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -178,7 +179,7 @@ const qr = byId('qr');
 const sleepBubble = $('.sleep-bubble');
 
 // Cached anchor positions in document coordinates.
-const A = { hero: null, footer: null, secs: [] };
+const A = { hero: null, footer: null, secs: [], stamp: 0 };
 
 function measureTroy(box, all, footerEl) {
   const spot = (el) => {
@@ -191,6 +192,7 @@ function measureTroy(box, all, footerEl) {
   A.footer = footerEl ? spot(sleepSpot) : null;
   const narrow = viewW < 768;
   A.secs = [];
+  A.stamp += 1;
   all.forEach((sec) => {
     if (sec.id === 'hero') return;
     const b = box($('.panel', sec) || sec);
@@ -223,7 +225,36 @@ const T = {
   sleep: 0, sleepTarget: 0,
   gx: 0, gy: 0, lean: 0, pk: 0, peek: false,
   seq: [], parked: null, fixed: null, last: 0, clock: 0,
+  th: null, thv: -1, thStamp: -1, curL: null,   // the gold thread he travels along (built by thread.js)
 };
+
+// The gold thread, when thread.js has drawn it and its sections line up with ours. Without it he hops in free arcs.
+function syncThread() {
+  const th = window.__troyThread;
+  if (!th || !th.ready || !(th.total > 0) || !th.secs || th.secs.length !== A.secs.length) {
+    T.th = null;
+    return;
+  }
+  T.th = th;
+  if (th.version !== T.thv || A.stamp !== T.thStamp) {
+    T.thv = th.version;
+    T.thStamp = A.stamp;
+    T.curL = null;
+  }
+}
+
+// How far along the thread an anchor is.
+function keyL(key) {
+  const th = T.th;
+  if (!key || key === 'hero') return 0;
+  if (key === 'footer') return th.total;
+  const i = Number(key.slice(key.indexOf(':') + 1));
+  const sec = th.secs[i];
+  if (!sec) return 0;
+  // Riding beside a panel: just behind the drawing tip, from this section's perch to the next one.
+  if (key[0] === 's') return clamp(th.tip - 26, sec.L, Math.max(sec.L, sec.end));
+  return sec.L;
+}
 
 // Mouse depth
 const M = { x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, cx: 0, cy: 0, has: false };
@@ -244,6 +275,11 @@ function anchorPos(key, sy) {
   }
   const sec = A.secs[Number(key.slice(key.indexOf(':') + 1))];
   if (!sec) return T.cur || { x: viewW / 2, y: -200, s: 0.6, par: 0, face: 0, bob: 0, fixed: true };
+  if (key[0] === 's' && T.th) {
+    // Riding the thread beside a tall panel, just behind the tip as it draws.
+    const p = T.th.at(keyL(key));
+    return { x: p.x, y: p.y - sy + BOX * (1 - FEET) * sec.s, s: sec.s, par: 0, face: sec.face, bob: 3, fixed: false };
+  }
   if (key[0] === 's') {
     // Floating in the painting beside a tall panel, so he stays with the visitor.
     return { x: sec.sideX, y: Math.min(190, sec.bottom - sy - 24), s: sec.s, par: 1, face: sec.face, bob: 8, fixed: true };
@@ -260,10 +296,19 @@ function keyIndex(key) {
 // Which anchor should he be at for this scroll position. Small hysteresis so he doesn't flip-flop.
 function pickKey(sy) {
   const cur = keyIndex(T.key);
-  if (A.footer && A.footer.y - sy < viewH * (T.key === 'footer' ? 0.97 : 0.88)) return 'footer';
   let idx = -1;
-  for (let i = 0; i < A.secs.length; i += 1) {
-    if (A.secs[i].top - sy < viewH * (cur >= i ? 0.68 : 0.6)) idx = i;
+  if (T.th) {
+    // With the thread, he goes where its drawing tip has reached.
+    const tip = T.th.target;
+    if (A.footer && tip >= T.th.total - (T.key === 'footer' ? 340 : 230)) return 'footer';
+    for (let i = 0; i < A.secs.length; i += 1) {
+      if (tip >= T.th.secs[i].L - (cur >= i ? 90 : 30)) idx = i;
+    }
+  } else {
+    if (A.footer && A.footer.y - sy < viewH * (T.key === 'footer' ? 0.97 : 0.88)) return 'footer';
+    for (let i = 0; i < A.secs.length; i += 1) {
+      if (A.secs[i].top - sy < viewH * (cur >= i ? 0.68 : 0.6)) idx = i;
+    }
   }
   if (idx < 0) return A.hero ? 'hero' : (A.secs.length ? 't:0' : 'footer');
   const sec = A.secs[idx];
@@ -289,12 +334,40 @@ function startHop(key, now, sy) {
     blink(now + 120);
   }
   T.seq.length = 0;
+  // Along the thread: from where he is on it to where the new anchor is. If he was left off screen,
+  // he joins it at the edge of the screen instead.
+  let path = null;
+  if (T.th) {
+    const th = T.th;
+    const l1 = keyL(key);
+    let l0 = T.curL != null ? T.curL : keyL(T.key);
+    const seen = (l) => {
+      const y = th.at(l).y - sy;
+      return y > -170 && y < viewH + 170;
+    };
+    let moved = false;
+    const step = Math.sign(l1 - l0) * 24;
+    while (step && Math.abs(l1 - l0) > 24 && !seen(l0)) {
+      l0 += step;
+      moved = true;
+    }
+    const p0 = th.at(l0);
+    const foot = BOX * (1 - FEET) * from.s;
+    path = {
+      l0,
+      len: Math.abs(l1 - l0),
+      ox: moved ? 0 : from.x - p0.x,
+      oy: moved ? 0 : fromY - (p0.y - sy) - foot,
+    };
+  }
   T.hop = {
+    path,
     to: key,
     from: { x: from.x, y: from.fixed ? fromY : fromY + sy, s: from.s, par: from.par, bob: from.bob, fixed: from.fixed },
     t0: now,
-    dur: fall ? clamp(420 + dist * 0.5, 520, 900) : clamp(380 + dist * 0.3, 420, 760),
-    arc: fall ? 36 : clamp(40 + dist * 0.16, 50, 150),
+    dur: path ? clamp(380 + path.len * 0.42, 460, 1250)
+      : (fall ? clamp(420 + dist * 0.5, 520, 900) : clamp(380 + dist * 0.3, 420, 760)),
+    arc: path ? (fall ? 30 : 20) : (fall ? 36 : clamp(40 + dist * 0.16, 50, 150)),
     dir: Math.sign(to.x - from.x),
     fall,
   };
@@ -397,6 +470,7 @@ function troyFrame(stamp) {
       T.nextBlink = now + 2600;
     }
   } else {
+    syncThread();
     const want = pickKey(sy);
     if (want !== T.key) startHop(want, now, sy);
   }
@@ -410,17 +484,46 @@ function troyFrame(stamp) {
     const ex = h.fall ? easeOut(u) : smooth(u);
     const ey = h.fall ? u * u : smooth(u);
     const up = Math.sin(Math.PI * u);
-    P = {
-      x: lerp(h.from.x, to.x, ex),
-      y: lerp(fy, to.y, ey) - up * h.arc,
-      s: lerp(h.from.s, to.s, ex),
-      par: lerp(h.from.par, to.par, ex),
-      bob: lerp(h.from.bob, to.bob, ex),
-      face: to.face,
-      fixed: true,
-    };
-    tilt = h.dir * 11 * up;
-    stretch = -0.06 * up;
+    if (h.path && T.th) {
+      // He follows the thread: eases off where he was, runs along the line, then a small hop onto the new perch.
+      const th = T.th;
+      const e = smooth(u);
+      const l1 = keyL(h.to);
+      const l = lerp(h.path.l0, l1, e);
+      const p = th.at(l);
+      const p1 = th.at(l1);
+      const ahead = th.at(l + Math.sign(l1 - h.path.l0) * 14);
+      const s = lerp(h.from.s, to.s, e);
+      const w0 = 1 - smooth(clamp01(u / 0.3));
+      const end = clamp01((u - 0.66) / 0.34);
+      const w1 = smooth(end);
+      const hopUp = Math.sin(Math.PI * end);
+      const foot = BOX * (1 - FEET);
+      P = {
+        x: p.x + h.path.ox * w0 + (to.x - p1.x) * w1,
+        y: p.y - sy + foot * s + h.path.oy * w0 + (to.y - (p1.y - sy) - foot * to.s) * w1 - hopUp * h.arc,
+        s,
+        par: lerp(h.from.par, to.par, e),
+        bob: lerp(h.from.bob, to.bob, e),
+        face: to.face,
+        fixed: true,
+      };
+      T.curL = l;
+      tilt = clamp((ahead.x - p.x) / 12, -1, 1) * 9 * up;
+      stretch = -0.05 * up;
+    } else {
+      P = {
+        x: lerp(h.from.x, to.x, ex),
+        y: lerp(fy, to.y, ey) - up * h.arc,
+        s: lerp(h.from.s, to.s, ex),
+        par: lerp(h.from.par, to.par, ex),
+        bob: lerp(h.from.bob, to.bob, ex),
+        face: to.face,
+        fixed: true,
+      };
+      tilt = h.dir * 11 * up;
+      stretch = -0.06 * up;
+    }
     if (u >= 1) {
       T.hop = null;
       P = anchorPos(h.to, sy);
@@ -429,6 +532,7 @@ function troyFrame(stamp) {
   } else {
     P = anchorPos(T.key, sy);
   }
+  if (!T.hop) T.curL = T.th ? keyL(T.key) : null;
   T.cur = P;
 
   // Nothing to draw while he waits off screen.

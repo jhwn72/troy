@@ -1,6 +1,6 @@
 // Troy landing: the one conversation component.
 // Reads landing/conversations.json and, for every .convo mount, replaces the static final state with
-// an animated playback. Drives the hero phone (a loop of scenarios) and the demo stage (#demos): four
+// an animated playback. Drives the two hero phones (a loop of scenarios) and the demo stage (#demos): four
 // tabs, one conversation playing at a time, moving on to the next tab by itself.
 // With reduced motion it only fills in photos, and the static HTML stays (the four demos stacked).
 //
@@ -9,6 +9,10 @@
 //   "convo:step"   detail { key, index, step, phone }   a step's content has just appeared
 //   "convo:done"   detail { key }                       the last step has finished
 // The mount also carries data-convo-state="idle|playing|done" for scripts that load late.
+//
+// Two optional step fields, used by the hero:
+//   "with": true   the step plays alongside the step before it (each phone keeps its own order)
+//   "link": true   the two people are connected at this step: the mount gets .is-linked until it clears
 
 /* ---------- Timing. Everything John might want to tune is here, in milliseconds. ---------- */
 const TIMING = {
@@ -123,6 +127,7 @@ function dotsFor(step) {
 // (both switch to the group chat, both get the same line from Troy in it).
 function sameBeat(a, b) {
   if (!a || !b || a.phone === b.phone || kind(a) !== kind(b)) return false;
+  if (kind(a) === 'clear') return true;
   if (kind(a) === 'switch-group') return a.name === b.name;
   return kind(a) === 'message' && a.from !== 'me' && a.from === b.from && a.text != null && a.text === b.text;
 }
@@ -190,7 +195,7 @@ class Convo {
 
   // Take over the mount: keep the conversation as plain text for screen readers, empty the phones.
   takeOver() {
-    for (const p of Object.values(this.phones)) {
+    for (const [phoneName, p] of Object.entries(this.phones)) {
       const transcript = el('div', 'sr-only');
       for (const node of p.list.children) {
         if (node.classList.contains('msg-status')) continue;
@@ -199,9 +204,12 @@ class Convo {
       }
       if (this.loop) {
         for (const key of this.keys.slice(1)) {
+          const screen = (this.data[key].phones || {})[phoneName] || {};
           for (const step of this.data[key].steps) {
-            const who = step.from === 'me' ? 'Student' : 'Troy';
-            if (step.tapback) transcript.append(el('p', '', `${who} reacted ${step.tapback}`));
+            if (step.phone !== phoneName) continue;
+            const who = step.from === 'me' ? screen.label || 'Student' : 'Troy';
+            if (step.image) transcript.append(el('p', '', `${who}: ${step.alt || 'Photo'}`));
+            else if (step.tapback) transcript.append(el('p', '', `${who} reacted ${step.tapback}`));
             else if (step.text) transcript.append(el('p', '', `${who}: ${step.text}`));
           }
         }
@@ -210,6 +218,7 @@ class Convo {
       for (const part of [p.header, p.list, p.input]) part.setAttribute('aria-hidden', 'true');
     }
     this.mount.classList.add('is-live');
+    this.mount.classList.remove('is-linked');
     this.reset();
     this.mount.dataset.convoState = 'idle';
   }
@@ -227,6 +236,7 @@ class Convo {
       p.send.classList.remove('is-pressed');
       this.setGroup(p, null);
     }
+    this.mount.classList.remove('is-linked');
     this.showFocus(null);
   }
 
@@ -282,6 +292,7 @@ class Convo {
   }
 
   emit(name, detail) {
+    if (name === 'convo:step' && detail.step.link != null) this.mount.classList.toggle('is-linked', Boolean(detail.step.link));
     this.mount.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
   }
 
@@ -333,6 +344,7 @@ class Convo {
 
     if (type === 'clear') {
       await gap(T.holdBeforeClear);
+      this.mount.classList.remove('is-linked');
       await this.fade([p.list], 1, 0, run);
       p.list.replaceChildren();
       p.list.scrollTop = 0;
@@ -442,8 +454,19 @@ class Convo {
     let i = 0;
     while (i < steps.length) {
       const beat = [i];
-      while (sameBeat(steps[i], steps[i + beat.length])) beat.push(i + beat.length);
-      await Promise.all(beat.map((index) => this.playStep(key, index, run, beat.length > 1 ? null : prevPhone)));
+      const joins = (next) => next && (next.with || sameBeat(steps[i], next));
+      while (joins(steps[i + beat.length])) beat.push(i + beat.length);
+      // In a beat each phone plays its own steps in order, and the phones run side by side.
+      const lanes = new Map();
+      for (const index of beat) {
+        const lane = lanes.get(steps[index].phone) || [];
+        lane.push(index);
+        lanes.set(steps[index].phone, lane);
+      }
+      const from = beat.length > 1 ? null : prevPhone;
+      await Promise.all([...lanes.values()].map(async (lane) => {
+        for (const index of lane) await this.playStep(key, index, run, from);
+      }));
       prevPhone = beat.length > 1 ? null : steps[i].phone;
       if (steps[i].focusAfter) await this.focusOn(steps[i].focusAfter, run);
       i += beat.length;
@@ -498,18 +521,19 @@ function estimate(steps, single) {
 }
 
 function watchHero(convo) {
-  const phone = Object.values(convo.phones)[0];
-  // Pause while the pointer is over the phone, or after a tap (tap again to resume).
-  phone.el.addEventListener('pointerenter', (e) => {
-    if (e.pointerType === 'mouse') convo.setPaused('hover', true);
-  });
-  phone.el.addEventListener('pointerleave', () => convo.setPaused('hover', false));
-  phone.el.addEventListener('click', () => convo.setPaused('tap', !convo.pauses.has('tap')));
+  // Pause while the pointer is over a phone, or after a tap on one (tap again to resume).
+  for (const phone of Object.values(convo.phones)) {
+    phone.el.addEventListener('pointerenter', (e) => {
+      if (e.pointerType === 'mouse') convo.setPaused('hover', true);
+    });
+    phone.el.addEventListener('pointerleave', () => convo.setPaused('hover', false));
+    phone.el.addEventListener('click', () => convo.setPaused('tap', !convo.pauses.has('tap')));
+  }
   // Stop while the hero is off screen.
   convo.setPaused('offscreen', true);
   new IntersectionObserver((entries) => {
     for (const entry of entries) convo.setPaused('offscreen', !entry.isIntersecting);
-  }).observe(phone.el);
+  }).observe(convo.mount);
   convo.play();
 }
 

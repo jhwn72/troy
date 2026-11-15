@@ -1,42 +1,74 @@
 {
   "hero-1": {
-    "phones": { "hero": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone" } },
+    "phones": {
+      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A student" },
+      "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "Another student" }
+    },
     "steps": [
-      { "phone": "hero", "from": "me", "text": "find me people tryna go to lax first day of break", "status": "Read" },
-      { "phone": "hero", "from": "troy", "text": "on it 👀" },
-      { "phone": "hero", "from": "troy", "text": "3 trojans flying out of lax on the 19th around noon. want a group chat to split a ride?" },
-      { "phone": "hero", "from": "me", "text": "yes pls", "status": "Read" },
-      { "phone": "hero", "from": "troy", "text": "done. say hi 👋" },
-      { "phone": "hero", "type": "clear" }
+      { "phone": "left", "from": "me", "text": "find me people tryna go to lax first day of break", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "on it 👀" },
+      { "phone": "right", "from": "troy", "text": "someone in ur building is headed to lax on the 19th around noon. want to split a ride?", "with": true },
+      { "phone": "right", "from": "me", "text": "yes", "status": "Read" },
+      { "phone": "left", "type": "switch-group", "name": "LAX ride", "link": true },
+      { "phone": "right", "type": "switch-group", "name": "LAX ride" },
+      { "phone": "left", "from": "troy", "text": "done. say hi 👋" },
+      { "phone": "right", "from": "troy", "text": "done. say hi 👋" },
+      { "phone": "left", "type": "clear" },
+      { "phone": "right", "type": "clear" }
     ]
   },
   "hero-2": {
-    "phones": { "hero": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone" } },
+    "phones": {
+      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "The owner" },
+      "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "The finder" }
+    },
     "steps": [
-      { "phone": "hero", "from": "me", "text": "lost my airpods near leavey 😭", "status": "Read" },
-      { "phone": "hero", "from": "troy", "text": "someone found airpods near leavey 20 min ago. what's on the case?" },
-      { "phone": "hero", "from": "me", "text": "a trojan sticker", "status": "Read" },
-      { "phone": "hero", "from": "troy", "text": "that's them 🙌 checking how the finder wants to hand it off" },
-      { "phone": "hero", "type": "clear" }
+      { "phone": "left", "from": "me", "text": "lost my airpods near leavey 😭", "status": "Read" },
+      { "phone": "right", "from": "me", "image": "airpods", "alt": "Photo of AirPods", "with": true },
+      { "phone": "right", "from": "me", "text": "found these at leavey", "status": "Read", "with": true },
+      { "phone": "left", "from": "troy", "text": "someone found airpods near leavey. quick check: what's on the case?" },
+      { "phone": "left", "from": "me", "text": "a trojan sticker", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "that's them 🙌 checking how the finder wants to hand it off" },
+      { "phone": "right", "from": "troy", "text": "found the owner ✅ want to meet them or drop it at DPS?", "with": true },
+      { "phone": "right", "from": "me", "text": "meet", "status": "Read" },
+      { "phone": "left", "type": "switch-group", "name": "The finder and the owner", "link": true },
+      { "phone": "right", "type": "switch-group", "name": "The finder and the owner" },
+      { "phone": "left", "from": "troy", "text": "handing u off. you two got it from here 🤝" },
+      { "phone": "right", "from": "troy", "text": "handing u off. you two got it from here 🤝" },
+      { "phone": "left", "type": "clear" },
+      { "phone": "right", "type": "clear" }
     ]
   },
   "hero-3": {
-    "phones": { "hero": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone" } },
+    "phones": {
+      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A club officer" },
+      "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A student nearby" }
+    },
     "steps": [
-      { "phone": "hero", "from": "troy", "text": "free tacos at the village 🌮 5 min from u. 12 left. react 👍 to claim" },
-      { "phone": "hero", "from": "me", "tapback": "👍" },
-      { "phone": "hero", "from": "troy", "text": "saved u one. it's at the table by trader joe's" },
-      { "phone": "hero", "type": "clear" }
+      { "phone": "left", "from": "me", "text": "we have 12 extra tacos at the village", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "sending it to trojans nearby 🌮" },
+      { "phone": "right", "from": "troy", "text": "free tacos at the village 🌮 5 min from u. 12 left. react 👍 to claim", "with": true },
+      { "phone": "right", "from": "me", "tapback": "👍", "link": true },
+      { "phone": "right", "from": "troy", "text": "saved u one. it's at the table by trader joe's" },
+      { "phone": "left", "from": "troy", "type": "count", "text": "11 left", "with": true },
+      { "phone": "left", "type": "clear" },
+      { "phone": "right", "type": "clear" }
     ]
   },
   "hero-4": {
-    "phones": { "hero": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone" } },
+    "phones": {
+      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A student" },
+      "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A USG member" }
+    },
     "steps": [
-      { "phone": "hero", "from": "me", "text": "the late shuttle to the village is always late", "status": "Read" },
-      { "phone": "hero", "from": "troy", "text": "4 other trojans said the same thing this week. want me to loop in USG?" },
-      { "phone": "hero", "from": "me", "text": "yeah", "status": "Read" },
-      { "phone": "hero", "from": "troy", "text": "done. i'll text u when they reply 📬" },
-      { "phone": "hero", "type": "clear" }
+      { "phone": "left", "from": "me", "text": "the late shuttle to the village is always late", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "4 other trojans said the same thing this week. want me to loop in USG?" },
+      { "phone": "left", "from": "me", "text": "yeah", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "done. i'll text u when they reply 📬" },
+      { "phone": "right", "from": "troy", "text": "5 trojans raised late village shuttles this week. want a group chat with them?", "with": true },
+      { "phone": "right", "from": "me", "text": "yes", "status": "Read", "link": true },
+      { "phone": "left", "type": "clear", "delay": 1300 },
+      { "phone": "right", "type": "clear", "delay": 1300 }
     ]
   },
   "lost-found": {

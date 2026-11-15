@@ -20,12 +20,17 @@
 <link rel="stylesheet" href="landing/map.css">
 <link rel="stylesheet" href="landing/widgets.css">
 <link rel="stylesheet" href="landing/scene.css">
+<link rel="stylesheet" href="landing/hero.css">
+<link rel="stylesheet" href="landing/thread.css">
+<link rel="stylesheet" href="landing/fontswitch.css">
 <noscript><style>.chip{opacity:1!important}.replay{display:none!important}.repair-steps li::before{background-color:var(--laurel)!important;border-color:var(--laurel)!important}.engine-example{opacity:1!important}@media (max-width:767px){.engine-step:not(:first-child) .engine-example{opacity:0!important}.stage .phone{height:auto!important;min-height:460px}.stage.has-steps .phone{height:560px!important}.repair-steps{top:612px!important}}</style></noscript>
 <script type="module" src="landing/config.js"></script>
 <script type="module" src="landing/map.js"></script>
 <script type="module" src="landing/widgets.js"></script>
 <script type="module" src="landing/scene.js"></script>
 <script type="module" src="landing/chat.js"></script>
+<script type="module" src="landing/thread.js"></script>
+<script type="module" src="landing/fontswitch.js"></script>
 </head>
 <body>
 
@@ -79,15 +84,32 @@
 </svg>
       </div>
       <div class="convo" data-convo="hero-1" data-convo-loop="hero-1 hero-2 hero-3 hero-4">
-          <div class="phone" data-phone="hero" role="group" aria-label="A student&#x27;s phone, texting Troy">
+          <svg class="hero-link" viewBox="0 0 240 72" aria-hidden="true" focusable="false">
+            <path class="hero-link-rest" d="M2 12C52 10 78 60 122 58C166 56 186 16 238 20"/>
+            <path class="hero-link-shade" pathLength="100" d="M2 12C52 10 78 60 122 58C166 56 186 16 238 20"/>
+            <path class="hero-link-gold" pathLength="100" d="M2 12C52 10 78 60 122 58C166 56 186 16 238 20"/>
+          </svg>
+          <div class="phone" data-phone="left" role="group" aria-label="A student&#x27;s phone, texting Troy">
             <div class="phone-screen">
               <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
               <div class="msg-list">
                 <div class="bubble from-me tail"><span class="sr-only">Student: </span>find me people tryna go to lax first day of break</div>
-                <div class="bubble from-them"><span class="sr-only">Troy: </span>on it 👀</div>
-                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>3 trojans flying out of lax on the 19th around noon. want a group chat to split a ride?</div>
-                <div class="bubble from-me tail"><span class="sr-only">Student: </span>yes pls</div>
                 <div class="msg-status">Read</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>on it 👀</div>
+                <div class="msg-note">Group chat: LAX ride</div>
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>done. say hi 👋</div>
+              </div>
+              <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>
+            </div>
+          </div>
+          <div class="phone" data-phone="right" role="group" aria-label="Another student&#x27;s phone, texting Troy">
+            <div class="phone-screen">
+              <header class="msg-header"><img class="msg-avatar" src="assets/troy-avatar.svg" alt="" width="40" height="40"><span class="msg-name">Troy</span></header>
+              <div class="msg-list">
+                <div class="bubble from-them tail"><span class="sr-only">Troy: </span>someone in ur building is headed to lax on the 19th around noon. want to split a ride?</div>
+                <div class="bubble from-me tail"><span class="sr-only">Student: </span>yes</div>
+                <div class="msg-status">Read</div>
+                <div class="msg-note">Group chat: LAX ride</div>
                 <div class="bubble from-them tail"><span class="sr-only">Troy: </span>done. say hi 👋</div>
               </div>
               <div class="msg-input"><span class="msg-input-text"></span><button class="msg-send" tabindex="-1" aria-hidden="true"></button></div>

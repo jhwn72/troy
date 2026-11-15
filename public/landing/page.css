@@ -870,19 +870,51 @@ button.engine-circle { cursor: pointer; }
 
 /* ---------- Cardinal band: what's next ---------- */
 
-/* The one scalloped divider on the page: the band's top and bottom edges. */
-#next { --scallop: 22px; }
-#next::before {
-  background: var(--cardinal);
-  -webkit-mask:
-    radial-gradient(circle var(--scallop) at 50% 100%, #000 calc(100% - 1px), transparent) top / calc(var(--scallop) * 2) var(--scallop) repeat-x,
-    radial-gradient(circle var(--scallop) at 50% 0, #000 calc(100% - 1px), transparent) bottom / calc(var(--scallop) * 2) var(--scallop) repeat-x,
-    linear-gradient(#000, #000) center / 100% calc(100% - var(--scallop) * 2 + 2px) no-repeat;
-  mask:
-    radial-gradient(circle var(--scallop) at 50% 100%, #000 calc(100% - 1px), transparent) top / calc(var(--scallop) * 2) var(--scallop) repeat-x,
-    radial-gradient(circle var(--scallop) at 50% 0, #000 calc(100% - 1px), transparent) bottom / calc(var(--scallop) * 2) var(--scallop) repeat-x,
-    linear-gradient(#000, #000) center / 100% calc(100% - var(--scallop) * 2 + 2px) no-repeat;
+/* The page's one divider motif: a Greek key (meander). Classical world, modern tool.
+   It is drawn once as a mask, so each use takes its color from the palette: gold on cardinal, line color on the dark scene.
+   --key-up has its base line at the bottom, --key-down at the top, so the base always faces the edge it borders. */
+:root {
+  --key-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 12'%3E%3Cpath d='M0 10.5H15M1.5 10.5V1.5H13.5V7.5H4.5V4.5H10.5' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='square'/%3E%3C/svg%3E");
+  --key-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 12'%3E%3Cpath d='M0 1.5H15M1.5 1.5V10.5H13.5V4.5H4.5V7.5H10.5' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='square'/%3E%3C/svg%3E");
 }
+#next::before { background: var(--cardinal); }
+/* Gold keys along the top and bottom of the cardinal band. */
+#next::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--gold);
+  -webkit-mask:
+    var(--key-down) 50% 14px / 20px 16px repeat-x,
+    var(--key-up) 50% calc(100% - 14px) / 20px 16px repeat-x;
+  mask:
+    var(--key-down) 50% 14px / 20px 16px repeat-x,
+    var(--key-up) 50% calc(100% - 14px) / 20px 16px repeat-x;
+}
+/* A thin key rule under the hero and above the footer, fading out at both ends. */
+#hero { position: relative; }
+#hero::after,
+#footer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: min(540px, 62vw);
+  height: 12px;
+  margin: 0 auto;
+  pointer-events: none;
+  background: var(--line);
+  opacity: 0.9;
+  -webkit-mask: var(--key-up) 50% 50% / 15px 12px repeat-x, linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+  -webkit-mask-composite: source-in;
+  mask: var(--key-up) 50% 50% / 15px 12px repeat-x, linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+  mask-composite: intersect;
+}
+/* Under the hero it sits just inside the top of the next band, where the scene has started to dim. */
+#hero::after { bottom: -46px; }
+#footer::before { top: 0; }
 #next > .panel { padding-block: clamp(112px, 12vw, 176px); }
 #next h2, #next .lead { color: var(--white); }
 /* Row labels in tight ink boxes */
@@ -948,5 +980,12 @@ button.engine-circle { cursor: pointer; }
   #why .why-grid li:last-child { transform: rotate(1deg); }
   #safe .safe-card:nth-child(6n+3) { transform: rotate(1deg); }
   #safe .safe-card:nth-child(6n+5) { transform: rotate(-1deg); }
-  #next { --scallop: 16px; }
+  #next::after {
+    -webkit-mask:
+      var(--key-down) 50% 12px / 15px 12px repeat-x,
+      var(--key-up) 50% calc(100% - 12px) / 15px 12px repeat-x;
+    mask:
+      var(--key-down) 50% 12px / 15px 12px repeat-x,
+      var(--key-up) 50% calc(100% - 12px) / 15px 12px repeat-x;
+  }
 }

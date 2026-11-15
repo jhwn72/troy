@@ -1,0 +1,58 @@
+/* Troy landing: the gold thread. Built and drawn by thread.js.
+   It sits above the page's panels and below the traveling Troy; a clip path hides it where it passes behind a paper panel. */
+
+#thread {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+#thread svg {
+  display: block;
+  overflow: hidden;
+}
+
+.thread-line,
+.thread-shade {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.thread-line {
+  stroke: var(--gold);
+  stroke-width: 2.5px;
+}
+/* A soft, low shadow so the gold reads over the bright day clouds. */
+.thread-shade {
+  stroke: rgba(var(--ink-rgb), 0.26);
+  stroke-width: 5px;
+}
+
+/* The glowing dot at the drawing tip */
+.thread-tip { will-change: transform; }
+.thread-tip-dot { fill: var(--gold); }
+.thread-tip-glow { fill: var(--gold); opacity: 0.28; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .thread-tip { transition: opacity 0.2s linear; }
+  .thread-tip-glow { animation: thread-glow 1.8s ease-in-out infinite alternate; }
+}
+@keyframes thread-glow {
+  from { opacity: 0.16; }
+  to { opacity: 0.4; }
+}
+
+/* Reduced motion: the whole thread is there, nothing moves. */
+#thread.is-static .thread-tip { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .thread-tip { display: none; }
+}
+
+@media (max-width: 767px) {
+  .thread-line { stroke-width: 2px; }
+  .thread-shade { stroke-width: 4px; }
+}

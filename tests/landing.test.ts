@@ -89,12 +89,55 @@ test("landing page follows the design reference's rules", () => {
   // Paths are relative so the same file works on the local server and on a static host.
   assert.ok(!/(?:src|href|srcset)="\//.test(html), "paths are relative");
   // Every script and stylesheet is there exactly once.
-  for (const name of ["config", "chat", "scene", "map", "widgets"]) {
+  for (const name of ["config", "chat", "scene", "map", "widgets", "thread", "fontswitch"]) {
     assert.equal(html.split(`src="landing/${name}.js"`).length - 1, 1, `${name}.js once`);
   }
-  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets"]) {
+  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "hero", "thread", "fontswitch"]) {
     assert.equal(html.split(`href="landing/${name}.css"`).length - 1, 1, `${name}.css once`);
   }
+});
+
+test("the hero tells each scenario from both sides, on two phones", () => {
+  const html = page();
+  const hero = html.slice(html.indexOf('<section id="hero"'), html.indexOf('<section id="problem"'));
+  // Two phones in one looping conversation, Troy and the connecting line between them.
+  assert.ok(hero.includes('<div class="convo" data-convo="hero-1" data-convo-loop="hero-1 hero-2 hero-3 hero-4">'));
+  assert.deepEqual([...hero.matchAll(/<div class="phone" data-phone="([^"]+)"/g)].map((m) => m[1]), ["left", "right"]);
+  assert.equal(hero.split('id="troy-hero"').length - 1, 1);
+  assert.equal(hero.split('class="hero-link"').length - 1, 1);
+  assert.ok(hero.indexOf('id="troy-hero"') < hero.indexOf('class="convo"'), "Troy is outside the conversation, so scripts can move each alone");
+
+  const data = JSON.parse(readFileSync(join(PUBLIC, "landing", "conversations.json"), "utf8"));
+  type Step = { phone: string; from?: string; text?: string; type?: string; tapback?: string; image?: string; link?: boolean };
+  const said = (key: string, phone: string, from: string) =>
+    data[key].steps.filter((s: Step) => s.phone === phone && s.from === from && s.text).map((s: Step) => s.text);
+  for (const key of ["hero-1", "hero-2", "hero-3", "hero-4"]) {
+    const steps: Step[] = data[key].steps;
+    assert.deepEqual(Object.keys(data[key].phones), ["left", "right"], key);
+    for (const side of ["left", "right"]) {
+      assert.ok(steps.some((s) => s.phone === side && s.type !== "clear"), `${key}: something happens on the ${side} phone`);
+      assert.equal(steps.filter((s) => s.phone === side && s.type === "clear").length, 1, `${key}: the ${side} phone clears for the next scenario`);
+    }
+    assert.equal(steps.filter((s) => s.link === true).length, 1, `${key}: the gold line draws once, when the two are connected`);
+    for (const s of steps) if (s.text) assert.ok(!s.text.includes("—"), "no em dashes");
+  }
+  // 1. LAX ride: the asker on the left, another student on the right, then one group chat.
+  assert.deepEqual(said("hero-1", "left", "me"), ["find me people tryna go to lax first day of break"]);
+  assert.deepEqual(said("hero-1", "right", "troy"), ["someone in ur building is headed to lax on the 19th around noon. want to split a ride?", "done. say hi 👋"]);
+  assert.deepEqual(said("hero-1", "right", "me"), ["yes"]);
+  assert.ok(said("hero-1", "left", "troy").includes("done. say hi 👋"));
+  // 2. Lost AirPods: the owner on the left, the finder (with a photo) on the right.
+  assert.deepEqual(said("hero-2", "left", "me"), ["lost my airpods near leavey 😭", "a trojan sticker"]);
+  assert.ok(data["hero-2"].steps.some((s: Step) => s.phone === "right" && s.from === "me" && s.image === "airpods"));
+  assert.deepEqual(said("hero-2", "right", "me"), ["found these at leavey", "meet"]);
+  // 3. Free tacos: a club officer on the left, a nearby student on the right who taps 👍.
+  assert.deepEqual(said("hero-3", "left", "me"), ["we have 12 extra tacos at the village"]);
+  assert.equal(said("hero-3", "right", "troy")[0], "free tacos at the village 🌮 5 min from u. 12 left. react 👍 to claim");
+  assert.ok(data["hero-3"].steps.some((s: Step) => s.phone === "right" && s.from === "me" && s.tapback === "👍"));
+  // 4. Late shuttle: the student on the left, a USG member on the right.
+  assert.equal(said("hero-4", "left", "me")[0], "the late shuttle to the village is always late");
+  assert.deepEqual(said("hero-4", "right", "troy"), ["5 trojans raised late village shuttles this week. want a group chat with them?"]);
+  assert.deepEqual(said("hero-4", "right", "me"), ["yes"]);
 });
 
 test("landing page carries the amended copy", () => {
@@ -112,7 +155,9 @@ test("landing page carries the amended copy", () => {
   assert.ok(lost.includes("left/troy: found the owner ✅ want to meet them or drop it at DPS?"));
   assert.ok(lost.includes("left/me: meet"));
   assert.ok(!lost.some((l: string) => l.startsWith("right/me: meet")), "the owner does not choose");
-  assert.ok(lines("hero-2").includes("hero/troy: that's them 🙌 checking how the finder wants to hand it off"));
+  assert.ok(lines("hero-2").includes("left/troy: that's them 🙌 checking how the finder wants to hand it off"));
+  assert.ok(lines("hero-2").includes("right/me: meet"), "in the hero the finder is on the right, and chooses");
+  assert.ok(!lines("hero-2").some((l: string) => l.startsWith("left/me: meet")), "the owner does not choose");
   assert.ok(html.includes("found the owner ✅ want to meet them or drop it at DPS?"));
   assert.ok(html.includes("that&#39;s them 🙌 asking the finder how they want to hand it off"));
   assert.ok(!html.includes("pick up at DPS?"));

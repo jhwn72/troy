@@ -80,7 +80,7 @@ function parseTapback(raw: unknown): { type: TapbackType; removed: boolean } | n
 export function buildContactCard(): string {
   const lines = ["BEGIN:VCARD", "VERSION:3.0", "N:;Troy;;;", "FN:Troy"];
   // Optional: TROY_CONTACT (the number or email students text) so saving the card attaches to this chat.
-  for (const raw of (process.env.TROY_CONTACT || "").split(",")) {
+  for (const raw of (process.env.TROY_CONTACT || process.env.TROY_NUMBER || "").split(",")) {
     const h = normalizeHandle(raw);
     if (h) lines.push(h.includes("@") ? `EMAIL;TYPE=INTERNET:${h}` : `TEL;TYPE=CELL:${h}`);
   }
