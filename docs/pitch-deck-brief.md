@@ -54,6 +54,14 @@ The flows built this weekend:
 | Topics | Students follow or create topics (pickup games, extra tickets, rides, experienced Trojans) and post to them; nearby followers get a text. | Whoever nearby wants the same thing |
 | Rides | "Find me people going to LAX." Troy matches people leaving around the same time. | Trojans leaving when you are |
 
+What a judge sees that a student doesn't (useful for the demo slide and Q&A):
+- Judges skip USC email verification with a one-tap poll, clearly labeled as demo only.
+- Troy tells them up front what's different for them: he types faster to save their time (a student sees a normal texting pace), and he texts casually because he's built for students. One tap switches him to plain, spelled-out English.
+- After each step he adds one short aside in parentheses: either what the AI just did, with real numbers from that run, or the reason behind a design choice.
+- Since there are no other users yet, when Troy finds nobody to connect a judge with he says so and offers to play the other person's side in real time ("show me"), with labeled example people.
+- It ends with a wrap-up and John's contact: johnwang@usc.edu.
+- For the hackathon Troy is tuned to keep the conversation going so judges see more of it. One setting dials that down for a real campus launch.
+
 A day at USC (the landing page's story, good for one slide): 8:40 am lost AirPods, 12:15 pm the shuttle is late again, 5:30 pm a club has 20 extra bowls, 9:10 pm your door won't lock, 11:45 pm three of you are headed to LAX.
 
 ## 6. Honesty about what is real
@@ -145,7 +153,7 @@ What the cheaper option costs in other ways (say this if asked):
 
 What would change the AI number: running everything on the stronger model raises it to about 6 to 9 cents per conversation (about $110 a month for 200 students); heavier use or more photos raises it roughly in proportion; the reasoning tokens in each reply are the least certain part.
 
-What's next (from the landing page; no fake numbers): pickup games and study buddies nearby, class help from students who aced it, ticket and textbook swaps, closing the loop with offices on housing requests and deadlines, and non-Apple devices.
+What's next (from the landing page; no fake numbers): pickup games and study buddies nearby, class help from students who aced it, ticket and textbook swaps, closing the loop with offices on housing requests and deadlines, voice messages, and non-Apple devices (the landing page already tells Android visitors it's coming).
 
 The ask: a pilot with USG and one office (DPS Lost and Found is the natural first), a hosted line, and 200 students. `[John to confirm the exact ask]`
 
