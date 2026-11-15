@@ -70,7 +70,7 @@ test("landing page follows the design reference's rules", () => {
   assert.ok(html.includes("ChatGPT gives you information. Troy gets you connected."));
   // Sections, in the reference's order.
   const ids = [...html.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ["hero", "problem", "demos", "lost-found", "concern", "food", "broken", "rides", "why", "engine", "safe", "next", "faq"]);
+  assert.deepEqual(ids, ["hero", "problem", "demos", "lost-found", "concern", "food", "broken", "rides", "why", "engine", "safe", "purpose", "next", "faq"]);
   assert.ok(html.includes('<footer id="footer">'));
   // "A day at USC": one pinned scene (#demos) with five stops inside it, one map, and no tabs.
   const day = html.slice(html.indexOf('<section id="demos"'), html.indexOf('<section id="why"'));
@@ -80,11 +80,11 @@ test("landing page follows the design reference's rules", () => {
   assert.deepEqual(stops, ["lost-found 520 0", "concern 735 0.18", "food 1050 0.5", "broken 1270 0.78", "rides 1425 1"]);
   assert.deepEqual([...day.matchAll(/<p class="day-time">([^<]+)</g)].map((m) => m[1]), ["8:40 am", "12:15 pm", "5:30 pm", "9:10 pm", "11:45 pm"]);
   assert.deepEqual([...day.matchAll(/class="day-setup">([^<]+)</g)].map((m) => m[1]), [
-    "your airpods aren't in your pocket.",
-    "the shuttle was late. again.",
-    "a club meeting ends with 20 extra bowls.",
-    "your door won't lock.",
-    "three of you are headed to lax in the morning.",
+    "You notice your AirPods aren't in your pocket",
+    "Your shuttle is late. Again",
+    "Your club meeting ends with 20 extra bowls",
+    "Your door lock is broken",
+    "You have a flight in the morning, but the Uber costs the same as the ticket",
   ]);
   assert.deepEqual([...day.matchAll(/<span class="chip">([^<]+)</g)].map((m) => m[1]), [
     "Connected you to: the student who found it",
@@ -96,11 +96,14 @@ test("landing page follows the design reference's rules", () => {
   assert.deepEqual([...day.matchAll(/<div class="convo" data-convo="([^"]+)"/g)].map((m) => m[1]), ["lost-found", "concern", "food", "broken", "rides"]);
   assert.equal([...day.matchAll(/<div class="phone" data-phone="(?:left|right)"/g)].length, 10, "two phones per stop");
   assert.deepEqual([...day.matchAll(/class="day-mark"[^>]*>([^<]+)</g)].map((m) => m[1]), ["I", "II", "III", "IV", "V"]);
-  assert.equal(day.split('id="food-map"').length - 1, 1, "one map for the whole day");
+  assert.equal(day.split('id="food-map"').length - 1, 1, "one connection picture for the whole day");
   assert.deepEqual([...day.matchAll(/class="map-layer" data-layer="([^"]+)"/g)].map((m) => m[1]), ["lost-found", "concern", "food", "broken", "rides"]);
-  for (const place of ["leavey", "the village", "new north", "shuttle stop", "the plaza"]) assert.ok(day.includes(`>${place}</text>`), place);
+  // The picture is circles, a gold line and one small fact per stop: no streets, no buildings.
+  assert.ok(!day.includes("map-buildings") && !day.includes("map-paths"), "the street-grid map is gone");
+  for (const label of ["you", "leavey", "the finder", "4 min apart", "USG", "5 students, same issue", "your club", "15 min walk", "your building", "the closest technician", "5 min away", "M", "J", "LAX", "same flight window"]) assert.ok(day.includes(`>${label}</text>`), label);
+  assert.ok(day.includes('<tspan class="map-count-n">20</tspan> nearby</text>'));
   assert.ok(day.includes("Only students within a 15-minute walk get the text. Everyone else is left alone."));
-  assert.ok(day.includes("keep scrolling, the day keeps going"));
+  assert.ok(day.includes("that's the whole day. keep scrolling"));
   assert.equal(day.split('class="day-next"').length - 1, 1);
   assert.deepEqual([...day.matchAll(/<li data-step="([^"]+)">/g)].map((m) => m[1]), ["reported", "on-it", "fixed"]);
   // One phone on stage per stop: data-main says whose. The other side is a notification card on the map.
@@ -193,7 +196,7 @@ test("the hero tells each scenario from both sides, on two phones", () => {
 test("landing page carries the amended copy", () => {
   const html = page();
   // Amendment 3: location copy matches the product.
-  assert.ok(html.includes("Troy keeps the last spot you share so walking times are right. It's never shown to another student, and 'forget my location' erases it."));
+  assert.ok(html.includes("Never shown to anyone. One text erases it."));
   assert.ok(html.includes("Only if you share it. He keeps the last spot you shared to work out walking distance, never shows it to anyone, and 'forget my location' erases it."));
   // Amendment 5.
   assert.ok(html.includes("No. A student built it at a hackathon. It isn't an official USC service yet."));

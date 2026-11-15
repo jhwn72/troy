@@ -1,7 +1,14 @@
 // Troy landing: "A day at USC", the pinned scene (#demos).
-// The wrapper is tall and its stage is position: sticky, so the page scrolls normally and the stage stays put.
-// How far the visitor has scrolled through the wrapper picks the stop (0 to 4) and a 0 to 1 progress inside it.
+// It plays like a video. When the scene comes into view it runs through its five stops by itself: the time and
+// setup line, the conversation on the phone, the connection picture, the other person's card, the chip, a short
+// rest, then the clock ticks on to the next stop. After the last stop it rests there (a small replay control shows).
+//
+// The wrapper is a little over three screens tall and its stage is position: sticky, so the page scrolls normally
+// and the stage stays put for a short while. Scrolling is fast-forward: a scroll down while it plays moves to the
+// next stop, a scroll up goes back one, and scrolling on past the wrapper leaves the scene. How far the visitor has
+// scrolled also sets a floor ("at least this stop"), so the timer and the scroll never fight.
 // Nothing here listens to the wheel or to touch, and nothing stops a scroll.
+// Out of view (or with the pause control) everything holds where it is, and carries on when the scene is back.
 //
 // It sets, on <html>:
 //   .day-on                 the scene is pinned (not with reduced motion, and not without subgrid support)
@@ -11,29 +18,33 @@
 //   --day-progress          0 to 1 through the whole scene
 // It dispatches, on window:
 //   "day:stop"    detail { index, progress, tod, key, minutes, pinned }   whenever any of them changes
-//   "day:idle"    detail { index }   the visitor stopped scrolling on a finished stop (at most twice a visit)
+//                 (progress is 0 while the stop plays and 1 once it has finished)
+//   "day:idle"    detail { index }   the whole day has played and the visitor has not moved for a while
 //   "day:settle"  detail { key }     a stop is showing its finished state without a conversation to play
-// It asks chat.js for a conversation with "convo:play" and "convo:stop" on the stop's .convo mount.
+// It asks chat.js for a conversation with "convo:play", "convo:stop" and "convo:pause" on the stop's .convo mount.
 //
-// The spotlight. One phone is on stage (the stop's data-main side); the other side is a notification card on the
-// map (.day-card). .day-panel carries data-spot, and day.css keeps that one thing at full strength:
+// The spotlight. One phone is on stage (the stop's data-main side); the other side is a notification card beside
+// the connection picture (.day-card). .day-panel carries data-spot, and day.css keeps that one thing at full strength:
 //   "intro"  the time and setup line, large, for a beat when a stop begins
 //   "phone"  while the asker's side of the conversation plays
-//   "map"    while the map animates (steps that carry "map" in conversations.json), and while Troy is reaching
-//            the other person
+//   "map"    while the connection picture moves (steps that carry "map" in conversations.json), and while Troy is
+//            reaching the other person
 //   "card"   when the other person's side lands on their card
 //   "chip"   when the conversation has finished
 // It follows chat.js: "convo:step" events, and data-focus on the stop's .stage (the side about to speak).
 
 /* ---------- Everything John might want to tune ---------- */
-const HOLD = 0.6;            // share of a stop's scrolling where the clock stands still; the rest ticks to the next stop
-const PLAY_AFTER = 260;      // a stop must be current this long before it begins, in milliseconds
-const INTRO_MS = 1500;       // the large time and setup line hold the stage this long, then the conversation starts
-const MAP_BEAT = 1500;       // the map keeps the spotlight this long when it animates
-const MAP_BEAT_FOOD = 2800;  // free food: the pin, the 15-minute circle and twenty dots take longer
+const INTRO_MS = 1600;       // the large time and setup line hold the stage this long, then the conversation starts
+const REST_MS = 2500;        // a finished stop rests this long before the day moves on
+const TICK_MS = 900;         // the clock takes this long to tick over to the next stop's time
+const MAP_BEAT = 1500;       // the connection picture keeps the spotlight this long when it moves
+const MAP_BEAT_FOOD = 3000;  // free food: the ring and its circles take longer
 const FOOD_TRIGGER = 'sending it to trojans nearby';
-const IDLE_AFTER = 6000;     // no scrolling for this long on a finished stop shows the nudge
-const IDLE_SETTLE = 2500;    // and the conversation must have been finished at least this long
+const ZONES = [0.28, 0.46, 0.64, 0.82];   // how far through the pinned scrolling stops II to V begin (the floor)
+const SKIP_PX = 50;          // a scroll of at least this much while the scene is pinned skips one stop
+const GESTURE_GAP = 280;     // scrolling that pauses this long counts as a new scroll
+const SKIP_REST = 700;       // a stop that has only just begun is not skipped by the same burst of scrolling
+const IDLE_AFTER = 6000;     // the day has finished and nothing has moved for this long: show the nudge
 const IDLE_MAX = 2;          // nudges per visit
 const CHAT_WAIT = 4000;      // how long to wait for chat.js before showing stops finished
 
@@ -47,6 +58,12 @@ const supported = typeof CSS !== 'undefined' && CSS.supports('position', 'sticky
 const clamp01 = (n) => Math.min(Math.max(n, 0), 1);
 const smooth = (t) => t * t * (3 - 2 * t);
 const lerp = (a, b, t) => a + (b - a) * t;
+
+const ICONS = {
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5v11M15 6.5v11"/></svg>',
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5l8.500 5.500-8.500 5.500z"/></svg>',
+  again: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.500 6.500 0 1 0 2-4.700"/><path d="M5.250 4.500v3.750H9"/></svg>',
+};
 
 function start() {
   root.classList.add('day-on');
@@ -73,58 +90,148 @@ function start() {
   intro.append(introTime, introLine);
   panel.append(intro);
   const marks = [...wrap.querySelectorAll('.day-mark')];
+  const nav = wrap.querySelector('.day-nav');
   const next = wrap.querySelector('.day-next');
   const pill = wrap.querySelector('.day-idle');
   const clockTime = wrap.querySelector('.day-clock-time');
   const clockAmpm = wrap.querySelector('.day-clock-ampm');
   const doneAt = stops.map(() => 0);   // when each stop's conversation finished (0: not finished)
 
-  const now = { index: -1, progress: -1, tod: -1, minutes: -1, pinned: false, active: false };
+  // Two small controls beside the stop marks: pause or play, and (once the day has played) play it again.
+  const control = (className, label, icon) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = icon;
+    if (nav) nav.append(button);
+    return button;
+  };
+  const pauseButton = control('day-pause', 'Pause', ICONS.pause);
+  const againButton = control('day-again', 'Play the day again', ICONS.again);
+  againButton.hidden = true;
+
+  let cur = -1;            // the current stop
+  let finished = false;    // the last stop has played and rested
+  let userPaused = false;
+  let pinned = false;
+  let active = false;      // the scene is in view
+  let applied = true;      // whether everything is being held right now (it starts held, until the scene is in view)
   let chatReady = root.dataset.convoReady != null;
-  let playTimer = 0;
-  let introTimer = 0;
+  let pendingPlay = false;
   let spotTimer = 0;
-  let holdUntil = 0;       // the map keeps the spotlight until then
+  let holdUntil = 0;       // the picture keeps the spotlight until then
   let wanted = '';         // what gets it afterwards
-  let lastScroll = performance.now();
+  let lastMove = performance.now();
   let nudges = 0;
   let nudging = false;
+  let beganAt = 0;         // when the current stop began
+
+  /* ---------- One timer that can be held ---------- */
+
+  const timer = { id: 0, fn: null, left: 0, at: 0, running: false };
+  const runTimer = () => {
+    timer.at = performance.now();
+    timer.running = true;
+    timer.id = setTimeout(() => {
+      const fn = timer.fn;
+      timer.fn = null;
+      timer.running = false;
+      if (fn) fn();
+    }, timer.left);
+  };
+  const holdTimer = () => {
+    if (!timer.running) return;
+    clearTimeout(timer.id);
+    timer.running = false;
+    timer.left = Math.max(0, timer.left - (performance.now() - timer.at));
+  };
+  const cancel = () => {
+    clearTimeout(timer.id);
+    timer.fn = null;
+    timer.running = false;
+  };
+  const later = (ms, fn) => {
+    cancel();
+    timer.fn = fn;
+    timer.left = ms;
+    if (!applied) runTimer();
+  };
+
+  const held = () => userPaused || !active || document.hidden;
+  const tellConvo = () => {
+    if (cur >= 0 && mounts[cur]) mounts[cur].dispatchEvent(new CustomEvent('convo:pause', { detail: { paused: applied } }));
+  };
+  function applyHold() {
+    const hold = held();
+    if (hold === applied) return;
+    applied = hold;
+    if (hold) holdTimer();
+    else if (timer.fn) runTimer();
+    tellConvo();
+  }
 
   /* ---------- Where the visitor is ---------- */
 
   const travel = () => Math.max(1, wrap.offsetHeight - stage.offsetHeight);
-  const stopTop = (i) => {
-    const top = wrap.getBoundingClientRect().top + window.scrollY;
-    if (i >= N) return top + wrap.offsetHeight;             // past the scene, on to the rest of the page
-    return top + (travel() * Math.max(i, 0)) / N + 2;
-  };
+  const sceneTop = () => wrap.getBoundingClientRect().top + window.scrollY;
+  let zone = 0;            // the stop the scroll position asks for at least
 
-  function read() {
+  function measure() {
     const rect = wrap.getBoundingClientRect();
     const view = window.innerHeight;
     const p = clamp01(-rect.top / travel());
-    const x = p * N;
-    const index = Math.min(N - 1, Math.floor(x));
-    const progress = clamp01(x - index);
-    // The clock holds at the stop's time, then ticks through to the next stop's as the visitor scrolls on.
-    const t = index < N - 1 ? smooth(clamp01((progress - HOLD) / (1 - HOLD))) : 0;
-    const to = Math.min(index + 1, N - 1);
-    return {
-      index,
-      progress: Math.round(progress * 1000) / 1000,
-      whole: Math.round(p * 1000) / 1000,
-      minutes: Math.round(lerp(minutes[index], minutes[to], t)),
-      tod: Math.round(lerp(tods[index], tods[to], t) * 1000) / 1000,
-      pinned: rect.top <= 1 && rect.bottom >= view - 1,
-      active: rect.top < view * 0.45 && rect.bottom > view * 0.55,
-    };
+    zone = ZONES.filter((from) => p >= from).length;
+    const nowPinned = rect.top <= 1 && rect.bottom >= view - 1;
+    active = rect.top < view * 0.45 && rect.bottom > view * 0.55;
+    if (nowPinned !== pinned) {
+      pinned = nowPinned;
+      root.toggleAttribute('data-day-pinned', pinned);
+      announce();
+    }
+    applyHold();
   }
+
+  /* ---------- The clock ---------- */
+
+  const shown = { minutes: minutes[0], tod: tods[0] };
+  let tickFrame = 0;
 
   function showClock(m) {
     const hour = Math.floor(m / 60) % 24;
     const minute = String(m % 60).padStart(2, '0');
     if (clockTime) clockTime.textContent = `${hour % 12 || 12}:${minute}`;
     if (clockAmpm) clockAmpm.textContent = hour >= 12 ? 'pm' : 'am';
+  }
+
+  function announce() {
+    if (cur < 0) return;
+    window.dispatchEvent(new CustomEvent('day:stop', {
+      detail: { index: cur, progress: doneAt[cur] ? 1 : 0, tod: shown.tod, key: stops[cur].id, minutes: shown.minutes, pinned },
+    }));
+  }
+
+  function paint() {
+    showClock(shown.minutes);
+    root.style.setProperty('--day-tod', String(shown.tod));
+    root.style.setProperty('--day-progress', String(Math.round(((cur + (doneAt[cur] ? 1 : 0)) / N) * 1000) / 1000));
+    announce();
+  }
+
+  // The clock ticks over to a stop's time, and the sky follows it.
+  function tickTo(i, instant) {
+    cancelAnimationFrame(tickFrame);
+    const from = { ...shown };
+    const t0 = performance.now();
+    const step = () => {
+      const t = instant ? 1 : clamp01((performance.now() - t0) / TICK_MS);
+      const eased = smooth(t);
+      shown.minutes = Math.round(lerp(from.minutes, minutes[i], eased));
+      shown.tod = Math.round(lerp(from.tod, tods[i], eased) * 1000) / 1000;
+      paint();
+      if (t < 1) tickFrame = requestAnimationFrame(step);
+    };
+    step();
   }
 
   function showStop(index) {
@@ -151,7 +258,7 @@ function start() {
     holdUntil = 0;
     wanted = '';
   };
-  // Give the spotlight to something, once the map has had its beat.
+  // Give the spotlight to something, once the picture has had its beat.
   const want = (spot) => {
     wanted = spot;
     clearTimeout(spotTimer);
@@ -205,53 +312,75 @@ function start() {
     introLine.textContent = (stops[i].querySelector('.day-setup') || {}).textContent || '';
   }
 
-  /* ---------- Conversations ---------- */
+  /* ---------- Playing a stop ---------- */
 
   const state = (i) => (mounts[i] ? mounts[i].dataset.convoState : '');
   const isLive = (i) => Boolean(mounts[i] && mounts[i].classList.contains('is-live'));
 
-  function settle(i) {
-    if (doneAt[i]) return;
-    doneAt[i] = performance.now();
-    if (chips[i]) chips[i].classList.add('is-shown');
-    showCard(i, null);
-    if (i === now.index) {
-      clearSpot();
-      setSpot('chip');
-    }
-    window.dispatchEvent(new CustomEvent('day:settle', { detail: { key: stops[i].id } }));
-  }
+  const moved = () => {
+    lastMove = performance.now();
+    if (!nudging) return;
+    nudging = false;
+    if (pill) pill.classList.remove('is-on');
+  };
 
-  function play(i, again) {
-    if (i !== now.index || !now.active || !chatReady) return;
-    if (!isLive(i)) return settle(i);
-    if (!again && (state(i) === 'playing' || state(i) === 'done')) return;
-    mounts[i].dispatchEvent(new CustomEvent('convo:play', { detail: { replay: true } }));
-  }
-
-  // A stop begins: the time and setup line take the stage for a beat, then the conversation plays from the start.
-  function begin(i) {
-    clearTimeout(introTimer);
+  // A stop begins: the clock ticks over, the time and setup line take the stage for a beat, then the conversation
+  // plays from the start.
+  function go(i) {
+    i = Math.min(Math.max(i, 0), N - 1);
+    const was = cur;
+    if (was >= 0 && state(was) === 'playing') mounts[was].dispatchEvent(new CustomEvent('convo:stop'));
+    if (was >= 0) doneAt[was] = 0;
+    cur = i;
+    beganAt = performance.now();
+    finished = false;
+    againButton.hidden = true;
+    pendingPlay = false;
+    moved();
+    showStop(i);
+    tickTo(i, was < 0);
     clearSpot();
     showIntro(i);
+    heard[i] = 0;
     showCard(i, 0);
+    if (chips[i]) chips[i].classList.remove('is-shown');
     setSpot('intro');
-    introTimer = setTimeout(() => {
-      if (i !== now.index) return;
-      if (panel.dataset.spot === 'intro') setSpot('phone');
-      play(i, true);
-    }, INTRO_MS);
+    later(INTRO_MS, () => startConvo(i));
   }
 
-  function queuePlay(fresh) {
-    clearTimeout(playTimer);
-    playTimer = setTimeout(() => {
-      const i = now.index;
-      if (!now.active || !chatReady) return;
-      // Coming back into view on a stop that is playing or has finished leaves it as it is.
-      if (!fresh && (state(i) === 'playing' || doneAt[i])) return;
-      begin(i);
-    }, PLAY_AFTER);
+  function startConvo(i) {
+    if (i !== cur) return;
+    if (!chatReady) {
+      pendingPlay = true;
+      return;
+    }
+    if (panel.dataset.spot === 'intro') setSpot('phone');
+    if (!isLive(i)) return settle(i);
+    mounts[i].dispatchEvent(new CustomEvent('convo:play', { detail: { replay: true } }));
+    tellConvo();
+  }
+
+  // A stop has finished: it rests, then the day moves on. The last stop stays.
+  function rest(i) {
+    doneAt[i] = performance.now();
+    if (chips[i]) chips[i].classList.add('is-shown');
+    paint();
+    later(REST_MS, () => {
+      if (i !== cur) return;
+      if (i < N - 1) return go(i + 1);
+      finished = true;
+      againButton.hidden = false;
+      lastMove = performance.now();
+    });
+  }
+
+  // No conversation to play (the data did not load): show the stop finished.
+  function settle(i) {
+    showCard(i, null);
+    clearSpot();
+    setSpot('chip');
+    window.dispatchEvent(new CustomEvent('day:settle', { detail: { key: stops[i].id } }));
+    rest(i);
   }
 
   wrap.addEventListener('convo:start', (event) => {
@@ -261,8 +390,7 @@ function start() {
     heard[i] = 0;
     showCard(i, 0);
     if (chips[i]) chips[i].classList.remove('is-shown');
-    if (i === now.index) {
-      clearTimeout(introTimer);
+    if (i === cur) {
       clearSpot();
       setSpot(bySide(i));
     }
@@ -280,7 +408,7 @@ function start() {
       heard[i] += 1;
       landed = showCard(i, heard[i]);
     }
-    if (i !== now.index) return;
+    if (i !== cur) return;
     const moves = step.map != null || (typeof step.text === 'string' && step.text.includes(FOOD_TRIGGER));
     if (moves) mapBeat(stops[i].id === 'food' ? MAP_BEAT_FOOD : MAP_BEAT, landed ? 'card' : bySide(i));
     else if (landed) want('card');
@@ -288,17 +416,16 @@ function start() {
   });
   wrap.addEventListener('convo:done', (event) => {
     const i = mounts.indexOf(event.target);
-    if (i < 0) return;
-    doneAt[i] = performance.now();
-    if (chips[i]) chips[i].classList.add('is-shown');
-    if (i === now.index) want('chip');
+    if (i < 0 || i !== cur) return;
+    want('chip');
+    rest(i);
   });
 
   // chat.js marks the side that is about to speak on the stop's .stage (data-focus).
   stages.forEach((stage, i) => {
     if (!stage) return;
     new MutationObserver(() => {
-      if (i !== now.index || state(i) !== 'playing' || !stage.dataset.focus) return;
+      if (i !== cur || state(i) !== 'playing' || !stage.dataset.focus) return;
       want(bySide(i));
     }).observe(stage, { attributes: true, attributeFilter: ['data-focus'] });
   });
@@ -306,118 +433,120 @@ function start() {
   const onReady = () => {
     if (chatReady) return;
     chatReady = true;
-    queuePlay(false);
+    if (pendingPlay) {
+      pendingPlay = false;
+      startConvo(cur);
+    }
   };
   window.addEventListener('convo:ready', onReady);
   setTimeout(onReady, CHAT_WAIT);
 
-  /* ---------- One update per frame ---------- */
+  /* ---------- Scrolling is fast-forward ---------- */
 
-  function update() {
-    const at = read();
-    const was = now.index;
-    const changed = at.index !== now.index || at.progress !== now.progress || at.tod !== now.tod || at.pinned !== now.pinned;
-    const woke = at.active && !now.active;
-
-    if (at.minutes !== now.minutes) showClock(at.minutes);
-    if (at.tod !== now.tod) root.style.setProperty('--day-tod', String(at.tod));
-    if (at.whole !== now.whole) root.style.setProperty('--day-progress', String(at.whole));
-    if (at.pinned !== now.pinned) root.toggleAttribute('data-day-pinned', at.pinned);
-    Object.assign(now, at);
-
-    if (at.index !== was) {
-      showStop(at.index);
-      if (was >= 0 && state(was) === 'playing') mounts[was].dispatchEvent(new CustomEvent('convo:stop'));
-      if (was >= 0) doneAt[was] = 0;
-      clearTimeout(introTimer);
-      clearSpot();
-      showIntro(at.index);
-      setSpot('intro');
-      queuePlay(true);
-    } else if (woke) {
-      queuePlay(false);
-    }
-
-    if (changed) {
-      window.dispatchEvent(new CustomEvent('day:stop', {
-        detail: { index: at.index, progress: at.progress, tod: at.tod, key: stops[at.index].id, minutes: at.minutes, pinned: at.pinned },
-      }));
-    }
-  }
-
-  let framed = false;
-  const frame = () => {
-    if (framed) return;
-    framed = true;
-    requestAnimationFrame(() => {
-      framed = false;
-      update();
-    });
-  };
-
-  const hideNudge = () => {
-    if (!nudging) return;
-    nudging = false;
-    if (pill) pill.classList.remove('is-on');
-  };
+  let lastY = window.scrollY;
+  let lastZone = 0;
+  let gesture = null;
+  let ignoreUntil = 0;     // scrolling this script started itself does not count
 
   window.addEventListener('scroll', () => {
-    lastScroll = performance.now();
-    hideNudge();
-    frame();
+    const t = performance.now();
+    const y = window.scrollY;
+    const dy = y - lastY;
+    const wasPinned = pinned;
+    lastY = y;
+    measure();
+    moved();
+    if (!dy) return;
+    const dir = dy > 0 ? 1 : -1;
+    if (!gesture || t - gesture.last > GESTURE_GAP || gesture.dir !== dir) gesture = { dir, sum: 0, used: false, ok: wasPinned };
+    gesture.last = t;
+    gesture.sum += Math.abs(dy);
+    const rose = zone > lastZone;
+    lastZone = zone;
+    if (t < ignoreUntil || !pinned) return;
+    // The floor: scrolled far enough for a later stop than the one playing.
+    if (rose && zone > cur) {
+      gesture.used = true;
+      return go(zone);
+    }
+    // One scroll, one stop.
+    if (!gesture.ok || gesture.used || gesture.sum < SKIP_PX || t - beganAt < SKIP_REST) return;
+    gesture.used = true;
+    if (dir > 0 && cur < N - 1) go(cur + 1);
+    else if (dir < 0 && cur > 0) go(cur - 1);
   }, { passive: true });
-  window.addEventListener('resize', frame);
+  window.addEventListener('resize', measure);
+  document.addEventListener('visibilitychange', applyHold);
   window.addEventListener('load', () => {
     // Say where the day stands once more, for scripts that started listening after the first update.
-    now.progress = -1;
-    update();
+    measure();
+    announce();
   });
 
-  /* ---------- Moving by click or key (for people who would rather not scroll) ---------- */
+  /* ---------- Moving by click or key ---------- */
 
-  const goTo = (i) => window.scrollTo({ top: stopTop(i), behavior: 'smooth' });
+  const setPaused = (on) => {
+    userPaused = on;
+    pauseButton.innerHTML = on ? ICONS.play : ICONS.pause;
+    pauseButton.setAttribute('aria-label', on ? 'Play' : 'Pause');
+    applyHold();
+  };
+  // A stop the visitor asked for plays, even if the day was paused.
+  const jump = (i) => {
+    setPaused(false);
+    go(i);
+  };
+  const leave = () => {
+    ignoreUntil = performance.now() + 1200;
+    window.scrollTo({ top: sceneTop() + wrap.offsetHeight, behavior: 'smooth' });   // on to the rest of the page
+  };
+  const forward = () => (cur < N - 1 ? jump(cur + 1) : leave());
 
-  marks.forEach((mark, i) => mark.addEventListener('click', () => goTo(i)));
-  if (next) next.addEventListener('click', () => goTo(now.index + 1));
+  marks.forEach((mark, i) => mark.addEventListener('click', () => jump(i)));
+  if (next) next.addEventListener('click', forward);
+  pauseButton.addEventListener('click', () => {
+    moved();
+    setPaused(!userPaused);
+  });
+  againButton.addEventListener('click', () => jump(0));
 
   window.addEventListener('keydown', (event) => {
-    if (!now.pinned || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (!pinned || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const target = event.target;
     if (target instanceof Element && target.closest('input, textarea, select, [contenteditable]')) return;
-    if (event.key === 'ArrowRight') goTo(now.index + 1);
-    else if (event.key === 'ArrowLeft' && now.index > 0) goTo(now.index - 1);
+    if (event.key === 'ArrowRight') forward();
+    else if (event.key === 'ArrowLeft' && cur > 0) jump(cur - 1);
   });
 
-  for (const button of wrap.querySelectorAll('.replay')) {
-    button.addEventListener('click', () => {
-      lastScroll = performance.now();
-      clearTimeout(introTimer);
-      play(now.index, true);
-    });
-  }
+  // The small replay button beside each chip plays that stop again (and the day carries on from there).
+  for (const button of wrap.querySelectorAll('.replay')) button.addEventListener('click', () => jump(cur));
 
-  // A link to one stop (#food) goes to its place in the scene.
+  // A link to one stop (#food) goes to the scene and plays from that stop.
   const fromHash = () => {
     const i = stops.findIndex((stop) => `#${stop.id}` === location.hash);
-    if (i >= 0) requestAnimationFrame(() => window.scrollTo({ top: stopTop(i), behavior: 'auto' }));
+    if (i < 0) return;
+    requestAnimationFrame(() => {
+      ignoreUntil = performance.now() + 600;
+      window.scrollTo({ top: sceneTop() + 2, behavior: 'auto' });
+      jump(i);
+    });
   };
   window.addEventListener('hashchange', fromHash);
   window.addEventListener('load', fromHash);
 
-  /* ---------- The nudge for people who stop scrolling ---------- */
+  /* ---------- The nudge, once the whole day has played ---------- */
 
   setInterval(() => {
-    if (nudging || nudges >= IDLE_MAX || !now.pinned || document.hidden) return;
-    const t = performance.now();
-    const done = doneAt[now.index];
-    if (!done || t - done < IDLE_SETTLE || t - lastScroll < IDLE_AFTER) return;
+    if (nudging || !finished || nudges >= IDLE_MAX || !pinned || document.hidden) return;
+    if (performance.now() - lastMove < IDLE_AFTER) return;
     nudging = true;
     nudges += 1;
     if (pill) pill.classList.add('is-on');
-    window.dispatchEvent(new CustomEvent('day:idle', { detail: { index: now.index } }));
+    window.dispatchEvent(new CustomEvent('day:idle', { detail: { index: cur } }));
   }, 1000);
 
-  update();
+  go(0);
+  measure();
 }
 
 if (wrap && stage && stops.length && !reduced && supported) start();

@@ -1,0 +1,49 @@
+/* Troy landing: the use-case stream in "Same engine. Endless connections."
+   Without stream.js (or with reduced motion) the rows stay as the static pill rows from page.css.
+   stream.js adds .is-stream to .next-rows and .stream-lane to each row's list, then moves every pill
+   with transform only: sideways in a loop, and up and down along a gentle wave. */
+
+.next-rows.is-stream {
+  max-width: none;
+  gap: 22px;
+}
+
+.stream-lane {
+  position: relative;
+  display: block;
+  height: 80px;                 /* pill height plus room for the wave above and below */
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 12px;          /* only shapes the focus ring */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+#next .stream-lane { margin-top: 8px; }
+
+.stream-lane li {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  margin-top: -21px;            /* half the pill's height, so the wave swings around the lane's middle */
+  height: 42px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  will-change: transform;
+}
+#next .stream-lane li { transform: translate3d(-200vw, 0, 0); }   /* off stage until the first frame places it */
+
+@media (max-width: 767px) {
+  .next-rows.is-stream { gap: 16px; }
+  .stream-lane {
+    height: 64px;
+    margin-left: -18px;         /* the lanes run to the screen's edges */
+    margin-right: -18px;
+  }
+  .stream-lane li {
+    height: 34px;
+    margin-top: -17px;
+    padding: 0 13px;
+    font-size: 0.875rem;
+  }
+}

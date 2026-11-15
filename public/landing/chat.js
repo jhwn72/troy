@@ -14,6 +14,7 @@
 // Events it listens for on a mount that is not a loop:
 //   "convo:play"   detail { replay }   play this conversation from the start
 //   "convo:stop"                       stop where it is
+//   "convo:pause"  detail { paused }   hold where it is, or carry on
 // When every mount has been taken over (or the data could not load) it dispatches "convo:ready" on window,
 // detail { live }, and sets data-convo-ready on <html>.
 //
@@ -72,6 +73,24 @@ const HERO = {
   fade: 260,
   lift: 3,               // px the phone that is "speaking" rises (hero.css reads it as --hero-lift)
   pulse: 700,            // the gold line's pulse at each connection
+};
+
+/* ---------- A day at USC timing. The five conversations of the pinned scene play at reading pace: these values
+   replace the ones at the top for those conversations only. Each bubble stays on screen long enough to read
+   before the next thing arrives (readPerChar for every character of the bubble just shown, between readMin and
+   readMax). The typing dots and the typing into the input bar happen inside that time. ---------- */
+const DAY = {
+  beforeTyping: 150,
+  beforeDots: 100,
+  dotsMin: 500,
+  dotsMax: 800,
+  dotsPerChar: 5,
+  tapback: 900,
+  switchGroup: 300,
+  focusRead: 0,          // the reading time below already covers it
+  readPerChar: 55,
+  readMin: 900,
+  readMax: 2600,
 };
 
 // The data file sits next to this script. A version query on this script (added by the static build) carries over.
@@ -167,7 +186,8 @@ class Convo {
     this.mount = mount;
     this.data = data;
     this.loop = mount.hasAttribute('data-convo-loop');
-    this.T = this.loop ? { ...TIMING, ...HERO } : TIMING;
+    this.T = this.loop ? { ...TIMING, ...HERO } : { ...TIMING, ...DAY };
+    this.shown = null;     // day scene: when the newest bubble appeared and how long it needs to be read
     this.dots = [];
     this.pulseEl = null;
     this.keys = (mount.dataset.convoLoop || mount.dataset.convo || '').trim().split(/\s+/).filter((k) => data[k]);
@@ -272,6 +292,23 @@ class Convo {
     }
     this.mount.classList.remove('is-linked');
     this.showFocus(null);
+    this.shown = null;
+  }
+
+  // Day scene: how much longer the newest bubble needs on screen, less the time the next thing takes to arrive.
+  readLeft(lead) {
+    if (!this.T.readPerChar || !this.shown) return 0;
+    return Math.max(0, this.shown.hold - (performance.now() - this.shown.at) - lead);
+  }
+
+  markShown(step) {
+    const T = this.T;
+    if (!T.readPerChar) return;
+    const type = kind(step);
+    if (type === 'switch-group' || type === 'clear') this.shown = null;
+    if (type !== 'message' || step.tapback || !(step.text || step.image)) return;
+    const length = step.text ? letters(step.text).length : 0;
+    this.shown = { at: performance.now(), hold: Math.min(Math.max(length * T.readPerChar, T.readMin), T.readMax) };
   }
 
   stop() {
@@ -330,6 +367,7 @@ class Convo {
       this.mount.classList.toggle('is-linked', Boolean(detail.step.link));
       if (detail.step.link) this.pulse();
     }
+    if (name === 'convo:step') this.markShown(detail.step);
     this.mount.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
   }
 
@@ -420,6 +458,15 @@ class Convo {
     const type = kind(step);
     const mine = step.from === 'me';
     const detail = { key, index, step, phone: step.phone };
+
+    // Day scene: the bubble before this one is read first. Dots and typing count toward that time.
+    if (T.readPerChar && !step.with && !step.tapback) {
+      let lead = 0;
+      if (type === 'message' && mine) lead = (step.text ? letters(step.text).length * (T.charMin + T.charMax) / 2 + T.beforeSend : 0) + T.press + T.beforeTyping;
+      else if (type === 'message') lead = dotsFor(step, T) + T.beforeDots;
+      const left = this.readLeft(lead);
+      if (left > 0) await this.sleep(left, run);
+    }
 
     if (type !== 'count' || step.focus) await this.focusOn(step.focus || step.phone, run);
 
@@ -640,6 +687,10 @@ async function init() {
         convo.play(!event.detail || event.detail.replay !== false);
       });
       mount.addEventListener('convo:stop', () => convo.stop());
+      // day.js holds a conversation where it is (the pause control, or the scene scrolled out of view).
+      mount.addEventListener('convo:pause', (event) => {
+        convo.setPaused('day', Boolean(event.detail && event.detail.paused));
+      });
     }
   }
   ready(live.size);

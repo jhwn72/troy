@@ -274,36 +274,14 @@
         "phone": "left",
         "from": "me",
         "image": "airpods",
-        "alt": "Photo of AirPods"
-      },
-      {
-        "phone": "left",
-        "from": "troy",
-        "text": "got it. where'd u find them?"
-      },
-      {
-        "phone": "left",
-        "from": "me",
-        "text": "leavey 2nd floor",
-        "status": "Read",
+        "alt": "Photo of AirPods",
         "map": 1
-      },
-      {
-        "phone": "left",
-        "from": "troy",
-        "text": "thanks 🙏 i'll find the owner"
       },
       {
         "phone": "right",
         "from": "me",
         "text": "lost my airpods near leavey 😭",
-        "status": "Read",
-        "map": 2
-      },
-      {
-        "phone": "right",
-        "from": "troy",
-        "text": "on it 👀"
+        "status": "Read"
       },
       {
         "phone": "right",
@@ -336,7 +314,7 @@
         "phone": "left",
         "type": "switch-group",
         "name": "The finder and the owner",
-        "map": 3
+        "map": 2
       },
       {
         "phone": "right",
@@ -375,8 +353,7 @@
         "phone": "left",
         "from": "me",
         "text": "the late shuttle to the village is always late",
-        "status": "Read",
-        "map": 1
+        "status": "Read"
       },
       {
         "phone": "left",
@@ -392,7 +369,8 @@
       {
         "phone": "right",
         "from": "troy",
-        "text": "5 trojans raised late village shuttles this week. 2 want to talk. want a group chat with them?"
+        "text": "5 trojans raised late village shuttles this week. 2 want to talk. want a group chat with them?",
+        "map": 1
       },
       {
         "phone": "right",
@@ -529,8 +507,7 @@
         "phone": "left",
         "from": "me",
         "text": "the door to my building won't lock",
-        "status": "Read",
-        "map": 1
+        "status": "Read"
       },
       {
         "phone": "left",
@@ -541,7 +518,8 @@
       {
         "phone": "right",
         "from": "troy",
-        "text": "someone reported a door that won't lock at new north, about a 5 minute walk from u. can u take it?"
+        "text": "someone reported a door that won't lock at new north, about a 5 minute walk from u. can u take it?",
+        "map": 1
       },
       {
         "phone": "right",
@@ -566,8 +544,7 @@
         "phone": "right",
         "from": "me",
         "text": "done",
-        "status": "Read",
-        "map": 3
+        "status": "Read"
       },
       {
         "phone": "left",

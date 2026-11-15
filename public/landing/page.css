@@ -490,7 +490,7 @@ h2 .s { display: inline-block; }
   }
 }
 
-/* ---------- Why it feels different ---------- */
+/* ---------- Why Troy stands out ---------- */
 
 .why-grid {
   display: grid;
@@ -548,8 +548,16 @@ h2 .s { display: inline-block; }
   color: var(--ink);
 }
 button.engine-circle { cursor: pointer; }
-.engine-step h3 { margin-top: 20px; }
-.engine-step p { margin-top: 8px; font-size: 1.0625rem; }
+/* The title and the line under it read as one sentence: the title in the display font, the rest in body text. */
+.engine-step h3 {
+  margin-top: 20px;
+  font-family: var(--font-serif);
+  font-weight: var(--display-weight);
+  font-size: 1.5rem;
+  letter-spacing: var(--display-tracking);
+  line-height: 1.15;
+}
+.engine-step p { margin-top: 4px; font-size: 1.0625rem; line-height: 1.4; text-wrap: balance; }
 .engine-step p.engine-example { margin-top: 12px; font-size: var(--fs-small); }
 /* The tiny example. On wide screens it shows just under its step, in room the row keeps free for it. */
 .engine-example {
@@ -585,7 +593,7 @@ button.engine-circle { cursor: pointer; }
 
 .safe-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   margin-top: 56px;
   text-align: left;
@@ -599,6 +607,32 @@ button.engine-circle { cursor: pointer; }
 }
 .safe-card h3 { margin-top: 16px; text-wrap: balance; }
 .safe-card p { margin-top: 6px; font-size: 1.0625rem; }
+
+/* ---------- Built on purpose: four quiet items on a paper panel ---------- */
+
+#purpose > .panel { padding-block: clamp(40px, 4.5vw, 56px); box-shadow: var(--shadow-soft); }
+.purpose-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 28px;
+  margin-top: 36px;
+  text-align: left;
+}
+.purpose-grid li { position: relative; padding-top: 22px; }
+/* The small circle the page uses for its dots. */
+.purpose-grid li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  background: var(--gold);
+  border: 1px solid var(--stone);
+  border-radius: 50%;
+}
+.purpose-grid h3 { font-size: 1.0625rem; text-wrap: balance; }
+.purpose-grid p { margin-top: 6px; font-size: var(--fs-small); line-height: 1.45; color: var(--stone); }
 
 /* ---------- What's next ---------- */
 
@@ -715,6 +749,7 @@ button.engine-circle { cursor: pointer; }
 
 @media (max-width: 1023px) {
   .safe-grid { grid-template-columns: repeat(2, 1fr); }
+  .purpose-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 767px) {
@@ -768,7 +803,7 @@ button.engine-circle { cursor: pointer; }
     pointer-events: none;
   }
   .engine-step h3 { grid-row: 2; margin-top: 24px; }
-  .engine-step p { grid-row: 3; margin-top: 6px; }
+  .engine-step p { grid-row: 3; margin-top: 4px; }
   .engine-step p.engine-example { position: static; grid-row: 4; margin-top: 10px; }
   .engine-step:hover:not(.is-open):not(:focus-within) .engine-example { opacity: 0; }
   #engine .engine-step:hover:not(.is-open):not(:focus-within) .engine-circle {
@@ -794,6 +829,13 @@ button.engine-circle { cursor: pointer; }
   .safe-card h3 { margin-top: 12px; font-size: 1rem; }
   .safe-card p { margin-top: 4px; font-size: 0.875rem; line-height: 1.4; }
   .pills { gap: 8px; }
+
+  /* Purpose: two by two, edge to edge like the other bands. */
+  main > section#purpose { padding-left: 0; padding-right: 0; }
+  #purpose > .panel { padding: 40px 18px; }
+  .purpose-grid { gap: 20px 16px; margin-top: 28px; }
+  .purpose-grid h3 { font-size: 1rem; }
+  .purpose-grid p { font-size: 0.875rem; line-height: 1.4; }
 }
 
 /* ==========================================================================
@@ -866,12 +908,12 @@ button.engine-circle { cursor: pointer; }
 #why .why-grid li:last-child { transform: rotate(1.5deg); }
 #why .why-grid h3 { color: var(--white); }
 
-/* Safe: six paper cards on the night scene, a few tilted */
+/* Safe: four paper cards on the night scene, a few tilted */
 #safe > .panel { padding-block: clamp(104px, 10vw, 152px); }
 #safe .safe-card { color: var(--ink); }
 #safe .safe-card:nth-child(6n+1) { transform: rotate(-1deg); }
 #safe .safe-card:nth-child(6n+3) { transform: rotate(1.5deg); }
-#safe .safe-card:nth-child(6n+5) { transform: rotate(-1.5deg); }
+#safe .safe-card:nth-child(4n+4) { transform: rotate(-1deg); }
 
 /* ---------- Ink panel: the engine ---------- */
 
@@ -1010,7 +1052,6 @@ button.engine-circle { cursor: pointer; }
   #why .why-grid li:nth-child(2) { transform: none; }
   #why .why-grid li:last-child { transform: rotate(1deg); }
   #safe .safe-card:nth-child(6n+3) { transform: rotate(1deg); }
-  #safe .safe-card:nth-child(6n+5) { transform: rotate(-1deg); }
   #next::after {
     -webkit-mask:
       var(--key-down) 50% 12px / 15px 12px repeat-x,

@@ -2,9 +2,9 @@
    Two looks, one markup:
    1. Static (no JavaScript, reduced motion): five stops stacked as cards, each with its time, setup line,
       finished conversation (both sides) and chip. Everything below up to "The pinned scene" is that look.
-   2. Pinned (day.js adds .day-on to <html>): the wrapper is tall and the stage sticks to the screen. On stage:
-      one phone (the person asking) on the left, the map beside it, and the other side as a small notification
-      card that pops out of their dot on the map. day.js sets data-spot on .day-panel
+   2. Pinned (day.js adds .day-on to <html>): the wrapper is a little over three screens tall and the stage sticks
+      to the screen while the day plays by itself. On stage: one phone (the person asking) on the left, the
+      connection picture beside it, and the other side as a small notification card that pops out of their circle. day.js sets data-spot on .day-panel
       (intro, phone, map, card, chip): that one thing is at full strength and the rest is dimmed.
    Only opacity and transform move. */
 
@@ -63,8 +63,8 @@ html:not(.day-on) .day-cardbox-repair .day-card > :not(.repair-steps) { display:
 /* ---------- The pinned scene ---------- */
 
 html.day-on main > section#demos {
-  height: 600vh;
-  height: 600svh;                 /* one screen of stage plus five screens of scrolling, one per stop */
+  height: 325vh;
+  height: 325svh;                 /* one screen of stage plus a little over two of scrolling: the day plays by itself */
   padding-left: clamp(12px, 3vw, 120px);
   padding-right: clamp(12px, 3vw, 120px);
 }
@@ -77,13 +77,14 @@ html.day-on .day-stage {
 }
 html.day-on .day-panel {
   --dim: 0.35;                    /* everything that is not in the spotlight */
-  --pw: clamp(240px, 23vw, 320px);
-  --ph: min(calc(var(--pw) * 2.07), calc(100vh - 190px));
+  --pw: clamp(250px, 24vw, 340px);
+  --ph: min(calc(var(--pw) * 2.07), calc(100vh - 170px));
   position: relative;
   display: grid;
-  grid-template-columns: var(--pw) minmax(0, 1fr);
+  grid-template-columns: var(--pw) minmax(0, 480px);
+  justify-content: center;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  column-gap: clamp(20px, 4vw, 64px);
+  column-gap: clamp(28px, 7vw, 112px);
   row-gap: clamp(4px, 1vh, 10px);
   width: 100%;
   max-width: 1280px;
@@ -92,7 +93,7 @@ html.day-on .day-panel {
   overflow: hidden;
 }
 @supports (height: 100svh) {
-  html.day-on .day-panel { --ph: min(calc(var(--pw) * 2.07), calc(100svh - 190px)); }
+  html.day-on .day-panel { --ph: min(calc(var(--pw) * 2.07), calc(100svh - 170px)); }
 }
 
 /* The heading and each stop's own time stay for screen readers; the clock shows the time. */
@@ -142,7 +143,9 @@ html.day-on .day-nav {
 }
 .day-marks { display: flex; align-items: center; }
 .day-mark,
-.day-next {
+.day-next,
+.day-pause,
+.day-again {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -163,7 +166,9 @@ html.day-on .day-nav {
   cursor: pointer;
 }
 .day-mark::after,
-.day-next::after { content: ""; position: absolute; inset: -6px -2px; }   /* tap area */
+.day-next::after,
+.day-pause::after,
+.day-again::after { content: ""; position: absolute; inset: -6px -2px; }   /* tap area */
 .day-mark.is-past { opacity: 0.8; }
 .day-mark.is-current { color: var(--ink); opacity: 1; }
 .day-mark.is-current::before {
@@ -178,8 +183,12 @@ html.day-on .day-nav {
   background: var(--gold);
 }
 .day-next { margin-left: 2px; }
-.day-next:hover, .day-mark:hover { opacity: 1; }
+.day-next:hover, .day-mark:hover, .day-pause:hover, .day-again:hover { opacity: 1; }
+.day-again[hidden] { display: none; }
+.day-again { opacity: 0.9; color: var(--ink); }
 .day-next svg,
+.day-pause svg,
+.day-again svg,
 .day-idle svg {
   width: 14px;
   height: 14px;
@@ -299,7 +308,7 @@ html.day-on .day-stop .phone-screen { background: transparent; }
 html.day-on .day-stop:not([data-main="right"]) .phone[data-phone="right"],
 html.day-on .day-stop[data-main="right"] .phone[data-phone="left"] { visibility: hidden; }
 
-/* The map: the stage. It is a square as large as its cell allows. */
+/* The connection picture: 4 by 3, as large as its cell allows up to 480px wide. The room it leaves is white space. */
 html.day-on .map-figure,
 html.day-on .day-cardbox {
   grid-column: 2;
@@ -315,13 +324,15 @@ html.day-on .day-cardbox {
 }
 html.day-on #food-map,
 html.day-on .day-cardsq {
-  width: min(100cqw, 100cqh);
-  height: min(100cqw, 100cqh);
+  width: min(100cqw, 133.33cqh, 480px);
+  height: min(75cqw, 100cqh, 360px);
   aspect-ratio: auto;
 }
+html.day-on #food-map { background: none; border: 0; border-radius: 0; overflow: visible; }
 
-/* The notification card. .day-cardsq lies exactly over the map, so the card is placed in map coordinates
-   with one corner on the other person's dot, and grows out of that corner. */
+/* The notification card. .day-cardsq lies exactly over the picture, so the card is placed in its coordinates
+   with one corner just under the other person's circle, and grows out of that corner. It may run past the foot
+   of the picture into the white space below. */
 html.day-on .day-cardbox { z-index: 4; pointer-events: none; }
 html.day-on .day-cardsq { position: relative; }
 html.day-on .day-card {
@@ -337,11 +348,11 @@ html.day-on .day-card {
   transform: scale(0.4);
   transition: opacity 0.3s ease, transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.15);
 }
-html.day-on .day-card[data-card="lost-found"] { right: 38%; top: 57%; transform-origin: 100% 0; }
-html.day-on .day-card[data-card="concern"] { left: 17%; top: 16%; transform-origin: 0 0; }
-html.day-on .day-card[data-card="food"] { right: 27%; top: 59%; transform-origin: 100% 0; }
-html.day-on .day-card[data-card="broken"] { right: 26%; bottom: 52%; transform-origin: 100% 100%; }
-html.day-on .day-card[data-card="rides"] { left: 40%; bottom: 31%; transform-origin: 0 100%; }
+html.day-on .day-card[data-card="lost-found"],
+html.day-on .day-card[data-card="broken"] { right: 4%; top: 56%; transform-origin: 80% 0; }
+html.day-on .day-card[data-card="concern"] { right: 4%; top: 48%; transform-origin: 80% 0; }
+html.day-on .day-card[data-card="food"] { right: 35.5%; top: 72%; transform-origin: 100% 0; }
+html.day-on .day-card[data-card="rides"] { left: 27%; top: 45%; transform-origin: 0 30%; }
 html.day-on .day-stop.is-current .day-card.is-out { opacity: var(--dim); transform: none; }
 html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out { opacity: 1; }
 
@@ -415,7 +426,7 @@ html.day-on .day .repair-steps li { gap: 5px; min-height: 0; font-size: 11.5px; 
 html.day-on .day .repair-steps li::before { width: 10px; height: 10px; }
 html.day-on .day .repair-steps li + li::after { display: none; }
 
-/* Under the map: the chip, and for free food the one line about who gets the text. They share the place. */
+/* Under the picture: the chip, and for free food the one line about who gets the text. They share the place. */
 html.day-on .day-extra { display: none; }
 html.day-on #food .day-extra {
   grid-column: 2;
@@ -459,7 +470,7 @@ html.day-on .day-stop.is-current .phone::after,
 html.day-on .day-stop.is-current .stage-who { opacity: 1; }
 html.day-on .day-stop.is-current .pair-foot { opacity: var(--dim); pointer-events: auto; }
 html.day-on .day-panel[data-spot="chip"] .day-stop.is-current .pair-foot { opacity: 1; }
-/* The free food line shows only while the map has the spotlight. */
+/* The free food line shows only while the picture has the spotlight. */
 html.day-on .day-panel[data-spot="map"] #food.is-current .day-extra { opacity: 1; }
 html.day-on .day-panel[data-spot="map"] #food.is-current .pair-foot { opacity: 0; }
 
@@ -470,7 +481,7 @@ html.day-on .map-figure { transition: opacity 0.45s ease; }
 html.day-on .day-panel[data-spot]:not([data-spot="phone"]) :is(.day-shell, .day-stop .phone) { opacity: var(--dim); }
 html.day-on .day-panel[data-spot]:not([data-spot="map"]) .map-figure { opacity: var(--dim); }
 
-/* The nudge: a small quiet pill at the foot of the map. */
+/* The nudge: a small quiet pill at the foot of the picture, once the whole day has played. */
 html.day-on .day-idle {
   grid-column: 2;
   grid-row: 3;
@@ -497,7 +508,7 @@ html.day-on .day-idle {
 }
 html.day-on .day-idle.is-on { opacity: 1; transform: none; }
 
-/* ---------- Narrow screens: map on top with the card over it, the one phone below ---------- */
+/* ---------- Narrow screens: the picture on top with the card over it, the one phone below ---------- */
 
 @media (max-width: 899px) {
   html.day-on main > section#demos { padding-left: 0; padding-right: 0; }
@@ -505,13 +516,13 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
   html.day-on .day-panel {
     --pw: min(100%, 300px);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto min(38vh, calc(100vw - 28px)) minmax(0, 1fr) auto;
+    grid-template-rows: auto auto min(30vh, calc((100vw - 28px) * 0.75)) minmax(0, 1fr) auto;
     row-gap: 6px;
     padding: 10px 14px 8px;
     border-radius: 0;
   }
   @supports (height: 100svh) {
-    html.day-on .day-panel { grid-template-rows: auto auto min(38svh, calc(100vw - 28px)) minmax(0, 1fr) auto; }
+    html.day-on .day-panel { grid-template-rows: auto auto min(30svh, calc((100vw - 28px) * 0.75)) minmax(0, 1fr) auto; }
   }
   html.day-on .day-clock { grid-column: 1; grid-row: 1; font-size: 22px; align-self: center; }
   html.day-on .day-nav { grid-column: 1; grid-row: 1; justify-self: end; align-self: center; margin: 0 -6px 0 0; }
@@ -526,10 +537,11 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
   html.day-on .day-stop .chip { min-height: 36px; padding: 5px 14px 5px 12px; font-size: 13px; }
 
   html.day-on .day-card { width: clamp(180px, 60%, 240px); padding: 8px 10px 10px; border-radius: 18px; }
-  html.day-on .day-card[data-card="lost-found"] { right: 36%; top: 50%; }
-  html.day-on .day-card[data-card="food"] { right: 27%; top: 50%; }
-  html.day-on .day-card[data-card="rides"] { left: 38%; }
-  html.day-on .day-card[data-card="broken"] { right: 22%; top: 3%; bottom: auto; transform-origin: 100% 60%; }
+  /* Little room here: the card sits right under the circle, and steps away again when it is not its moment. */
+  html.day-on .day-card[data-card="lost-found"],
+  html.day-on .day-card[data-card="broken"],
+  html.day-on .day-card[data-card="concern"] { top: 45%; }
+  html.day-on .day-panel:not([data-spot="card"]) .day-stop.is-current .day-card.is-out { opacity: 0; }
   .day-card-who { margin-bottom: 6px; font-size: 12px; }
   .day-card-avatar { width: 22px; height: 22px; }
   .day-card-avatar svg { width: 15px; height: 15px; }

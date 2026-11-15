@@ -1,47 +1,47 @@
-/* Troy landing: the drawn campus map (#food-map), the stage of "A day at USC". Paper ground, line-colored
-   paths, soft building shapes and a few named places. Never real map tiles.
+/* Troy landing: the connection picture (#food-map), beside the phone in "A day at USC".
+   No streets and no buildings: the person asking is one circle ("you"), the person or people Troy finds are
+   another circle or a small cluster, and a gold line draws between them when they are connected, with one small
+   fact on it.
    One layer per stop (g.map-layer[data-layer]). map.js sets data-stop on #food-map (which layer shows) and
-   data-phase on each layer (how far its story has got). Inside a layer, data-at="n" marks what appears at phase n.
-   With no attributes at all (no JavaScript, reduced motion) this is the finished free food map.
+   data-phase on each layer (how far its story has got). Inside a layer, data-at="1" marks what appears when Troy
+   finds the other side, and data-at="2" what appears when they are connected.
+   With no attributes at all (no JavaScript, reduced motion) this is the finished free food picture.
    Only opacity and transform move, plus stroke-dashoffset on the gold lines. */
 
-#food-map { padding: 0; }
+#food-map { padding: 0; aspect-ratio: 4 / 3; }
 #food-map .map {
   display: block;
   width: 100%;
   height: 100%;
+  overflow: visible;
 }
 
-.map-buildings rect { fill: var(--stone); opacity: 0.16; }
-.map-paths path {
-  fill: none;
-  stroke: var(--line);
-  stroke-width: 9;
-}
-.map-plaza { fill: var(--paper); stroke: var(--line); stroke-width: 6; }
-.map-shuttle { fill: var(--ink); }
-
-/* People around campus. They stay gray unless a stop lights them. */
-.map-people circle { fill: var(--stone); opacity: 0.55; }
-
-/* Named places */
-.map-label,
-.map-tag {
+/* Words */
+.map text {
   font-family: var(--font-sans);
   text-anchor: middle;
+}
+.map-you text { font-size: 15px; font-weight: 600; fill: var(--white); }
+.map-in { font-size: 15px; font-weight: 600; fill: var(--ink); }
+.map-name { font-size: 14px; font-weight: 500; fill: var(--ink); }
+.map-place { font-size: 13.5px; font-weight: 500; fill: var(--stone); }
+.map-fact { font-size: 14px; font-weight: 600; fill: var(--ink); }
+.map-range-label {
   paint-order: stroke;
   stroke: var(--paper);
-  stroke-width: 3px;
+  stroke-width: 8px;
   stroke-linejoin: round;
 }
-.map-label { font-size: 11px; font-weight: 500; fill: var(--stone); }
-.map-tag { font-size: 10px; font-weight: 600; fill: var(--ink); }
-.map-tag-start { text-anchor: start; }
 
-/* The pieces the stops share */
-.map-person { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
-.map-pin path { fill: var(--cardinal); }
-.map-pin circle { fill: var(--paper); }
+/* Circles */
+.map-you circle { fill: var(--ink); }
+.map-other { fill: var(--white); stroke: var(--line); stroke-width: 1.5; }
+.map-who { fill: var(--stone); }
+.map-peer { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
+.map-dot-off { fill: var(--stone); opacity: 0.4; }
+.map-dot-on { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
+
+/* The gold line, on an amber one so it reads on paper */
 .map-link,
 .map-link-shade {
   fill: none;
@@ -49,46 +49,30 @@
   stroke-dasharray: 100;
   stroke-dashoffset: 0;
 }
-.map-link { stroke: var(--gold); stroke-width: 3; }
-.map-link-shade { stroke: var(--amber); stroke-width: 4.6; }
-.map-office circle { fill: var(--ink); }
+.map-link { stroke: var(--gold); stroke-width: 3.5; }
+.map-link-shade { stroke: var(--amber); stroke-width: 5.5; }
 .map-arrow {
   fill: none;
   stroke: var(--amber);
-  stroke-width: 2.6;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.map-lit-amber { fill: var(--amber); opacity: 0.45; }
-.map-lit-laurel { fill: var(--laurel); opacity: 0.7; }
-.map-tech circle { fill: var(--ink); stroke: var(--paper); stroke-width: 1.5; }
-/* The three riders end up at the edge of the map, on their way to LAX. */
-.map-leave { transform: translateX(-104px); }
 
 /* The 15-minute walk */
 .map-range {
   fill: rgba(var(--ink-rgb), 0.03);
   stroke: var(--stone);
-  stroke-opacity: 0.35;
-  stroke-width: 1;
+  stroke-opacity: 0.45;
+  stroke-width: 1.25;
   vector-effect: non-scaling-stroke;
   transform-box: fill-box;
   transform-origin: center;
 }
-.map-dot-on { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
-/* A tiny chat bubble pops above each dot as its text lands, then fades. The finished map shows the gold dots only. */
-.map-bubble {
-  fill: var(--bubble-gray);
-  stroke: var(--stone);
-  stroke-width: 0.75;
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-}
 
 /* ---------- Which layer shows ---------- */
 
-/* Not the pinned scene: the finished free food map only. */
+/* Not the pinned scene: the finished free food picture only. */
 #food-map:not([data-stop]) .map-layer:not([data-layer="food"]) { display: none; }
 
 #food-map[data-stop] .map-layer { opacity: 0; }
@@ -100,76 +84,55 @@
 
 /* ---------- How far a layer's story has got ---------- */
 
-/* Not yet: hidden. Things that travel wait where they come from; gold lines wait undrawn. */
-:is(.map-layer[data-phase="0"] [data-at],
-    .map-layer[data-phase="1"] [data-at="2"],
-    .map-layer[data-phase="1"] [data-at="3"],
-    .map-layer[data-phase="2"] [data-at="3"]) { opacity: 0; }
-:is(.map-layer[data-phase="0"] [data-at],
-    .map-layer[data-phase="1"] [data-at="2"],
-    .map-layer[data-phase="1"] [data-at="3"],
-    .map-layer[data-phase="2"] [data-at="3"]).map-move { transform: translate(var(--dx, 0px), var(--dy, 0px)); }
-:is(.map-layer[data-phase="0"] [data-at],
-    .map-layer[data-phase="1"] [data-at="2"],
-    .map-layer[data-phase="1"] [data-at="3"],
-    .map-layer[data-phase="2"] [data-at="3"]):is(.map-link, .map-link-shade) { stroke-dashoffset: 100; }
+.map-pop,
+.map-move { transform-box: fill-box; transform-origin: center; }
 
-/* Broken things: the technician waits a 5 minute walk away, then walks over. */
-.map-layer[data-phase="0"] .map-tech { opacity: 0; }
-.map-layer:is([data-phase="0"], [data-phase="1"]) .map-tech { transform: translate(222px, -90px); }
-/* Rides: the three stay where they met until the group chat starts. */
-.map-layer:is([data-phase="0"], [data-phase="1"]) .map-leave { transform: none; }
+/* Not yet: hidden. Circles wait small, the cluster waits where it comes from, gold lines wait undrawn. */
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"]) { opacity: 0; }
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"]).map-pop { transform: scale(0.6); }
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"]).map-move { transform: translate(var(--dx, 0px), var(--dy, 0px)); }
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"]):is(.map-link, .map-link-shade) { stroke-dashoffset: 100; }
 
 @media (prefers-reduced-motion: no-preference) {
   .map-layer { transition: opacity 0.45s ease; }
   .map-layer [data-at] {
-    transition: opacity 0.35s ease, transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
-    transition-delay: calc(var(--i, 0) * 90ms);
+    transition: opacity 0.4s ease, transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-delay: calc(var(--i, 0) * 110ms);
   }
   .map-layer :is(.map-link, .map-link-shade)[data-at] {
-    transition: opacity 0.2s ease, stroke-dashoffset 1s ease 0.15s;
+    transition: opacity 0.2s ease, stroke-dashoffset 0.9s ease;
+    transition-delay: calc(0.1s + var(--i, 0) * 0.55s);
   }
-  .map-tech { transition: opacity 0.35s ease; }
-  .map-layer:is([data-phase="2"], [data-phase="3"]) .map-tech { animation: map-walk 2.4s ease-in-out both; }
-  .map-leave { transition: transform 1.8s ease-in-out 0.5s; }
-  .map-layer:is([data-phase="0"], [data-phase="1"]) .map-leave { transition: none; }
+  .map-layer :is(.map-fact, .map-arrow)[data-at] { transition-delay: calc(0.75s + var(--i, 0) * 0.55s); }
 
   /* Free food. Waiting: */
-  #food-map.is-armed:not(.is-playing) .map-layer[data-layer="food"] :is(.map-pin, .map-range, .map-dot-on) { opacity: 0; }
-  /* Pin drops, circle spreads for 1.5 seconds, then the dots light up one by one, nearest first. */
-  #food-map.is-playing .map-layer[data-layer="food"] .map-pin { animation: map-pin-drop 0.35s cubic-bezier(0.3, 0, 0.4, 1) both; }
-  #food-map.is-playing .map-range { animation: map-spread 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) 0.3s both; }
+  #food-map.is-armed:not(.is-playing) .map-layer[data-layer="food"] :is(.map-range, .map-range-label, .map-dot-on, .map-count) { opacity: 0; }
+  /* The ring spreads, then the circles inside it light up one by one. */
+  #food-map.is-playing .map-range { animation: map-spread 1s cubic-bezier(0.2, 0.6, 0.3, 1) both; }
+  #food-map.is-playing .map-range-label { animation: map-fade 0.3s ease-out 0.8s both; }
+  #food-map.is-playing .map-count { animation: map-fade 0.3s ease-out 1s both; }
   #food-map.is-playing .map-dot-on {
-    animation: map-fade 0.25s ease-out both;
-    animation-delay: calc(1.7s + var(--i) * 0.08s);
-  }
-  #food-map.is-playing .map-bubble {
-    animation: map-pop 1s ease-out both;
-    animation-delay: calc(1.75s + var(--i) * 0.08s);
+    animation: map-light 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: calc(1s + var(--i) * 0.15s);
+    transform-box: fill-box;
+    transform-origin: center;
   }
 }
 
-@keyframes map-walk {
-  from { transform: translate(222px, -90px); }
-  30% { transform: translate(222px, 0); }
-  to { transform: none; }
-}
-@keyframes map-pin-drop {
-  from { opacity: 0; transform: translateY(-48px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 @keyframes map-fade {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes map-light {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: none; }
 }
 @keyframes map-spread {
   from { opacity: 0; transform: scale(0); }
   20% { opacity: 1; }
   to { opacity: 1; transform: scale(1); }
-}
-@keyframes map-pop {
-  0% { opacity: 0; transform: scale(0); }
-  20% { opacity: 1; transform: scale(1); }
-  70% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(1); }
 }
