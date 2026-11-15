@@ -28,6 +28,7 @@ const WALLET_PHOTO = join(dir, "wallet.jpg");
 writeFileSync(WALLET_PHOTO, "jpeg");
 const FOOD_PHOTO: IncomingImage = { path: join(dir, "food.jpg"), mime: "image/jpeg" };
 let editsOn = false;
+let photoIsFood = true;
 const edited: string[] = [];
 
 after(() => {
@@ -46,7 +47,7 @@ beforeEach(() => {
   // Any model call fails except the demo food read, which says pizza.
   setModelCall(async (opts) => {
     modelCalls.push(opts.system.slice(0, 40));
-    if (opts.system.includes("wants to give away")) return JSON.stringify({ food: "Pizza", servings: 12 });
+    if (opts.system.includes("could be shared")) return JSON.stringify(photoIsFood ? { isFood: true, food: "Pizza", servings: 12 } : { isFood: false });
     throw new Error("off");
   });
 });
@@ -287,6 +288,20 @@ test("food: a photo with no words still counts; with edits the one counter bubbl
     onlyDemo(w);
   } finally {
     editsOn = false;
+  }
+});
+
+test("a bare photo that isn't food goes to normal Troy; with giveaway words it is always the food scene", async () => {
+  photoIsFood = false;
+  try {
+    const w = world();
+    const john = w.person(DEMO);
+    const out = await john.say("", [FOOD_PHOTO]);
+    assert.ok(!out.some((b) => /servings|left|students close enough/.test(b)), out.join(" | "));
+    const forced = await john.say("give away", [FOOD_PHOTO]);
+    assert.equal(forced[0], "looks like food, about 8 servings");
+  } finally {
+    photoIsFood = true;
   }
 });
 
