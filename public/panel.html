@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Troy, under the hood</title>
-<meta name="theme-color" content="#FAF7F2">
+<meta name="theme-color" content="#1C1917">
 <link rel="icon" href="assets/troy-avatar.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,81 +12,9 @@
 <link rel="stylesheet" href="landing/tokens.css">
 <link rel="stylesheet" href="landing/nav.css">
 <link rel="stylesheet" href="landing/tool.css">
-<style>
-  /* Only what this page has that the other working pages don't. The shared look is landing/tool.css. */
-  body { font-size: 16px; }
-  .wrap { max-width: 1560px; padding: 0 28px 64px; }
-
-  .badge { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--white); border-radius: var(--r-pill); padding: 5px 14px; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 14px; }
-  .badge i { width: 9px; height: 9px; border-radius: 50%; background: var(--laurel); }
-  .badge.off i { background: var(--cardinal); }
-  .badge.eg i { background: var(--gold); }
-  .badge.live i { animation: pulse 2s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.3; } }
-
-  .page-head-row > .grow { flex: 1 1 420px; }
-  .stats { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
-  .stat { background: var(--white); border: 1px solid var(--line); border-radius: var(--r-card); padding: 14px 20px; min-width: 108px; }
-  .stat .n { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 34px; line-height: 1; }
-  .stat .l { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--stone); margin-top: 6px; }
-  .stat.eval { background: var(--ink); color: var(--paper); border-color: var(--ink); position: relative; padding-right: 32px; }
-  .stat.eval .l { color: rgba(var(--paper-rgb), 0.7); }
-  .stat.eval::after { content: ""; position: absolute; top: 14px; right: 14px; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); }
-  .stat.eval .n small { font-family: var(--font-body); letter-spacing: 0; font-size: 14px; font-weight: 500; margin-left: 8px; white-space: nowrap; display: inline-block; }
-  .toggle { min-height: var(--tap); border: 1px solid var(--line); background: var(--white); border-radius: var(--r-pill); padding: 0 20px; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; gap: 10px; align-self: center; }
-  .toggle::before { content: ""; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--stone); }
-  .toggle[aria-pressed="true"] { background: var(--cardinal); border-color: var(--cardinal); color: var(--white); }
-  .toggle[aria-pressed="true"]::before { background: var(--white); border-color: var(--white); }
-
-  main { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 22px; align-items: start; }
-  @media (max-width: 1180px) { main { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 760px) { main { grid-template-columns: 1fr; } .wrap { padding: 0 16px 56px; } .stat { flex: 1 1 40%; } .stat.eval { flex-basis: 100%; } .toggle { flex: 1 1 100%; justify-content: center; } }
-  .col { min-width: 0; }
-
-  main h2 { font-size: 1.625rem; margin: 0 0 12px; display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; }
-  main h2 span { font-family: var(--font-body); letter-spacing: 0; font-size: 14px; color: var(--stone); font-weight: 500; }
-  .col > section + section { margin-top: 28px; }
-
-  .card.new { animation: slide 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
-  @keyframes slide { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .card.new, .badge.live i { animation: none; } .bar i { transition: none !important; } }
-  .title { font-size: 17px; }
-  .meta { font-size: 14px; }
-  .empty { font-size: 15px; padding: 28px 18px; }
-  .pill.found { background: var(--ink); color: var(--paper); }
-  .pill.lost { background: var(--white); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
-
-  .hidden-line { margin-top: 10px; border-radius: 16px; background: var(--stone-soft); color: var(--stone); padding: 8px 14px; font-size: 14px; letter-spacing: 0.02em; }
-  .staff-line { margin-top: 10px; border-radius: 16px; background: var(--cardinal-soft); padding: 8px 14px; font-size: 14px; overflow-wrap: anywhere; }
-  .staff-line b { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--cardinal); display: block; }
-  .photo { width: 76px; height: 76px; }
-
-  .conf { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
-  .conf .num { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 38px; line-height: 1; min-width: 104px; }
-  .conf .num small { font-family: var(--font-body); letter-spacing: 0; font-size: 14px; color: var(--stone); }
-  .bar { flex: 1; height: 12px; border-radius: var(--r-pill); background: var(--stone-soft); overflow: hidden; position: relative; }
-  .bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--stone); transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
-  .bar.high i { background: var(--laurel); }
-  .bar.mid i { background: var(--amber); }
-  .reasons { margin: 12px 0 0; padding: 0; list-style: none; font-size: 15px; }
-  .reasons li { padding-left: 20px; position: relative; margin-top: 4px; }
-  .reasons li::before { content: ""; position: absolute; left: 2px; top: 0.5em; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--stone); }
-  .pair { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
-  .pair .arrow { width: 22px; height: 2px; background: var(--line); }
-
-  .verif { display: flex; align-items: center; gap: 16px; }
-  .score { width: 68px; height: 68px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: var(--display-weight); font-size: 26px; background: var(--stone-soft); color: var(--stone); }
-  .score.pass { background: var(--laurel); color: var(--white); }
-  .score.fail { background: var(--cardinal); color: var(--white); }
-
-  .servings { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; }
-  .servings .n { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 46px; line-height: 1; }
-  .dots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  .dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--laurel); transition: background 0.4s; }
-  .dots i.gone { background: var(--line); }
-</style>
+<link rel="stylesheet" href="landing/engine.css">
 </head>
-<body>
+<body class="engine-page">
 <div class="wrap">
   <header class="site-head">
     <a class="site-nav-brand" href="./">Troy</a>
@@ -101,271 +29,101 @@
   <div class="page-head">
     <div class="page-head-row">
       <div class="grow">
-        <span class="badge" id="badge"><i></i><span id="badge-text">connecting</span></span>
         <h1>Under the hood</h1>
-        <p class="sub">Lost and found and free food, step by step: every listing, the pairs Troy is weighing, the blind check and the handoff.</p>
+        <p class="sub">The same five steps run every connection. This is them working.</p>
       </div>
-      <div class="stats">
-        <div class="stat eval"><div class="n" id="eval-n">no eval yet</div><div class="l" id="eval-l">matcher eval</div></div>
-        <div class="stat" id="chat-stat" hidden><div class="n" id="chat-n">0</div><div class="l" id="chat-l">chat health</div></div>
-        <div class="stat"><div class="n" id="s-found">0</div><div class="l">found</div></div>
-        <div class="stat"><div class="n" id="s-lost">0</div><div class="l">lost</div></div>
-        <div class="stat"><div class="n" id="s-matches">0</div><div class="l">matches</div></div>
-        <div class="stat"><div class="n" id="s-returned">0</div><div class="l">returned</div></div>
+      <div class="head-tools">
+        <span class="badge" id="badge"><i></i><span id="badge-text">connecting</span></span>
         <button class="toggle" id="staff" type="button" aria-pressed="false">Staff view</button>
       </div>
     </div>
   </div>
+
+  <!-- The engine: drawn by landing/engine.js from the same data the feeds below use. -->
+  <section class="engine" aria-label="The engine">
+    <div class="engine-stage" id="stage"></div>
+    <div class="sat-tags" id="sat-tags"></div>
+    <div class="engine-detail">
+      <div class="trace" id="trace" aria-live="off"></div>
+      <p class="pin-hint" id="pin-hint">Select a block to pin what that step is doing right now.</p>
+      <div class="pin" id="pin" hidden>
+        <div class="pin-head">
+          <span class="pin-num" id="pin-num"></span>
+          <p class="pin-line"><b id="pin-name"></b> <span id="pin-does"></span></p>
+          <button class="pin-close" id="pin-close" type="button">Unpin</button>
+        </div>
+        <div class="pin-what" id="pin-what"></div>
+        <div class="pin-rows" id="pin-rows"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="proof" aria-label="Proof">
+    <div class="proof-main">
+      <p class="proof-big" id="proof-big" hidden><span class="n" id="eval-n"></span> <span id="eval-w">wrong handoffs</span></p>
+      <p class="proof-sub" id="eval-s"></p>
+    </div>
+    <dl class="totals">
+      <div id="t-found" hidden><dt>found</dt><dd id="s-found"></dd></div>
+      <div id="t-lost" hidden><dt>lost</dt><dd id="s-lost"></dd></div>
+      <div id="t-matches" hidden><dt>matches</dt><dd id="s-matches"></dd></div>
+      <div id="t-returned" hidden><dt>returned</dt><dd id="s-returned"></dd></div>
+      <div id="chat-stat" hidden><dt id="chat-l">chat health</dt><dd id="chat-n"></dd></div>
+    </dl>
+  </section>
   <hr class="key-rule" aria-hidden="true">
 
   <main>
     <div class="col">
-      <section><h2>Listings <span>found and lost, newest first</span></h2><div id="listings"></div></section>
+      <section><h2>Listings <span class="count" id="c-listings"></span> <span class="h-sub">found and lost, newest first</span></h2><div id="listings"></div></section>
     </div>
     <div class="col">
-      <section><h2>Candidate matches <span>confidence and why</span></h2><div id="matches"></div></section>
-      <section><h2>Verification <span>blind description, scored</span></h2><div id="verifications"></div></section>
+      <section><h2>Candidate matches <span class="count" id="c-matches"></span> <span class="h-sub">confidence and why</span></h2><div id="matches"></div></section>
+      <section><h2>Verification <span class="count" id="c-verifications"></span> <span class="h-sub">blind description, scored</span></h2><div id="verifications"></div></section>
     </div>
     <div class="col">
-      <section><h2>Handoffs <span>the finder chooses</span></h2><div id="handoffs"></div></section>
-      <section><h2>Food drops <span>servings left, live</span></h2><div id="food"></div></section>
+      <section><h2>Handoffs <span class="count" id="c-handoffs"></span> <span class="h-sub">the finder chooses</span></h2><div id="handoffs"></div></section>
+      <section><h2>Food drops <span class="count" id="c-food"></span> <span class="h-sub">servings left, live</span></h2><div id="food"></div></section>
     </div>
   </main>
   <footer class="page-foot">
-    <span>Rows tagged "example" are example data. Hidden details stay masked for everyone except staff until the owner is verified.</span>
+    <span>Rows tagged [example] are example data. Hidden details stay masked for everyone except staff until the owner is verified.</span>
     <span><a href="./">Home</a> · <a href="dashboard.html">For staff</a> · <a href="privacy.html">Privacy</a></span>
   </footer>
 </div>
 
 <script src="landing/demo.js"></script>
+<script src="landing/engine.js"></script>
 <script>
 (() => {
-  const $ = (id) => document.getElementById(id);
+  // This page only asks for the data. Drawing the engine and the feeds is landing/engine.js.
   const POLL_MS = 2000;
-  const MASK = "•••• hidden until verified";
-  const seen = {};          // section -> Set of ids already on screen
-  const lastJson = {};
-  const revealed = new Set();
+  const button = document.getElementById("staff");
   let staff = false;
-  let firstLoad = true;
-
-  function el(tag, attrs, ...kids) {
-    const n = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs || {})) {
-      if (v === null || v === undefined || v === false) continue;
-      if (k === "class") n.className = v;
-      else if (k === "text") n.textContent = v;
-      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
-      else n.setAttribute(k, v === true ? "" : v);
-    }
-    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid);
-    return n;
-  }
-  const exampleTag = (on) => (on ? el("span", { class: "tag", text: "example" }) : null);
-  const words = (s) => String(s || "").replace(/_/g, " ");
-
-  function ago(ms) {
-    const s = Math.max(0, Math.round((TroyData.now() - ms) / 1000));
-    if (s < 10) return "just now";
-    if (s < 60) return s + " sec ago";
-    if (s < 3600) return Math.floor(s / 60) + " min ago";
-    if (s < 86400) return Math.floor(s / 3600) + " hr ago";
-    return Math.floor(s / 86400) + " days ago";
-  }
-
-  /** Rebuild a section only when its data changed. Rows whose id was not on screen before slide in. */
-  function section(key, boxId, rows, extra, emptyText, build) {
-    const json = JSON.stringify([rows, extra, staff]);
-    if (lastJson[key] === json) return;
-    lastJson[key] = json;
-    const box = $(boxId);
-    const before = seen[key] || new Set();
-    const now = new Set();
-    box.replaceChildren();
-    if (!rows.length) box.append(el("div", { class: "empty", text: emptyText }));
-    for (const r of rows) {
-      const card = build(r);
-      now.add(r.id);
-      if (!firstLoad && !before.has(r.id)) card.classList.add("new");
-      box.append(card);
-    }
-    seen[key] = now;
-  }
-
-  function photo(l) {
-    if (!l.hasPhoto) return null;
-    if (l.photoSensitive && !staff) return el("div", { class: "photo locked", "aria-label": "Photo hidden" });
-    const key = "l" + l.id;
-    const blurred = l.photoSensitive && !revealed.has(key);
-    const box = el("button", { class: "photo" + (blurred ? " blurred" : ""), type: "button", "aria-label": l.photoSensitive ? "Blurred photo. Press to reveal or blur again." : "Photo",
-      onclick: () => {
-        if (!l.photoSensitive) return;
-        if (revealed.has(key)) revealed.delete(key); else revealed.add(key);
-        box.classList.toggle("blurred", !revealed.has(key));
-      } }, el("img", { src: "/api/photo/" + l.id + (staff ? "?staff=1" : ""), alt: "", loading: "lazy" }));
-    return box;
-  }
-
-  function hiddenBlock(label, value) {
-    if (!staff) return el("div", { class: "hidden-line", text: MASK });
-    return el("div", { class: "staff-line" }, el("b", { text: "staff only: " + label }), value || "nothing recorded");
-  }
-
-  const LISTING_STATUS_DONE = ["verified", "handed_off", "returned"];
-  function listingCard(l, s) {
-    const secret = (s && s.listings && s.listings[l.id]) || {};
-    let hidden = null;
-    if (l.hasHiddenDetails) {
-      if (l.type === "found") {
-        const parts = [].concat(secret.distinguishing || []);
-        if (secret.nameOnItem) parts.push("name on item: " + secret.nameOnItem);
-        hidden = hiddenBlock("distinguishing details", parts.join(" · "));
-      } else {
-        hidden = hiddenBlock("the owner's own words", secret.description);
-      }
-    }
-    return el("div", { class: "card" }, el("div", { class: "row" }, photo(l), el("div", { class: "body" },
-      el("div", { class: "title" }, l.publicSummary || l.title || words(l.category) || (l.type === "found" ? "found item" : "lost item"), " ", exampleTag(l.isExample)),
-      el("div", { class: "meta" },
-        el("span", { class: "pill " + l.type, text: l.type }),
-        el("span", { class: "pill " + (LISTING_STATUS_DONE.includes(l.status) ? "done" : l.status === "open" || l.status === "expired" ? "" : "pending"), text: words(l.status) }),
-        l.locationText ? el("span", { text: l.locationText }) : null,
-        l.heldBy ? el("span", { text: "held by " + (l.heldBy === "dps" ? "DPS" : "finder") }) : null,
-        l.isDangerous ? el("span", { class: "pill fail", text: "dangerous, DPS only" }) : null,
-        el("span", { text: ago(l.createdAt) })),
-      hidden)));
-  }
-
-  function matchCard(m) {
-    const level = m.confidence >= 80 ? "high" : m.confidence >= 50 ? "mid" : "";
-    const done = m.status === "verified";
-    return el("div", { class: "card" },
-      el("div", { class: "pair" },
-        el("span", { class: "pill found", text: "found" }), el("span", { class: "title", text: m.foundTitle || "item " + m.foundListingId }),
-        el("span", { class: "arrow", "aria-hidden": "true" }),
-        el("span", { class: "pill lost", text: "lost" }), el("span", { class: "title", text: m.lostTitle || "report " + m.lostListingId })),
-      el("div", { class: "conf" },
-        el("div", { class: "num" }, String(m.confidence), el("small", { text: " / 100" })),
-        el("div", { class: "bar " + level, role: "img", "aria-label": "Confidence " + m.confidence + " out of 100" }, el("i", { style: "width:" + Math.max(0, Math.min(100, m.confidence)) + "%" }))),
-      el("div", { class: "meta" },
-        el("span", { class: "pill " + (done ? "done" : m.status === "rejected" ? "fail" : "pending"), text: words(m.status) }),
-        el("span", { class: "pill", text: m.source === "ai" ? "scored by ai" : "scored by fallback rules" }),
-        el("span", { text: ago(m.createdAt) })),
-      m.reasons.length ? el("ul", { class: "reasons" }, m.reasons.map((r) => el("li", { text: r }))) : null);
-  }
-
-  const METHOD = { blind_description: "blind description", name_match: "name match", finder_confirm: "finder confirms", proof_photo: "proof photo", finder_judgment: "finder's call" };
-  function verificationCard(v, s) {
-    const secret = (s && s.verifications && s.verifications[v.id]) || {};
-    const cls = v.result === "pass" ? "pass" : v.result === "fail" ? "fail" : "";
-    return el("div", { class: "card" }, el("div", { class: "verif" },
-      el("div", { class: "score " + cls, "aria-label": v.score === null ? "No score" : "Score " + v.score, text: v.score === null ? (v.result === "pass" ? "ok" : v.result === "fail" ? "no" : "...") : String(v.score) }),
-      el("div", { class: "body", style: "flex:1;min-width:0" },
-        el("div", { class: "title", text: (METHOD[v.method] || words(v.method)) + ", match " + v.matchId }),
-        el("div", { class: "meta" },
-          el("span", { class: "pill " + (v.result === "pass" ? "done" : v.result === "fail" ? "fail" : "pending"), text: v.result === "pass" ? "pass" : v.result === "fail" ? "fail" : "waiting" }),
-          el("span", { text: v.attempts === 1 ? "1 attempt" : v.attempts + " attempts" }),
-          el("span", { text: ago(v.createdAt) })),
-        v.hasAnswer ? hiddenBlock("what the owner said", secret.ownerAnswer) : null)));
-  }
-
-  const HANDOFF = { group_chat: "group chat with finder and owner", relay: "relay through Troy", dps_code: "DPS pickup code" };
-  function handoffCard(h, s) {
-    const secret = (s && s.handoffs && s.handoffs[h.id]) || {};
-    return el("div", { class: "card" },
-      el("div", { class: "title", text: HANDOFF[h.method] || words(h.method) }),
-      el("div", { class: "meta" },
-        el("span", { class: "pill " + (h.completedAt ? "done" : "pending"), text: h.completedAt ? "returned" : "in progress" }),
-        el("span", { text: "match " + h.matchId }),
-        el("span", { text: "chosen by " + h.chosenBy }),
-        el("span", { text: ago(h.completedAt || h.createdAt) })),
-      h.hasPickupCode ? (staff ? el("div", { class: "staff-line" }, el("b", { text: "staff only: pickup code" }), secret.pickupCode || "") : el("div", { class: "hidden-line", text: "pickup code •••••• made in code, texted to both" })) : null,
-      h.thankYouNote ? el("div", { class: "meta", style: "font-style:italic", text: "“" + h.thankYouNote + "”" }) : null);
-  }
-
-  function foodCard(d) {
-    const total = Math.max(0, d.servingsTotal);
-    const dots = total <= 40 ? el("div", { class: "dots", "aria-hidden": "true" }, Array.from({ length: total }, (_, i) => el("i", { class: i < d.servingsLeft ? "" : "gone" }))) : null;
-    return el("div", { class: "card" },
-      el("div", { class: "title" }, d.description || "food drop", " ", exampleTag(d.isExample)),
-      el("div", { class: "meta" },
-        el("span", { class: "pill " + (d.status === "live" ? (d.servingsLeft > 0 ? "done" : "pending") : ""), text: d.status === "live" ? (d.servingsLeft > 0 ? "live" : "all gone") : d.status }),
-        d.clubName ? el("span", { text: d.clubName }) : null,
-        d.locationText ? el("span", { text: d.locationText }) : null),
-      el("div", { class: "servings" }, el("span", { class: "n", text: String(d.servingsLeft) }), el("span", { text: "of " + d.servingsTotal + " left" })),
-      dots,
-      el("div", { class: "meta" },
-        el("span", { text: d.claims.held + " held" }),
-        el("span", { text: d.claims.picked_up + " picked up" }),
-        d.claims.released ? el("span", { text: d.claims.released + " released" }) : null));
-  }
-
-  function renderEval(e) {
-    const n = $("eval-n"), l = $("eval-l");
-    if (!e || typeof e !== "object") { n.textContent = "no eval yet"; l.textContent = "matcher eval"; return; }
-    const total = e.total ?? e.n ?? e.count;
-    const correct = e.correct ?? e.passed;
-    const wrongHandoffs = e.wrongHandoffs ?? e.wrong_handoffs ?? 0;
-    const mode = e.mode ?? e.source;
-    n.replaceChildren(correct + " of " + total + " correct", el("small", { text: wrongHandoffs + " wrong handoffs" }));
-    l.textContent = "matcher eval" + (mode ? ", mode " + mode : "");
-  }
-
-  /** The chat brain's health number. Hidden until the server has one. A share (0 to 1) shows as a percent. */
-  function renderChatHealth(h) {
-    const box = $("chat-stat");
-    let text = null, label = "chat health";
-    if (typeof h === "number" && Number.isFinite(h)) text = h >= 0 && h <= 1 ? Math.round(h * 100) + "%" : String(Math.round(h));
-    else if (h && typeof h === "object") {
-      const total = h.total ?? h.checked ?? h.replies ?? h.n;
-      const good = h.passed ?? h.ok ?? h.good ?? h.clean;
-      const score = h.score ?? h.health ?? h.percent ?? h.rate;
-      // Today's count of replies that fell back to a hand-written line because the checks turned the model down twice (lower is better).
-      if (typeof h.doubleRejectsToday === "number") { text = String(h.doubleRejectsToday); label = "chat fallbacks today"; }
-      else if (typeof score === "number" && Number.isFinite(score)) text = score >= 0 && score <= 1 ? Math.round(score * 100) + "%" : String(Math.round(score));
-      else if (typeof good === "number" && typeof total === "number") text = good + " of " + total;
-      if (typeof h.label === "string" && h.label) label = "chat health, " + h.label;
-    }
-    box.hidden = text === null;
-    if (text === null) return;
-    setNum("chat-n", text);
-    if ($("chat-l").textContent !== label) $("chat-l").textContent = label;
-  }
-
-  function setNum(id, v) { const n = $(id); if (n.textContent !== String(v)) n.textContent = String(v); }
 
   async function tick() {
+    let d;
     try {
       // Live from the Troy server when it answers, otherwise the example data (landing/demo.js).
-      const d = (await TroyData.api("/api/panel" + (staff ? "?staff=1" : ""))).json;
+      d = (await TroyData.api("/api/panel" + (staff ? "?staff=1" : ""))).json;
       if (!d.ok) throw new Error("bad response");
-      const demo = TroyData.isDemo();
-      const s = d.staff || null;
-      $("badge").className = demo ? "badge eg" : "badge live" + (d.enabled ? "" : " off");
-      $("badge-text").textContent = demo ? "example data" : d.enabled ? "live" : "troy is off (kill switch)";
-      renderEval(d.eval);
-      renderChatHealth(d.chatHealth);
-      setNum("s-found", d.counts.found); setNum("s-lost", d.counts.lost); setNum("s-matches", d.counts.matches); setNum("s-returned", d.counts.returned);
-      section("listings", "listings", d.listings, s && s.listings, "No listings yet. Text Troy a photo of something you found.", (l) => listingCard(l, s));
-      section("matches", "matches", d.matches, null, "No candidate matches yet.", matchCard);
-      section("verifications", "verifications", d.verifications, s && s.verifications, "No verification attempts yet.", (v) => verificationCard(v, s));
-      section("handoffs", "handoffs", d.handoffs, s && s.handoffs, "No handoffs yet.", (h) => handoffCard(h, s));
-      section("food", "food", d.foodDrops, null, "No food drops yet.", foodCard);
-      firstLoad = false;
     } catch {
-      $("badge").className = "badge off";
-      $("badge-text").textContent = "server not reachable";
+      TroyEngine.offline();
+      return;
     }
+    TroyEngine.render(d, { demo: TroyData.isDemo(), staff });
   }
 
-  $("staff").addEventListener("click", () => {
+  button.addEventListener("click", () => {
     staff = !staff;
-    $("staff").setAttribute("aria-pressed", staff ? "true" : "false");
-    revealed.clear();
+    button.setAttribute("aria-pressed", staff ? "true" : "false");
+    TroyEngine.staffChanged();
     tick();
   });
 
   tick();
+  // The directory's size, for the engine's "directory" block. Asked once; left off the drawing if it does not answer.
+  TroyData.api("/api/directory").then((r) => { if (r.json && Array.isArray(r.json.entries)) TroyEngine.setDirectory(r.json.entries.length); }).catch(() => {});
   // Live data is polled. The example data does not change on its own, so there is nothing to poll.
   setInterval(() => { if (!document.hidden && !TroyData.isDemo()) tick(); }, POLL_MS);
 })();
