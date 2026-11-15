@@ -82,3 +82,7 @@
 
 /* On Apple devices the second line is noise: they can text Troy right now. */
 .is-apple .badge-soon { display: none; }
+
+/* Not on an Apple device: the button becomes a status, not an action. */
+a[data-sms].is-soon { background: transparent; color: inherit; border: 1px solid currentColor; opacity: 0.85; cursor: default; box-shadow: none; pointer-events: none; }
+.not-apple .badge-soon { opacity: 1; }

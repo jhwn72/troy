@@ -102,3 +102,22 @@ else start();
     document.documentElement.classList.add(apple ? 'is-apple' : 'not-apple');
   } catch (error) { /* leave both lines showing */ }
 })();
+
+// Visitors who aren't on an Apple device can't reach Troy yet (he is iMessage only), so the button
+// says so instead of opening a text that would go nowhere.
+(() => {
+  const apply = () => {
+    if (!document.documentElement.classList.contains('not-apple')) return;
+    for (const a of document.querySelectorAll('a[data-sms]')) {
+      a.removeAttribute('href');
+      a.setAttribute('aria-disabled', 'true');
+      a.setAttribute('role', 'link');
+      a.classList.add('is-soon');
+      a.textContent = 'On iMessage now. Android soon';
+      a.title = 'Troy works on iMessage today. Open this page on an iPhone or Mac to text him.';
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(apply, 0));
+  else setTimeout(apply, 0);
+  window.addEventListener('load', () => setTimeout(apply, 50));
+})();
