@@ -9,6 +9,7 @@ import type { AdapterCapabilities, Handle, IncomingEvent, MessagingAdapter, Send
 import { isEnabled, normalizeHandle } from "../config.ts";
 import { allowChat, decide, isAllowedChat, sendAllowed } from "./gate.ts";
 import type { AdapterDeps } from "./index.ts";
+import { SIGNUP_NOTICE_TEXT, consumeSignupNotice } from "../signups.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const DOWNLOADS = join(ROOT, "tmp-downloads");
@@ -179,6 +180,19 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
       return true;
     },
 
+    // The one send that skips the allow-list: the fixed line for a new chat turned away by the sign-up switch or
+    // cap. The gate's one-time grant for this exact chat and kind is the lock (it also checks the kill switch).
+    // Only the bubble itself lands in the simulated phone's transcript: no read mark, no typing, nothing saved.
+    async sendSignupNotice(chatId, kind): Promise<boolean> {
+      const text = Object.hasOwn(SIGNUP_NOTICE_TEXT, kind) ? SIGNUP_NOTICE_TEXT[kind] : null;
+      if (!text || isGroupId(chatId) || !handleOf(chatId) || !consumeSignupNotice(db, chatId, handleOf(chatId), kind)) {
+        console.log("send refused");
+        return false;
+      }
+      add(chatId, "troy", "message", { text });
+      return true;
+    },
+
     // Nothing to register: the simulator has no second allowlist.
     async onAllowed(): Promise<void> {},
     async onDisallowed(): Promise<void> {},
@@ -223,6 +237,7 @@ export function createWebchatAdapter(deps: AdapterDeps): { adapter: WebchatAdapt
       hasHistoryBeforeGoLive: async () => phone(handle).hasOldHistory,
     });
     if (!d.allow) {
+      if (d.notice) await adapter.sendSignupNotice?.(chatId, d.notice);
       console.log("ignored event");
       return false;
     }

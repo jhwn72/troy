@@ -24,6 +24,7 @@ import { inQuietHours } from "./quiet.ts";
 import type { SweepIo } from "./pending.ts";
 import { deliverPending, isProtected, parkAsk, relayBypass, runSweeps, runUserGone } from "./pending.ts";
 import { forgetUserLocation, saveUserLocation } from "./location.ts";
+import { releaseSeat } from "./signups.ts";
 
 /** The two calls the pipeline needs from src/location.ts. */
 export type LocationStore = {
@@ -715,6 +716,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
           paused: 0,
         });
         await forgetLocation(user.id);
+        // Their spot under the sign-up cap is free until they text again (the gate takes it back then).
+        releaseSeat(db, user.handle);
         // Not saved: nothing of theirs stays in the messages table.
         await send(user, event.chatId, TEMPLATES.deleteData, { turn, noSave: true });
         await quiet(Promise.resolve(adapter.onDisallowed?.(event.chatId)), undefined);

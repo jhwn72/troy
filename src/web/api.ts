@@ -16,6 +16,7 @@ import type { Context } from "hono";
 import type { MessagingAdapter } from "../types.ts";
 import { config, isEnabled, normalizeHandle } from "../config.ts";
 import { getSetting, setSetting } from "../db/index.ts";
+import { setSignupCap, setSignupsOpen, signupsView } from "../signups.ts";
 import { reportReference } from "../flows/reports-shared.ts";
 import { assignStaff, closeJobsFor, exampleTextFor, listStaff, removeStaff, reportRole, roleLabel, staffFor, staffLogFor, staffRoles } from "../staff.ts";
 import { createTopic, openTopicRequests, removeTopic, subscribe } from "../topics.ts";
@@ -177,6 +178,26 @@ async function loadChatHealth(db: DatabaseSync): Promise<unknown> {
 export function createWebRoutes(deps: WebDeps): Hono {
   const { db } = deps;
   const app = new Hono();
+
+  // Every route here that changes something (the kill switch, sign-ups, the cap, the allow-list, staff, reports)
+  // is for the dashboard served by this same server. A browser sends Origin on any cross-site POST or DELETE, so a
+  // write whose Origin is another site is refused: a web page open on this Mac must not be able to flip a switch.
+  // Requests with no Origin (curl, tests, scripts on this machine) pass as before.
+  app.use("/api/*", async (c, next) => {
+    const method = c.req.method;
+    if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+    const origin = c.req.header("origin");
+    if (origin === undefined) return next();
+    let originHost: string | null = null;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      originHost = null;
+    }
+    const host = c.req.header("host") ?? new URL(c.req.url).host;
+    if (!originHost || originHost !== host) return c.json({ ok: false, error: "forbidden" }, 403);
+    return next();
+  });
 
   // Privacy: a student's saved location (users.lastLat, lastLng, lastLocationAt, lastLocationSource) and their usual
   // spots never leave the server through this file. Every users query here names its columns; never SELECT * FROM users.
@@ -641,7 +662,8 @@ export function createWebRoutes(deps: WebDeps): Hono {
     const enabled = isEnabled(db);
     const settingOn = stored === null ? true : ["true", "1", "on", "yes"].includes(stored.trim().toLowerCase());
     const envOff = envSet && !["true", "1", "on", "yes"].includes(envRaw.trim().toLowerCase());
-    return { enabled, settingOn, envSet, envOff };
+    // The demo sign-up switch and cap: { open, max, count }. count is chats let in by "hey troy" only.
+    return { enabled, settingOn, envSet, envOff, signups: signupsView(db) };
   };
 
   const allowListView = () => {
@@ -667,6 +689,21 @@ export function createWebRoutes(deps: WebDeps): Hono {
     if (typeof b.enabled !== "boolean") return c.json({ ok: false, error: "bad_request" }, 400);
     setSetting(db, "troy_enabled", b.enabled ? "true" : "false");
     return c.json({ ok: true, ...settingsView() });
+  });
+
+  app.post("/api/settings/signups", async (c) => {
+    const b = await body(c);
+    if (typeof b.open !== "boolean") return c.json({ ok: false, error: "bad_request" }, 400);
+    setSignupsOpen(db, b.open);
+    return c.json({ ok: true, ...settingsView() });
+  });
+
+  // The page sends what its -10 / +10 buttons produce; anything out of range is clamped to 0..500.
+  app.post("/api/settings/cap", async (c) => {
+    const b = await body(c);
+    if (typeof b.max !== "number" || !Number.isFinite(b.max)) return c.json({ ok: false, error: "bad_request" }, 400);
+    const max = setSignupCap(db, b.max);
+    return c.json({ ok: true, max, ...settingsView() });
   });
 
   app.get("/api/settings/allow-list", (c) => c.json({ ok: true, ...allowListView() }));

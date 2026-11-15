@@ -6,6 +6,8 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Handle } from "../types.ts";
 import { config, isEnabled } from "../config.ts";
 import { getSetting, setSetting } from "../db/index.ts";
+import { issueSignupNotice, reclaimSeat, signupBlock } from "../signups.ts";
+import type { SignupNoticeKind } from "../signups.ts";
 
 export type AllowReason = "opt_in_phrase" | "manual" | "troy_group";
 
@@ -78,9 +80,19 @@ export type GateInput = {
   text: string;
   /** Looks up only the date of the chat's earliest message. Called only for a 1:1 "hey troy" from a chat that isn't allowed yet. */
   hasHistoryBeforeGoLive: () => Promise<boolean>;
+  /**
+   * Asked only after the history rule passed and only when the chat is turned away by the sign-up switch or cap:
+   * the id of this message when it is the chat's very first one, else null. Only its salted hash is kept.
+   */
+  firstMessageId?: () => string | null;
 };
 
-export type GateDecision = { allow: true; newlyOptedIn: boolean } | { allow: false };
+/**
+ * `notice` is set only for a brand-new 1:1 chat that sent the opt-in phrase, passed the history rule and was turned
+ * away because sign-ups are closed or full, and only the first time ever for that chat. The adapter then sends the
+ * one fixed line (sendSignupNotice) and drops the event like any other denied one.
+ */
+export type GateDecision = { allow: true; newlyOptedIn: boolean } | { allow: false; notice?: SignupNoticeKind };
 
 const DENY: GateDecision = { allow: false };
 
@@ -101,7 +113,11 @@ export async function decide(db: DatabaseSync, input: GateInput): Promise<GateDe
   }
 
   // 4. Already allowed 1:1 chat.
-  if (isAllowedChat(db, input.chatId, input.handle)) return { allow: true, newlyOptedIn: false };
+  if (isAllowedChat(db, input.chatId, input.handle)) {
+    // Someone who said "delete my data" gave their sign-up seat back; texting again takes it back.
+    reclaimSeat(db, input.handle);
+    return { allow: true, newlyOptedIn: false };
+  }
 
   // 6. "hey troy" in a 1:1 chat with nothing from before go-live.
   if (!isOptInPhrase(input.text)) return DENY;
@@ -120,6 +136,14 @@ export async function decide(db: DatabaseSync, input: GateInput): Promise<GateDe
   if (hasHistory !== false) return DENY;
   // The kill switch may have been flipped while the lookup ran.
   if (!isEnabled(db)) return DENY;
+  // 7. The demo sign-up switch and cap. Nothing awaits between this check and allowChat, so two "hey troy"
+  // arriving together can't both take the last spot. A refused chat is told once, ever; after that it is as
+  // silent as any other denied chat, and it can still get in later when there is room.
+  const block = signupBlock(db);
+  if (block) {
+    const firstMessageId = input.firstMessageId?.() ?? null;
+    return issueSignupNotice(db, { handle: input.handle, chatId: input.chatId, kind: block, firstMessageId }) ? { allow: false, notice: block } : DENY;
+  }
   allowChat(db, { handle: input.handle, chatId: input.chatId, reason: "opt_in_phrase" });
   return { allow: true, newlyOptedIn: true };
 }

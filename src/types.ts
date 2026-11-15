@@ -85,6 +85,13 @@ export interface MessagingAdapter {
    * False when the provider can't do it right now; the caller then asks in text.
    */
   requestLocation(chatId: string): Promise<boolean>;
+  /**
+   * The one exception to "refuse for a chat that is not allowed": the single fixed line for a brand-new chat that
+   * said "hey troy" while sign-ups were closed or full. It can only send one of two fixed strings, and only when
+   * Troy is on and the gate issued a one-time notice for exactly this chat and kind (checked inside the adapter).
+   * No read receipt, no typing, nothing saved. False when refused or when the send failed.
+   */
+  sendSignupNotice?(chatId: string, kind: "full" | "closed"): Promise<boolean>;
   /** Called by the pipeline right after a chat is newly allowed (opt-in), so the provider can register it. */
   onAllowed?(chatId: string): Promise<void>;
   /** Called on STOP and "delete my data". */

@@ -17,6 +17,7 @@ import type { AdapterDeps } from "./index.ts";
 import { config, isEnabled, normalizeHandle } from "../config.ts";
 import { getSetting, setSetting } from "../db/index.ts";
 import { allowChat, decide, getGoLiveAt, isAllowedChat, sendAllowed } from "./gate.ts";
+import { SIGNUP_NOTICE_TEXT, consumeSignupNotice, wasRefusedFirstMessage } from "../signups.ts";
 import { FINDMY_BALLOON_ID, createHelper, decodeFindMyPayload, decodeFindMyShare, decodePollVote } from "./helper.ts";
 
 // How long to keep asking Find My for a fix after a share whose bubble had none (ms between tries).
@@ -491,6 +492,30 @@ export function createBluebubblesAdapter(
       return helper.requestLocation(chatId);
     },
 
+    // The one request that does not go through guardedSend: the fixed line for a brand-new chat turned away by
+    // the sign-up switch or cap. Its lock is the gate's one-time grant for exactly this chat and kind, consumed
+    // as the very last thing before the request (it checks the kill switch too). Only ever one of two fixed
+    // strings, 1:1 chats only, and nothing else is touched: no read receipt, no typing, no helper, nothing saved.
+    async sendSignupNotice(chatId, kind) {
+      const text = Object.hasOwn(SIGNUP_NOTICE_TEXT, kind) ? SIGNUP_NOTICE_TEXT[kind] : null;
+      if (!text || !handleFromChatId(chatId) || !isEnabled(db)) {
+        console.log("send refused");
+        return false;
+      }
+      try {
+        const privateApi = await privateApiOn();
+        if (!consumeSignupNotice(db, chatId, handleFromChatId(chatId), kind)) {
+          console.log("send refused");
+          return false;
+        }
+        await api("POST", "/message/text", { chatGuid: chatId, tempGuid: randomUUID(), message: text, method: privateApi ? "private-api" : "apple-script" });
+        return true;
+      } catch {
+        console.log("send failed");
+        return false;
+      }
+    },
+
     // The helper keeps its own list of chats it may touch. Keep it in step with Troy's.
     async onAllowed(chatId) {
       await helper.allowChat(chatId).catch(() => false);
@@ -528,15 +553,21 @@ export function createBluebubblesAdapter(
 
   /**
    * Rules 2 and 4: "hey troy" only opts a chat in when it is the chat's very first message, sent after go-live.
-   * Returns true ("has history", so deny) unless the chat's earliest message IS this message.
+   * hasHistory is true (so deny) unless the chat's earliest message IS this message, with one exception: the
+   * earliest message is the "hey troy" this same person was turned away on by the sign-up switch or cap (matched
+   * by the salted hash of its id, kept when the line was sent), so "try again in a bit" can work. Still only the
+   * id and date are read, and a chat with anything from before go-live is always denied.
    * An empty list is a failed lookup, not a new chat: the message that triggered it must be in there.
+   * isFirst says the earliest message is this very message.
    */
-  async function hasHistoryBeforeGoLive(chatId: string, messageGuid: string): Promise<boolean> {
+  async function historyCheck(chatId: string, messageGuid: string): Promise<{ hasHistory: boolean; isFirst: boolean }> {
     const goLive = getGoLiveAt(db);
     const earliest = await earliestMessage(chatId);
     if (!earliest) throw new Error("empty history");
-    if (earliest.at < goLive) return true;
-    return earliest.guid !== messageGuid;
+    if (earliest.at < goLive) return { hasHistory: true, isFirst: false };
+    if (earliest.guid === messageGuid) return { hasHistory: false, isFirst: true };
+    const who = handleFromChatId(chatId);
+    return { hasHistory: !(who !== null && wasRefusedFirstMessage(db, who, earliest.guid)), isFirst: false };
   }
 
   async function download(guid: string): Promise<{ buf: Buffer; type: string } | null> {
@@ -581,15 +612,25 @@ export function createBluebubblesAdapter(
         const isGroup = chatId ? chatId.split(";")[1] !== "-" : false;
         // In a 1:1 chat the sender has to be the person the chat is with.
         const consistent = chatId !== null && (isGroup || (handle !== null && handleFromChatId(chatId) === handle));
+        let isFirst = false;
         const decision = await decide(db, {
           isFromMe: data.isFromMe !== false,
           handle,
           chatId: consistent ? chatId : null,
           isGroup,
           text,
-          hasHistoryBeforeGoLive: () => hasHistoryBeforeGoLive(chatId as string, guid),
+          hasHistoryBeforeGoLive: async () => {
+            const h = await historyCheck(chatId as string, guid);
+            isFirst = h.isFirst;
+            return h.hasHistory;
+          },
+          firstMessageId: () => (isFirst ? guid : null),
         });
-        if (!decision.allow) return ignored();
+        if (!decision.allow) {
+          // Sign-ups closed or full, first time for this brand-new chat: the one fixed line, then dropped as usual.
+          if (decision.notice && chatId) await adapter.sendSignupNotice?.(chatId, decision.notice);
+          return ignored();
+        }
       }
       // ---- allowed from here on ----
 

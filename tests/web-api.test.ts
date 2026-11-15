@@ -276,6 +276,76 @@ test("status copy has no em dashes and reads in lowercase", () => {
   assert.equal(reportReference({ kind: "usg_concern", category: null, description: null, locationText: null }), "update on the usg concern");
 });
 
+test("dashboard writes from another site are refused; same-origin and no-Origin requests work", async () => {
+  const t = setup();
+  const post = (path: string, body: unknown, headers: Record<string, string>) =>
+    t.app.request(`http://localhost:3417${path}`, { method: "POST", headers: { host: "localhost:3417", ...headers }, body: JSON.stringify(body) });
+  const cap = async () => (await t.call("GET", "/api/settings")).json.signups.max;
+  const start = await cap();
+  // What a web page on another site can send without a preflight.
+  for (const origin of ["https://evil.example", "http://localhost:9999", "null"]) {
+    for (const [path, body] of [["/api/settings/cap", { max: 7 }], ["/api/settings/signups", { open: false }], ["/api/settings/enabled", { enabled: false }]] as const) {
+      const res = await post(path, body, { origin, "content-type": "text/plain" });
+      assert.equal(res.status, 403, `${origin} ${path}`);
+    }
+  }
+  const del = await t.app.request("http://localhost:3417/api/settings/allow-list", { method: "DELETE", headers: { host: "localhost:3417", origin: "https://evil.example" } });
+  assert.equal(del.status, 403);
+  const now = (await t.call("GET", "/api/settings")).json;
+  assert.equal(now.signups.max, start);
+  assert.equal(now.signups.open, true);
+  assert.equal(now.settingOn, true);
+  // The dashboard itself (same origin) and tools with no Origin still work. Reads are never blocked.
+  assert.equal((await post("/api/settings/cap", { max: 7 }, { origin: "http://localhost:3417", "content-type": "application/json" })).status, 200);
+  assert.equal(await cap(), 7);
+  assert.equal((await post("/api/settings/cap", { max: 8 }, { "content-type": "application/json" })).status, 200);
+  assert.equal((await t.app.request("http://localhost:3417/api/settings", { headers: { host: "localhost:3417", origin: "https://evil.example" } })).status, 200);
+});
+
+test("sign-up switch and cap: defaults, round trip, clamping, bad bodies, live count", async () => {
+  const t = setup();
+  const before = { s: process.env.TROY_SIGNUPS, m: process.env.TROY_MAX_USERS };
+  delete process.env.TROY_SIGNUPS;
+  delete process.env.TROY_MAX_USERS;
+  try {
+    assert.deepEqual((await t.call("GET", "/api/settings")).json.signups, { open: true, max: 40, count: 0 });
+
+    const closed = await t.call("POST", "/api/settings/signups", { open: false });
+    assert.equal(closed.status, 200);
+    assert.deepEqual(closed.json.signups, { open: false, max: 40, count: 0 });
+    assert.equal((await t.call("GET", "/api/settings")).json.signups.open, false);
+    assert.equal((await t.call("POST", "/api/settings/signups", { open: true })).json.signups.open, true);
+    for (const bad of [{}, { open: "false" }, { open: 0 }, { open: null }]) assert.equal((await t.call("POST", "/api/settings/signups", bad)).status, 400);
+    assert.equal((await t.call("GET", "/api/settings")).json.signups.open, true);
+
+    const cap = await t.call("POST", "/api/settings/cap", { max: 30 });
+    assert.equal(cap.json.max, 30);
+    assert.equal(cap.json.signups.max, 30);
+    assert.equal((await t.call("GET", "/api/settings")).json.signups.max, 30);
+    assert.equal((await t.call("POST", "/api/settings/cap", { max: 9999 })).json.signups.max, 500);
+    assert.equal((await t.call("POST", "/api/settings/cap", { max: -10 })).json.signups.max, 0);
+    assert.equal((await t.call("POST", "/api/settings/cap", { max: 12.6 })).json.signups.max, 13);
+    for (const bad of [{}, { max: "30" }, { max: null }, { cap: 30 }]) assert.equal((await t.call("POST", "/api/settings/cap", bad)).status, 400);
+    assert.equal((await t.call("GET", "/api/settings")).json.signups.max, 13);
+
+    // count: only chats let in by the opt-in phrase. Manual entries and Troy's groups never count.
+    const add = t.db.prepare("INSERT INTO allow_list (handle, chatId, reason, addedAt) VALUES (?, ?, ?, ?)");
+    add.run("+12135550111", "any;-;+12135550111", "opt_in_phrase", Date.now());
+    add.run("+12135550112", "any;-;+12135550112", "opt_in_phrase", Date.now());
+    add.run("+12135550113", null, "manual", Date.now());
+    add.run(null, "any;+;chat5", "troy_group", Date.now());
+    assert.deepEqual((await t.call("GET", "/api/settings")).json.signups, { open: true, max: 13, count: 2 });
+    // Put on the manual list from the dashboard after opting in by phrase: no longer takes a seat.
+    assert.equal((await t.call("POST", "/api/settings/allow-list", { handle: "+12135550111" })).status, 200);
+    assert.equal((await t.call("GET", "/api/settings")).json.signups.count, 1);
+  } finally {
+    if (before.s === undefined) delete process.env.TROY_SIGNUPS;
+    else process.env.TROY_SIGNUPS = before.s;
+    if (before.m === undefined) delete process.env.TROY_MAX_USERS;
+    else process.env.TROY_MAX_USERS = before.m;
+  }
+});
+
 test("kill switch toggle", async () => {
   const t = setup();
   const before = process.env.TROY_ENABLED;

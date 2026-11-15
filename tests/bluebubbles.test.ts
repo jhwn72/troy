@@ -199,6 +199,144 @@ test("a brand-new chat saying hey troy opts in and reaches onEvent", async () =>
   assert.equal(events.length, 2);
 });
 
+test("sign-ups full: a brand-new hey troy gets the one fixed line once, with no read receipt, typing or saved row", async () => {
+  const { handleWebhook, events, db } = setup();
+  setSetting(db, "go_live_at", "1700000000000");
+  setSetting(db, "signups_max", "0");
+  const first = msg({ text: "hey troy" }, STRANGER);
+  respond = (c) => (c.method === "GET" ? [{ guid: first.data.guid, dateCreated: 1_800_000_000_000 }] : { guid: "OUT-1" });
+  await handleWebhook(first);
+  const out = sends().filter((c) => c.method !== "GET");
+  assert.equal(out.length, 1);
+  assert.equal(out[0].path, "/message/text");
+  assert.equal(out[0].body.chatGuid, STRANGER_CHAT);
+  assert.equal(out[0].body.message, "demo's full rn, try again in a bit");
+  assert.equal(calls.some((c) => /\/read|\/typing|\/react/.test(c.path)), false);
+  assert.deepEqual(logs, ["ignored event"]);
+  assert.equal(events.length, 0);
+  assert.equal(isAllowedChat(db, STRANGER_CHAT, STRANGER), false);
+  assert.equal(db.prepare("SELECT count(*) AS c FROM messages").get()!.c, 0);
+  assert.equal(db.prepare("SELECT count(*) AS c FROM users").get()!.c, 0);
+  assert.equal(db.prepare("SELECT count(*) AS c FROM allow_list").get()!.c, 0);
+  const kept = JSON.stringify([db.prepare("SELECT * FROM signup_notices").all(), db.prepare("SELECT * FROM settings WHERE key NOT LIKE 'manual_on:%'").all()]);
+  assert.equal(kept.includes(STRANGER), false);
+  assert.equal(kept.includes("hey troy"), false);
+
+  // A second try. The server's earliest message for the chat is still the first "hey troy", as on a real
+  // server: the date lookup, and nothing sent.
+  calls = [];
+  const earliest = [{ guid: first.data.guid, dateCreated: 1_800_000_000_000 }];
+  respond = (c) => (c.method === "GET" ? earliest : {});
+  await handleWebhook(msg({ text: "hey troy" }, STRANGER));
+  assert.equal(sends().filter((c) => c.method !== "GET").length, 0);
+  assert.equal(events.length, 0);
+
+  // Room opens: the same chat gets in, even though its earliest message is the refused one, not this one.
+  setSetting(db, "signups_max", "5");
+  await handleWebhook(msg({ text: "hey troy" }, STRANGER));
+  assert.equal(events.length, 1);
+  assert.equal(isAllowedChat(db, STRANGER_CHAT, STRANGER), true);
+  // Only hashes were kept about the refused message.
+  const after = JSON.stringify(db.prepare("SELECT * FROM signup_notices").all());
+  assert.equal(after.includes(String(first.data.guid)), false);
+});
+
+test("a retry after a refusal still needs the chat's earliest message to be the refused hey troy", async () => {
+  const { handleWebhook, events, db } = setup();
+  setSetting(db, "go_live_at", "1700000000000");
+  setSetting(db, "signups_max", "0");
+  const first = msg({ text: "hey troy" }, STRANGER);
+  respond = (c) => (c.method === "GET" ? [{ guid: first.data.guid, dateCreated: 1_800_000_000_000 }] : { guid: "OUT-1" });
+  await handleWebhook(first);
+  setSetting(db, "signups_max", "5");
+  // The same person in another chat (say SMS) whose first message after go-live was something else: denied.
+  const SMS_CHAT = `SMS;-;${STRANGER}`;
+  respond = () => [{ guid: "SOMETHING-ELSE", dateCreated: 1_800_000_000_000 }];
+  await handleWebhook(msg({ text: "hey troy", chats: [{ guid: SMS_CHAT }] }, STRANGER));
+  assert.equal(events.length, 0);
+  assert.equal(isAllowedChat(db, SMS_CHAT, STRANGER), false);
+  // The refused message's id with a date before go-live: denied (rule 4 comes first).
+  respond = () => [{ guid: first.data.guid, dateCreated: 1_600_000_000_000 }];
+  await handleWebhook(msg({ text: "hey troy" }, STRANGER));
+  assert.equal(events.length, 0);
+  // A different stranger whose chat's earliest message is not theirs to reuse: denied.
+  const OTHER = "+12135550177";
+  respond = () => [{ guid: first.data.guid, dateCreated: 1_800_000_000_000 }];
+  await handleWebhook(msg({ text: "hey troy" }, OTHER));
+  assert.equal(events.length, 0);
+  assert.equal(isAllowedChat(db, `any;-;${OTHER}`, OTHER), false);
+  assert.ok(logs.every((l) => l === "ignored event"));
+});
+
+test("one number, three chat ids (iMessage, SMS, any): the fixed line goes out once", async () => {
+  const { handleWebhook, events, db } = setup();
+  setSetting(db, "go_live_at", "1700000000000");
+  setSetting(db, "signups_max", "0");
+  for (const prefix of ["iMessage", "SMS", "any"]) {
+    const m = msg({ text: "hey troy", chats: [{ guid: `${prefix};-;${STRANGER}` }] }, STRANGER);
+    respond = (c) => (c.method === "GET" ? [{ guid: m.data.guid, dateCreated: 1_800_000_000_000 }] : { guid: "OUT" });
+    await handleWebhook(m);
+  }
+  const out = sends().filter((c) => c.method !== "GET");
+  assert.deepEqual(out.map((c) => [c.path, c.body.chatGuid]), [["/message/text", `iMessage;-;${STRANGER}`]]);
+  assert.equal(events.length, 0);
+  assert.equal(db.prepare("SELECT count(*) AS c FROM signup_notices").get()!.c, 1);
+});
+
+test("sign-ups closed: the closed line once; a chat with history, a non-opt-in text and the kill switch get nothing", async () => {
+  const { handleWebhook, events, db } = setup();
+  setSetting(db, "go_live_at", "1700000000000");
+  setSetting(db, "signups_open", "closed");
+  // History before go-live: one date lookup, no send, nothing stored.
+  respond = () => [{ guid: "OLD-1", dateCreated: 1_600_000_000_000 }];
+  await handleWebhook(msg({ text: "hey troy" }, STRANGER));
+  assert.equal(sends().filter((c) => c.method !== "GET").length, 0);
+  assert.equal(db.prepare("SELECT count(*) AS c FROM signup_notices").get()!.c, 0);
+  // Not the opt-in phrase: no call at all.
+  calls = [];
+  await handleWebhook(msg({ text: SECRET }, STRANGER));
+  assert.equal(calls.length, 0);
+  // Kill switch off: no call at all.
+  setSetting(db, "troy_enabled", "false");
+  await handleWebhook(msg({ text: "hey troy" }, STRANGER));
+  assert.equal(calls.length, 0);
+  assert.equal(db.prepare("SELECT count(*) AS c FROM signup_notices").get()!.c, 0);
+  setSetting(db, "troy_enabled", "true");
+  // A brand-new chat: the closed line.
+  const first = msg({ text: "Hey Troy" }, STRANGER);
+  respond = (c) => (c.method === "GET" ? [{ guid: first.data.guid, dateCreated: 1_800_000_000_000 }] : { guid: "OUT-2" });
+  await handleWebhook(first);
+  const out = sends().filter((c) => c.method !== "GET");
+  assert.deepEqual(out.map((c) => c.body.message), ["sign-ups are closed rn"]);
+  assert.equal(events.length, 0);
+  assert.ok(logs.every((l) => l === "ignored event"));
+});
+
+test("sendSignupNotice refuses without the gate's grant, on a second use, for a group and with Troy off", async () => {
+  const { adapter, db } = setup();
+  const { issueSignupNotice } = await import("../src/signups.ts");
+  const send = adapter.sendSignupNotice!.bind(adapter);
+  assert.equal(await send(STRANGER_CHAT, "full"), false);
+  assert.equal(await send(ALLOWED_CHAT, "full"), false); // an allowed chat has no grant either
+  assert.equal(sends().length, 0);
+  issueSignupNotice(db, { handle: STRANGER, chatId: STRANGER_CHAT, kind: "full" });
+  assert.equal(await send(STRANGER_CHAT, "closed"), false);
+  assert.equal(await send(STRANGER_CHAT, "anything" as "full"), false);
+  assert.equal(sends().length, 0);
+  assert.equal(await send(STRANGER_CHAT, "full"), true);
+  assert.equal(await send(STRANGER_CHAT, "full"), false);
+  assert.deepEqual(sends().map((c) => [c.path, c.body.chatGuid, c.body.message]), [["/message/text", STRANGER_CHAT, "demo's full rn, try again in a bit"]]);
+
+  calls = [];
+  issueSignupNotice(db, { handle: "+12135550166", chatId: "any;+;chat777", kind: "full" });
+  assert.equal(await send("any;+;chat777", "full"), false);
+  issueSignupNotice(db, { handle: "+12135550188", chatId: "any;-;+12135550188", kind: "closed" });
+  setSetting(db, "troy_enabled", "false");
+  assert.equal(await send("any;-;+12135550188", "closed"), false);
+  assert.equal(sends().length, 0);
+  assert.ok(logs.every((l) => l === "send refused"));
+});
+
 test("an allowed text event reaches onEvent with the right shape", async () => {
   const { handleWebhook, events } = setup();
   const m = msg({ text: "found a wallet at leavey" });

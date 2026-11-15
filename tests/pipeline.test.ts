@@ -568,6 +568,28 @@ test("STOP and delete my data forget the location and tell the provider the chat
   assert.equal((b.db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 0);
 });
 
+test("STOP and delete my data give the sign-up seat back", async () => {
+  const { signupCount } = await import("../src/signups.ts");
+  const { decide } = await import("../src/adapters/gate.ts");
+  const seat = (db: ReturnType<typeof openDb>) => db.prepare("INSERT INTO allow_list (handle, chatId, reason, addedAt) VALUES (?, ?, 'opt_in_phrase', ?)").run(HANDLE, CHAT, Date.now());
+  const a = setup({ verified: true });
+  seat(a.db);
+  assert.equal(signupCount(a.db), 1);
+  await a.text("STOP");
+  assert.equal(signupCount(a.db), 0);
+  await a.text("hey troy");
+  assert.equal(signupCount(a.db), 1);
+
+  const b = setup({ verified: true });
+  seat(b.db);
+  assert.deepEqual(await b.text("delete my data"), TEMPLATES.deleteData);
+  assert.equal(signupCount(b.db), 0);
+  // Their next text passes the gate (the allow-list row stays) and the seat is theirs again.
+  const d = await decide(b.db, { isFromMe: false, handle: HANDLE, chatId: CHAT, isGroup: false, text: "hey troy", hasHistoryBeforeGoLive: async () => true });
+  assert.deepEqual(d, { allow: true, newlyOptedIn: false });
+  assert.equal(signupCount(b.db), 1);
+});
+
 test("after STOP, START or any text that opens with hey troy brings Troy back", async () => {
   const t = setup({ verified: true });
   await t.text("stop");

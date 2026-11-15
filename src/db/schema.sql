@@ -5,7 +5,22 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
--- keys: go_live_at (ms), troy_enabled ("true" | "false")
+-- keys: go_live_at (ms), troy_enabled ("true" | "false"), signups_open ("open" | "closed"), signups_max (0 to 500),
+--       signup_notice_salt (random, made at the first refusal),
+--       signup_left:<handle> (ms; "delete my data" gave the sign-up seat back, removed when they text again)
+
+-- A brand-new chat that said "hey troy" while sign-ups were closed or full gets one fixed line, once per chat ever.
+-- This is the only thing kept about it, never the handle, the chat id or any text:
+--   chatHash:  salted hash of the person's normalized handle (so iMessage and SMS chats with one number are one record)
+--   firstMsgs: salted hashes (space separated, 4 at most) of the ids of the refused "hey troy" messages that were
+--              their chat's first message, so the history rule lets that same chat try again later
+-- Known limit: the salt (settings.signup_notice_salt) lives in this same file.
+CREATE TABLE IF NOT EXISTS signup_notices (
+  chatHash TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('full','closed')),
+  sentAt INTEGER NOT NULL,
+  firstMsgs TEXT NOT NULL DEFAULT ''
+);
 
 CREATE TABLE IF NOT EXISTS allow_list (
   id INTEGER PRIMARY KEY,
