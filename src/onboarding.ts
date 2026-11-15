@@ -1,6 +1,11 @@
 // Onboarding, stored in flow_state (flow "onboarding").
 // Steps: who -> email (-> email_confirm) -> code -> alerts (-> topic) -> location -> done (state cleared).
 //
+// Emails are read forgivingly (John's live conversation, Nov 14 7pm): a near miss ("johnwang usc edu", a bare
+// "johnwang" while he is waiting for the email, a fragment of the address they used before) gets the did-u-mean
+// line with the address built in code, and no code is sent until they confirm it. Any unexpired code he sent to
+// the same address verifies, not only the newest one.
+//
 // Code owns the facts, the checks and the actions: the @usc.edu rule, the code match, attempt limits, which
 // topics exist and who follows them, what is saved. Wording varies everywhere (John, "Delivery is Troy's,
 // everywhere"): the lines he dictated (the welcome, the save-contact line, the quick check, the student and judge
@@ -14,6 +19,7 @@
 //
 // A choice can arrive three ways: a vote on a native poll, a tapback on an option bubble, or typed words.
 
+import { normalizeHandle } from "./config.ts";
 import { randomInt } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -96,6 +102,12 @@ const POOLS = {
   ],
   code_hint: ["it's the 6 digits from the email, nothing else", 'i need all 6 digits from the email. reply "resend" if u want a new one', 'that\'s not 6 digits. check the email again, or reply "resend" for a new code'],
   code_wrong: ["that's not the code. {left} left", "hm, that doesn't match what i sent. {left} left", "not that one. u have {left} left"],
+  // More than one code is out for this address. Never says how many emails went out.
+  code_wrong_recent: [
+    "that's not it. go with the code in the most recent email. {left} left",
+    "hm, that doesn't match. use the code from the newest email i sent. {left} left",
+    "not that one. the code in the most recent email is the safe bet. u have {left} left",
+  ],
   code_out: ['that\'s not the code and ur out of tries. reply "resend" for a new one', 'still not it, and that was the last try on this code. reply "resend" and i\'ll send another'],
   code_locked: ['too many wrong tries on that code. reply "resend" for a new one', 'that code is used up after too many misses. reply "resend" and i\'ll send a fresh one'],
   code_expired: ['that code expired. reply "resend" and i\'ll send a new one', 'that one timed out. reply "resend" for a fresh code'],
@@ -295,9 +307,66 @@ export function readEmail(text: string): EmailRead {
     }
     return { kind: "attempt" };
   }
-  // No "@" at all, but plainly an address: "ttrojan usc.edu", "ttrojan at usc dot edu".
+  // No "@" at all, but plainly an address: "ttrojan usc.edu", "ttrojan usc edu", "ttrojan at usc dot edu".
+  // The address is built here and confirmed first, like any other slip.
+  if (!looksLikeQuestion(t) && t.split(" ").length <= 7) {
+    const spoken = t.replace(/[.!?,]+$/, "").match(/^(.*?) ?\b(?:at )?usc(?: ?[.,] ?| dot | )edu$/);
+    const head = spoken ? spoken[1]!.split(" ").filter(Boolean) : [];
+    const last = head[head.length - 1] ?? "";
+    const lead = head.slice(0, -1);
+    if (localPart(last)) {
+      if (lead.every((w) => PROSE.has(w))) return { kind: "typo", email: `${last}@usc.edu` };
+      // "tommy trojan usc edu": a space in the middle of the name.
+      const two = lead[lead.length - 1]! + last;
+      if (lead.slice(0, -1).every((w) => PROSE.has(w)) && /^[a-z]+$/.test(lead[lead.length - 1]!) && localPart(two)) return { kind: "typo", email: `${two}@usc.edu` };
+    }
+  }
   if (t.split(" ").length <= 6 && /\busc ?(?:[.,]|dot) ?edu\b|\b[a-z0-9._-]+ at usc\b/.test(t) && !looksLikeQuestion(t)) return { kind: "attempt" };
   return null;
+}
+
+/**
+ * Words people text that are never the front half of an email. A bare word is only offered back as
+ * "<word>@usc.edu" when it is not one of these (and not a yes or a no).
+ */
+const CHAT_WORDS = new Set(
+  (
+    "ok okay kk yes yess yep yup yeah yea ya sure bet no nah nope idk dunno what whats why how who when where which huh wait help skip judge student " +
+    "hey hello hii heyy sup yoo thanks thank thx pls please sorry lol lmao haha hahaha omg wtf bruh bro dude man hmm hmmm umm uhh " +
+    "resend again retry stop start restart cancel quit exit back next later maybe never nvm nevermind nothing none done cool nice good great fine bad " +
+    "true false test testing email gmail mail usc troy trojan code codes spam inbox this that here there mine same other another different wrong right " +
+    "really seriously whatever anything something everything forgot unsure confused lost found broken info more menu continue understood gotcha word alright"
+  ).split(" "),
+);
+
+/**
+ * The text as the front half of an email, or null: only letters, digits, dots, underscores and hyphens, 3 to 30
+ * characters, starting with a letter or digit and carrying at least one letter, and not a common chat word.
+ */
+export function localPart(text: string): string | null {
+  const raw = (text ?? "").trim();
+  if (!raw || raw.includes("?")) return null;
+  const t = raw.toLowerCase().replace(/[‘’'"`<>()]/g, "").replace(/[.!,]+$/, "").trim();
+  if (!/^[a-z0-9][a-z0-9._-]{2,29}$/.test(t) || !/[a-z]/.test(t) || /[._-]{2}/.test(t)) return null;
+  if (CHAT_WORDS.has(t) || PROSE.has(t)) return null;
+  return t;
+}
+
+/**
+ * The usc address a message without one most likely means, built in code and always confirmed before use.
+ * A bare word that reads as the front half of an email gives "<word>@usc.edu". When they gave a usc address
+ * earlier in this onboarding (`previous`), that address again if the message is its front half or a piece of it.
+ */
+export function suggestEmail(text: string, previous: string | null = null): string | null {
+  const prev = previous && previous.endsWith("@usc.edu") ? previous : null;
+  const prevLocal = prev ? prev.split("@")[0]! : "";
+  const local = localPart(text);
+  if (local) return prev && prevLocal.includes(local) ? prev : `${local}@usc.edu`;
+  if (!prev || (text ?? "").includes("?")) return null;
+  // "john wang" after john.wang@usc.edu: the same name with the punctuation typed differently.
+  const squeeze = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const words = (text ?? "").trim().split(/\s+/);
+  return words.length <= 3 && squeeze(text).length >= 3 && squeeze(text) === squeeze(prevLocal) ? prev : null;
 }
 
 /** "tommy.trojan" becomes "Tommy Trojan". Anything that doesn't look like first.last gives null. */
@@ -444,7 +513,8 @@ async function chat(ctx: FlowContext, step: Step, data: Data): Promise<boolean> 
       return true;
     }
     case "change_email":
-      ctx.setState({ flow: FLOW, step: "email", data: { judge } });
+      // The address they had is remembered, so a piece of it typed next is understood.
+      ctx.setState({ flow: FLOW, step: "email", data: { ...carry(data), judge } });
       if (!bubbles.length) await ctx.say(...vary(ctx, "ask_email_again"));
       return true;
     case "suggest_topic":
@@ -499,10 +569,24 @@ async function askWho(ctx: FlowContext): Promise<void> {
   ctx.setState({ flow: FLOW, step: "who", data: { judge: ref } });
 }
 
-function latestCode(db: DatabaseSync, userId: number) {
-  return db.prepare("SELECT * FROM verification_codes WHERE userId = ? ORDER BY id DESC LIMIT 1").get(userId) as
-    | { id: number; email: string; code: string; attempts: number; expiresAt: number }
-    | undefined;
+type CodeRow = { id: number; email: string; code: string; attempts: number; expiresAt: number };
+
+/** Every code sent to this address for this person that still works, newest first. */
+function liveCodes(db: DatabaseSync, userId: number, email: string): CodeRow[] {
+  return db.prepare("SELECT * FROM verification_codes WHERE userId = ? AND email = ? AND expiresAt >= ? ORDER BY id DESC").all(userId, email, Date.now()) as CodeRow[];
+}
+
+/** What a step before verification hands on to the next one: the open poll, and what the email reading needs. */
+function carry(data: Data, previous: string | null = previousEmail(data)): Data {
+  const misses = Number(data.misses ?? 0);
+  return { judge: data.judge ?? null, ...(previous ? { prev: previous } : {}), ...(misses > 0 ? { misses } : {}) };
+}
+
+/** The usc address a code last went to (or was meant to go to) in this onboarding, if any. */
+function previousEmail(data: Data): string | null {
+  const failed = data.failed as { email?: string } | undefined;
+  const email = data.email ?? data.prev ?? failed?.email;
+  return typeof email === "string" && email ? email : null;
 }
 
 /** What Troy says when the code email did not go out: honest about it, with real ways forward. Never "send it again". */
@@ -550,9 +634,10 @@ async function sendCode(ctx: FlowContext, email: string, data: Data): Promise<vo
   }
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const now = Date.now();
-  // Old codes stop working the moment a new one goes out (rows stay for the hourly count).
-  db.prepare("UPDATE verification_codes SET expiresAt = 0 WHERE userId = ?").run(user.id);
-  db.prepare("INSERT INTO verification_codes (userId, email, code, expiresAt, createdAt) VALUES (?, ?, ?, ?, ?)").run(user.id, email, code, now + CODE_TTL_MS, now);
+  // Codes for a different address stop working the moment this one goes out. Earlier codes for the same address
+  // keep working until they expire: someone with two emails from Troy can use either (rows stay for the hourly count).
+  db.prepare("UPDATE verification_codes SET expiresAt = 0 WHERE userId = ? AND email != ?").run(user.id, email);
+  const made = db.prepare("INSERT INTO verification_codes (userId, email, code, expiresAt, createdAt) VALUES (?, ?, ?, ?, ?)").run(user.id, email, code, now + CODE_TTL_MS, now);
   let result: EmailSendResult = "error";
   try {
     result = await d.sendEmail(email, code);
@@ -561,7 +646,7 @@ async function sendCode(ctx: FlowContext, email: string, data: Data): Promise<vo
   }
   if (result !== "sent") {
     // A code nobody received can't be used. The address is remembered so "try again" never needs it retyped.
-    db.prepare("UPDATE verification_codes SET expiresAt = 0 WHERE userId = ?").run(user.id);
+    db.prepare("UPDATE verification_codes SET expiresAt = 0 WHERE id = ?").run(Number(made.lastInsertRowid));
     ctx.setState({ flow: FLOW, step: "email", data: { judge, failed: { email, reason: result } } });
     await ctx.say(...(await inHisWords(ctx, sendFailedBrief(result))));
     return;
@@ -572,45 +657,115 @@ async function sendCode(ctx: FlowContext, email: string, data: Data): Promise<vo
 
 /** An email (or an attempt at one) typed at any step before verification. */
 async function handleEmailRead(ctx: FlowContext, read: NonNullable<EmailRead>, data: Data): Promise<void> {
-  const judge = data.judge ?? null;
   if (read.kind === "ok") {
     await sendCode(ctx, read.email, data);
     return;
   }
   if (read.kind === "typo") {
-    const [askId] = await ctx.say(didYouMean(read.email));
-    ctx.setState({ flow: FLOW, step: "email_confirm", data: { judge, suggested: read.email, askId: askId ?? null } });
+    await offerEmail(ctx, read.email, data, []);
     return;
   }
-  if (ctx.state?.step !== "code") ctx.setState({ flow: FLOW, step: "email", data: { judge, ...(data.failed ? { failed: data.failed } : {}) } });
+  // Something that was meant as an email and can't be used. At the code step the code is still what is open.
+  const atCode = ctx.state?.step === "code";
+  const misses = atCode ? 0 : Number(data.misses ?? 0) + 1;
+  const stay = { ...carry(data), ...(misses ? { misses } : {}), ...(data.failed ? { failed: data.failed } : {}) };
+  if (misses >= 2) {
+    // Twice in a row: the format has been explained. What helps now is the real ways forward.
+    ctx.setState({ flow: FLOW, step: "email", data: stay });
+    await ctx.say(...(await inHisWords(ctx, WAYS_FORWARD)));
+    return;
+  }
+  // A gmail or another school's address: one line that it has to be the usc one, and the usc address it most
+  // likely stands for in the same reply. Nothing is sent to it until they say yes.
+  const guess = read.kind === "not_usc" ? localPart(read.email.split("@")[0]!) : null;
+  if (guess) {
+    await offerEmail(ctx, `${guess}@usc.edu`, { ...data, misses }, vary(ctx, "email_not_usc"));
+    return;
+  }
+  if (!atCode) ctx.setState({ flow: FLOW, step: "email", data: stay });
   await ctx.say(...vary(ctx, read.kind === "not_usc" ? "email_not_usc" : "email_hint"));
 }
 
-async function handleCodeGuess(ctx: FlowContext, guess: string): Promise<void> {
+/** Two tries at an email that didn't work. He doesn't explain the format a third time. */
+const WAYS_FORWARD: Brief = {
+  goal: "they tried twice to give their usc email and neither try worked. do not explain the email format again. be easy about it and offer the two real ways forward",
+  mustCover: ["they can send their usc email one more time", 'if they are a hackathon judge they can text "judge" and skip this step'],
+  fallback: [
+    ["no stress, we keep missing each other on this", 'send ur usc email one more time and i\'ll take it from there. or if ur a judge, text "judge" and u skip this part'],
+    ["ok this isn't landing, that's fine", 'give me ur usc email once more, or if ur a hackathon judge just text "judge" and we skip it'],
+    ["all good, two ways from here", 'try ur usc email one more time. or text "judge" if ur judging the hackathon and i\'ll skip the check'],
+  ],
+};
+
+/** True while the bubble with this id is still the last thing Troy sent in this chat. Unknown ids count as still last. */
+function stillLastWord(ctx: FlowContext, askId: string | null): boolean {
+  if (!askId) return true;
+  try {
+    const row = ctx.db.prepare("SELECT providerMessageId FROM messages WHERE chatId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(ctx.event.chatId) as { providerMessageId: string | null } | undefined;
+    return !row?.providerMessageId || row.providerMessageId === askId;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The did-u-mean question for an address built in code. Nothing is sent to it until they say yes (typed, or a
+ * thumbs up on that bubble). `lead` goes out first, in the same reply.
+ */
+async function offerEmail(ctx: FlowContext, email: string, data: Data, lead: string[]): Promise<void> {
+  const ids = await ctx.say(...lead, didYouMean(email));
+  ctx.setState({ flow: FLOW, step: "email_confirm", data: { ...carry(data), suggested: email, askId: ids[ids.length - 1] ?? null } });
+}
+
+/**
+ * A six digit guess. Any unexpired code sent to this address counts, not only the newest (John typed the code
+ * from the first of two emails). A wrong guess counts against every code that is out, so no code is ever guessed
+ * at more than MAX_ATTEMPTS times: one that used up its tries stays dead when a newer email goes out, and the
+ * tries left are the newest code's.
+ */
+async function handleCodeGuess(ctx: FlowContext, guess: string, email: string): Promise<void> {
   const { db, user } = ctx;
-  const row = latestCode(db, user.id);
-  if (!row || row.expiresAt < Date.now()) {
+  const live = liveCodes(db, user.id, email);
+  const newest = live[0];
+  if (!newest) {
     await ctx.say(...vary(ctx, "code_expired"));
     return;
   }
-  if (row.attempts >= MAX_ATTEMPTS) {
+  if (newest.attempts >= MAX_ATTEMPTS) {
     await ctx.say(...vary(ctx, "code_locked"));
     return;
   }
-  if (guess !== row.code) {
-    const attempts = row.attempts + 1;
-    db.prepare("UPDATE verification_codes SET attempts = ? WHERE id = ?").run(attempts, row.id);
-    const left = MAX_ATTEMPTS - attempts;
-    await ctx.say(...(left > 0 ? vary(ctx, "code_wrong", { left: `${left} ${left === 1 ? "try" : "tries"}` }) : vary(ctx, "code_out")));
+  const usable = live.filter((row) => row.attempts < MAX_ATTEMPTS);
+  const hit = usable.find((row) => row.code === guess);
+  if (!hit) {
+    for (const row of usable) db.prepare("UPDATE verification_codes SET attempts = ? WHERE id = ?").run(row.attempts + 1, row.id);
+    const left = MAX_ATTEMPTS - (newest.attempts + 1);
+    const tries = { left: `${left} ${left === 1 ? "try" : "tries"}` };
+    await ctx.say(...(left > 0 ? vary(ctx, live.length >= 2 ? "code_wrong_recent" : "code_wrong", tries) : vary(ctx, "code_out")));
     return;
   }
-  await verified(ctx, { uscEmail: row.email, verifiedVia: "usc_email", name: user.name ?? guessName(row.email) }, vary(ctx, "verified"));
+  await verified(ctx, { uscEmail: hit.email, verifiedVia: "usc_email", name: user.name ?? guessName(hit.email) }, vary(ctx, "verified"));
 }
 
 async function verified(ctx: FlowContext, fields: Record<string, string | number | null>, lead: string[]): Promise<void> {
   updateUser(ctx.db, ctx.user.id, { verifiedAt: Date.now(), ...fields });
   ctx.db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(ctx.user.id);
   await askAlerts(ctx, lead);
+}
+
+/**
+ * Testers John pre-approved (TROY_GUEST_STUDENTS, comma-separated handles) get the full student path without the
+ * USC email step: picking "usc student" verifies them. For the hackathon only; nobody else can reach this.
+ */
+function isGuestStudent(handle: string): boolean {
+  const list = (process.env.TROY_GUEST_STUDENTS || "").split(",").map((h) => normalizeHandle(h)).filter(Boolean);
+  return list.includes(handle);
+}
+
+async function guestStudent(ctx: FlowContext): Promise<boolean> {
+  if (!isGuestStudent(ctx.user.handle)) return false;
+  await verified(ctx, { verifiedVia: "usc_email" }, ["ur on john's tester list, so no email check for u"]);
+  return true;
 }
 
 /**
@@ -646,6 +801,7 @@ async function beforeVerified(ctx: FlowContext, step: Step, data: Data, extras: 
     const { index, positive } = pollChoice(event, judge);
     if (index === 1 && positive) await judgeSkip(ctx);
     else if (index === 0 && positive) {
+      if (await guestStudent(ctx)) return true;
       if (step === "who") ctx.setState({ flow: FLOW, step: "email", data: { judge } });
       if (step === "who" || step === "email") await ctx.say(...(await deps()).pickLine(ctx, "student"));
     } else if (index === -1 && step === "email_confirm") {
@@ -653,7 +809,7 @@ async function beforeVerified(ctx: FlowContext, step: Step, data: Data, extras: 
       const answer = d.readYesNo({ event, questionMessageId: (data.askId as string | null) ?? null, allowTapback: true });
       if (answer === "yes") await sendCode(ctx, String(data.suggested), data);
       else if (answer === "no") {
-        ctx.setState({ flow: FLOW, step: "email", data: { judge } });
+        ctx.setState({ flow: FLOW, step: "email", data: carry(data) });
         await ctx.say(...vary(ctx, "ask_email_again"));
       }
     }
@@ -670,11 +826,14 @@ async function beforeVerified(ctx: FlowContext, step: Step, data: Data, extras: 
   if (step === "email_confirm" && !read) {
     const answer = d.readYesNo({ event, questionMessageId: (data.askId as string | null) ?? null, allowTapback: true });
     if (answer === "yes") {
-      await sendCode(ctx, String(data.suggested), data);
+      // He has said something else since asking (they asked a question and he answered): this yes may be to that.
+      // No code goes to an address on it. The question is asked again, and a yes to that sends it.
+      if (!stillLastWord(ctx, (data.askId as string | null) ?? null)) await offerEmail(ctx, String(data.suggested), data, []);
+      else await sendCode(ctx, String(data.suggested), data);
       return true;
     }
     if (answer === "no") {
-      ctx.setState({ flow: FLOW, step: "email", data: { judge } });
+      ctx.setState({ flow: FLOW, step: "email", data: carry(data) });
       await ctx.say(...vary(ctx, "ask_email_again"));
       return true;
     }
@@ -689,7 +848,7 @@ async function beforeVerified(ctx: FlowContext, step: Step, data: Data, extras: 
     const squeezed = text.replace(/[\s-]/g, "");
     const guess = squeezed.match(/^\D*(\d{6})\D*$/)?.[1];
     if (guess) {
-      await handleCodeGuess(ctx, guess);
+      await handleCodeGuess(ctx, guess, String(data.email ?? ""));
       return true;
     }
     // Digits, but not six of them: that was an attempt at the code.
@@ -705,6 +864,7 @@ async function beforeVerified(ctx: FlowContext, step: Step, data: Data, extras: 
   }
 
   if ((step === "who" || step === "email") && (SAYS_STUDENT.test(w) || (step === "who" && w === "1"))) {
+    if (await guestStudent(ctx)) return true;
     ctx.setState({ flow: FLOW, step: "email", data: { judge, ...(data.failed ? { failed: data.failed } : {}) } });
     await ctx.say(...(await deps()).pickLine(ctx, "student"));
     return true;
@@ -714,6 +874,15 @@ async function beforeVerified(ctx: FlowContext, step: Step, data: Data, extras: 
   if (step === "email" && failed?.email && (TRY_AGAIN.test(w) || d.readYesNo({ event, questionMessageId: null }) === "yes")) {
     await sendCode(ctx, failed.email, data);
     return true;
+  }
+  // He is waiting for an email and got a word that reads as the front half of one ("johnwang"), or a piece of
+  // the address they gave before: the address is built here and confirmed, never guessed at with format hints.
+  if ((step === "email" || step === "email_confirm") && !event.images.length && !realRequest(event) && d.readYesNo({ event, questionMessageId: null }) === null) {
+    const offer = suggestEmail(text, previousEmail(data));
+    if (offer) {
+      await offerEmail(ctx, offer, data, []);
+      return true;
+    }
   }
   return chat(ctx, step, data);
 }
