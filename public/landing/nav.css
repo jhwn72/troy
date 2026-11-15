@@ -116,6 +116,11 @@
   white-space: nowrap;
 }
 .footer-links a:hover { text-decoration: underline; text-underline-offset: 4px; }
+/* Phones: all four links on one row. */
+@media (max-width: 599px) {
+  .footer-links { flex-wrap: nowrap; gap: 0; }
+  .footer-links a { padding: 0 8px; font-size: 0.8125rem; }
+}
 
 /* ---------- Dashboard, panel, privacy: the header on paper ---------- */
 

@@ -16,9 +16,9 @@ export function troyNumber(raw: string | undefined = process.env.TROY_NUMBER): s
   return null;
 }
 
-/** sms:+1XXXXXXXXXX&body=hey%20troy */
+/** sms:+1XXXXXXXXXX?&body=hey%20troy */
 export function smsLink(number: string, body: string = OPT_IN_BODY): string {
-  return `sms:${number}&body=${encodeURIComponent(body)}`;
+  return `sms:${number}?&body=${encodeURIComponent(body)}`;
 }
 
 export function createLandingRoutes(): Hono {

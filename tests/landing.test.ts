@@ -27,7 +27,7 @@ test("GET /api/landing returns nulls when TROY_NUMBER is unset", async () => {
 test("GET /api/landing returns the sms link when TROY_NUMBER is set", async () => {
   process.env.TROY_NUMBER = EXAMPLE;
   const res = await createLandingRoutes().request("/api/landing");
-  assert.deepEqual(await res.json(), { smsLink: "sms:+12135550123&body=hey%20troy", number: EXAMPLE });
+  assert.deepEqual(await res.json(), { smsLink: "sms:+12135550123?&body=hey%20troy", number: EXAMPLE });
 });
 
 test("a number that is not a phone number counts as unset", async () => {
@@ -42,8 +42,8 @@ test("troyNumber normalizes to E.164", () => {
   assert.equal(troyNumber("+1 213-555-0123"), EXAMPLE);
   assert.equal(troyNumber(""), null);
   assert.equal(troyNumber("12345"), null);
-  assert.equal(smsLink(EXAMPLE), "sms:+12135550123&body=hey%20troy");
-  assert.equal(smsLink(EXAMPLE, "hey troy, i have a question"), "sms:+12135550123&body=hey%20troy%2C%20i%20have%20a%20question");
+  assert.equal(smsLink(EXAMPLE), "sms:+12135550123?&body=hey%20troy");
+  assert.equal(smsLink(EXAMPLE, "hey troy, i have a question"), "sms:+12135550123?&body=hey%20troy%2C%20i%20have%20a%20question");
 });
 
 test("GET /qr.svg returns an SVG when the number is set", async () => {
@@ -330,18 +330,18 @@ test("static build bakes the number into the page, the QR and a Vercel config, a
 
     const built = await buildLanding({ number: "(213) 555-0123", outDir: out });
     assert.equal(built.number, EXAMPLE);
-    assert.equal(built.smsLink, "sms:+12135550123&body=hey%20troy");
+    assert.equal(built.smsLink, "sms:+12135550123?&body=hey%20troy");
     assert.deepEqual(built.smsLinks, [
-      "sms:+12135550123&body=hey%20troy",
-      "sms:+12135550123&body=hey%20troy%2C%20i%20have%20a%20question",
-      "sms:+12135550123&body=hey%20troy",
+      "sms:+12135550123?&body=hey%20troy",
+      "sms:+12135550123?&body=hey%20troy%2C%20i%20have%20a%20question",
+      "sms:+12135550123?&body=hey%20troy",
     ]);
 
     const html = readFileSync(join(out, "index.html"), "utf8");
     assert.ok(html.includes('<meta name="troy-number" content="+12135550123">'));
     assert.ok(html.includes('<meta name="troy-sms" content="sms:+12135550123">'));
-    assert.equal(html.split('href="sms:+12135550123&amp;body=hey%20troy" data-sms="hey troy"').length - 1, 2, "both Text Troy links are in the markup");
-    assert.ok(html.includes('href="sms:+12135550123&amp;body=hey%20troy%2C%20i%20have%20a%20question"'), "the FAQ link is in the markup");
+    assert.equal(html.split('href="sms:+12135550123?&amp;body=hey%20troy" data-sms="hey troy"').length - 1, 2, "both Text Troy links are in the markup");
+    assert.ok(html.includes('href="sms:+12135550123?&amp;body=hey%20troy%2C%20i%20have%20a%20question"'), "the FAQ link is in the markup");
     assert.ok(html.includes('<meta name="robots" content="noindex">'));
     assert.ok(html.includes(`landing/chat.js?v=${built.version}`));
     assert.ok(html.includes(`img/campus-day-1600.webp?v=${built.version} 1600w`));

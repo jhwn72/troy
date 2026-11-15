@@ -47,10 +47,10 @@ export function getNumber() {
   return numberPromise;
 }
 
-/** sms:+1XXXXXXXXXX&body=hey%20troy, or null when there is no number. */
+/** sms:+1XXXXXXXXXX?&body=hey%20troy, or null when there is no number. */
 export async function getSms(body = "hey troy") {
   const number = await getNumber();
-  return number ? `sms:${number}&body=${encodeURIComponent(body)}` : null;
+  return number ? `sms:${number}?&body=${encodeURIComponent(body)}` : null;
 }
 
 /** Points every a[data-sms] at Messages, or disables it when there is no number. */

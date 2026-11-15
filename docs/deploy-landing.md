@@ -18,7 +18,7 @@ Use Troy's real number in place of `+1XXXXXXXXXX`. If `TROY_NUMBER` is already s
 
 It writes only what the four pages need:
 
-- `vercel-landing/index.html` with the number baked into the two meta tags (`troy-number`, `troy-sms`) and into the three links, so no `/api/landing` call is needed. Both Text Troy buttons open `sms:+1XXXXXXXXXX&body=hey%20troy`, and the FAQ button opens the same number with "hey troy, i have a question" filled in.
+- `vercel-landing/index.html` with the number baked into the two meta tags (`troy-number`, `troy-sms`) and into the three links, so no `/api/landing` call is needed. Both Text Troy buttons open `sms:+1XXXXXXXXXX?&body=hey%20troy`, and the FAQ button opens the same number with "hey troy, i have a question" filled in.
 - `vercel-landing/qr.svg`, the QR code for the Text Troy link
 - `vercel-landing/dashboard.html`, `panel.html` and `privacy.html`, as they are in `public/` (the number is not on them)
 - `vercel-landing/demo-data/*.json`, the example data the dashboard and the panel load, made fresh by every build

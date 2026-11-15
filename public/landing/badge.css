@@ -86,3 +86,10 @@
 /* Not on an Apple device: the button becomes a status, not an action. */
 a[data-sms].is-soon { background: transparent; color: inherit; border: 1px solid currentColor; opacity: 0.85; cursor: default; box-shadow: none; pointer-events: none; }
 .not-apple .badge-soon { opacity: 1; }
+
+/* On the night footer the "Android soon" button would be ink on a dark sky: it takes the footer's white instead. */
+#footer a[data-sms].is-soon { color: var(--white); opacity: 0.9; }
+/* Phones: the quieter second line stays one line, with its icons beside the words, not stranded above them. */
+@media (max-width: 599px) {
+  .badge-soon { flex-wrap: nowrap; white-space: nowrap; font-size: 12px; }
+}

@@ -117,6 +117,11 @@ h1, h2, .lead, .footer-line {
   .fontswitch-panel { left: 14px; bottom: 42px; max-height: calc(100vh - 170px); max-height: calc(100dvh - 170px); }
 }
 
+/* Phones: the switcher is a review tool for a wide screen. On a phone it sits on the page's own content, so it is off. */
+@media (max-width: 599px) {
+  .fontswitch { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fontswitch-panel { transition: none; }
 }
