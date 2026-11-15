@@ -2,6 +2,7 @@
 // Replies to a student's own request are never blocked by quiet hours.
 
 import type { User } from "./types.ts";
+import { isDemoHandle } from "./config.ts";
 
 export const QUIET_TIME_ZONE = "America/Los_Angeles";
 
@@ -44,6 +45,8 @@ export function inQuietHours(user: Pick<User, "quietHours">, now: Date = new Dat
 }
 
 /** May Troy send this user an alert right now? Not stopped, not paused, not in quiet hours. */
-export function canAlert(user: Pick<User, "quietHours" | "stopped" | "paused">, now: Date = new Date()): boolean {
+export function canAlert(user: Pick<User, "quietHours" | "stopped" | "paused"> & { handle?: string }, now: Date = new Date()): boolean {
+  // Scripted demo mode: nothing unprompted (alerts, the first ten minutes, the closing line) goes to a demo handle.
+  if (isDemoHandle(user.handle)) return false;
   return !user.stopped && !user.paused && !inQuietHours(user, now);
 }

@@ -7,6 +7,8 @@ import { getFlowState, getOrCreateUser, getSetting, getUserById, saveMessage, se
 import { COMMAND_POOLS, endsPlayful, isHeyTroy, matchCommand, meantCommand, safetySignal, TEMPLATES } from "./commands.ts";
 import type { CommandKind } from "./commands.ts";
 import * as onboardingMod from "./onboarding.ts";
+import { isDemoHandle, runDemoScript, runDemoTap } from "./demo-script.ts";
+import type { DemoIo } from "./demo-script.ts";
 import { handleOnboarding, needsOnboarding } from "./onboarding.ts";
 import { getFlow } from "./flows/index.ts";
 import * as aiMod from "./ai.ts";
@@ -982,15 +984,30 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     }
   }
 
+  function demoIo(user: User, event: IncomingEvent, turn: Turn): DemoIo {
+    return {
+      db,
+      user,
+      event,
+      adapter: flowAdapter(turn),
+      say: (...bubbles) => send(user, event.chatId, bubbles, { turn }),
+      pause,
+      ready: turn.ready,
+      clearAsk: () => setAsk(user.id, null),
+    };
+  }
+
   async function process(event: IncomingEvent): Promise<void> {
     if (!isEnabled(db)) return;
     // Troy steps back once a handoff group chat exists.
     if (event.isGroup) return;
     const adapter = deps.getAdapter();
-    const user = getOrCreateUser(db, event.userHandle, event.chatId);
+    let user = getOrCreateUser(db, event.userHandle, event.chatId);
     const tap = !!(event.reaction || event.pollVote);
 
     if (tap) {
+      // Scripted demo mode (src/demo-script.ts): a tapback on its own offer.
+      if (!user.stopped && isDemoHandle(user.handle) && (await runDemoTap(demoIo(user, event, freeTurn())))) return;
       if (!user.stopped) {
         await handleTap(user, event, getFlowState(db, user.id));
         await deliver();
@@ -1032,6 +1049,14 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       await runCommand(command.kind, user, event, turn);
       await deliver();
       return;
+    }
+
+    // Scripted demo mode (src/demo-script.ts), for demo handles only. After the fixed safety handling above; a
+    // message that needs the safety read, or the answer to Troy's check-in, still goes the normal way.
+    if (isDemoHandle(user.handle) && signal?.level !== "ambiguous" && openAsk(user.id)?.kind !== "checkin") {
+      if (await runDemoScript(demoIo(user, event, turn))) return;
+      // It may have marked them verified or cleared an old onboarding step.
+      user = getUserById(db, user.id) ?? user;
     }
 
     // A question of Troy's own is open: his check-in, or "want me to ...? reply "yes"".

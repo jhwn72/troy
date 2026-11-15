@@ -69,3 +69,16 @@ export function isEnabled(db: DatabaseSync): boolean {
   if (!switchOn(process.env.TROY_ENABLED)) return false;
   return switchOn(getSetting(db, "troy_enabled"));
 }
+
+/** Scripted demo mode (src/demo-script.ts): TROY_DEMO_SCRIPT is exactly "on". Read on every call. */
+export function demoScriptOn(): boolean {
+  return (process.env.TROY_DEMO_SCRIPT || "").trim().toLowerCase() === "on";
+}
+
+/** The demo script is on and this handle is listed in TROY_DEMO_HANDLES (comma separated). */
+export function isDemoHandle(handle: string | null | undefined): boolean {
+  if (!demoScriptOn() || !handle) return false;
+  const h = normalizeHandle(handle);
+  if (!h) return false;
+  return (process.env.TROY_DEMO_HANDLES || "").split(",").map(normalizeHandle).includes(h);
+}
