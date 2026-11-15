@@ -1,0 +1,256 @@
+[
+  {
+    "kind": "office",
+    "name": "USC Counseling & Mental Health Services",
+    "topics": [
+      "counseling",
+      "therapy",
+      "therapist",
+      "mental health",
+      "anxiety",
+      "depressed",
+      "stressed",
+      "crisis",
+      "someone to talk to",
+      "lets talk",
+      "student health"
+    ],
+    "contactMethod": "213-740-9355",
+    "url": "https://sites.usc.edu/counselingandmentalhealth/",
+    "details": "usc counseling and mental health is part of usc student health. call 213-740-9355, their crisis support page lists it as the 24/7 line. to book a let's talk session, a workshop, a therapy group or request a therapist appointment, use myshr at https://usc.edu/myshr",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Student Basic Needs",
+    "topics": [
+      "food pantry",
+      "free food",
+      "hungry",
+      "cant afford food",
+      "food insecurity",
+      "calfresh",
+      "ebt",
+      "meal swipes",
+      "basic needs",
+      "tommys table",
+      "free clothes",
+      "emergency money"
+    ],
+    "contactMethod": "basicneeds@usc.edu",
+    "url": "https://studentbasicneeds.usc.edu/",
+    "details": "student basic needs runs the trojan food pantry, calfresh help, emergency meal swipes, tommy's table and tommy's closet. the pantry is in king hall (koh) suite 103, open tue, wed and thu 10am to 2pm in fall and spring from the first week of classes. u fill out the intake form once a semester and bring ur physical uscard and a reusable bag. the form and current hours are at https://studentbasicneeds.usc.edu/programs-and-services/food-support/trojan-food-pantry/",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "Campus Support & Intervention (CSI)",
+    "topics": [
+      "struggling",
+      "overwhelmed",
+      "worried about a friend",
+      "need help",
+      "personal emergency",
+      "leave of absence",
+      "health leave",
+      "tell my professors",
+      "family emergency",
+      "dont know who to ask",
+      "trojans care"
+    ],
+    "contactMethod": "213-740-0411 or uscsupport@usc.edu",
+    "url": "https://campussupport.usc.edu/",
+    "details": "campus support and intervention helps students navigate complicated situations, points u to the right resources, handles student health leave of absence and can notify professors case by case. they're in tutor campus center suite 421 and answer emails within one business day. they are not an emergency resource and not 24/7, so for an emergency call dps at 213-740-4321. if ur worried about another trojan, the trojans care 4 trojans form is at https://campussupport.usc.edu/tc4t/",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Lyft Rides Program",
+    "topics": [
+      "safe ride",
+      "free lyft",
+      "lyft",
+      "ride home",
+      "walking home at night",
+      "late night ride",
+      "campus cruiser",
+      "get home safe",
+      "uber"
+    ],
+    "contactMethod": "auxtrans@usc.edu or (213) 740-3575",
+    "url": "https://transnet.usc.edu/index.php/how-to-use-lyft/",
+    "details": "the usc lyft rides program gives current students free shared lyft rides around upc from 7pm to 2am every night (hsc is 5pm to 2am mon to fri). in the lyft app, check that the usc lyft rides pass shows under payment, pick shared, no added stops, and start and end inside the usc zone. if u dont have the pass, the invite form is at https://transnet.usc.edu/index.php/lyft-invite/ and the boundary maps are on the program page. on home football game days it can start later.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "Office of Academic Records and Registrar",
+    "topics": [
+      "registrar",
+      "add a class",
+      "drop a class",
+      "add drop deadline",
+      "registration",
+      "web registration",
+      "webreg",
+      "transcript",
+      "enrollment verification",
+      "registration hold",
+      "withdraw",
+      "oasis"
+    ],
+    "contactMethod": "Registration Services at (213) 740-8500, or Grades, Transcripts and Verifications at (213) 740-7445",
+    "url": "https://arr.usc.edu/",
+    "details": "the registrar's office is in the john hubbard hall (jhh) lobby, 700 childs way, open 9am to 5pm monday to friday. u add and drop classes on web registration (https://webreg.usc.edu/Login), the current add/drop deadlines are posted on the registration calendar (https://arr.usc.edu/registration-calendar/), and transcripts are at https://arr.usc.edu/transcripts-services/.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "Academic Advising (Advise USC)",
+    "topics": [
+      "advisor",
+      "academic advisor",
+      "advising",
+      "find my advisor",
+      "advise usc",
+      "advisement",
+      "what classes to take",
+      "d-clearance",
+      "change major",
+      "four year plan"
+    ],
+    "contactMethod": "Advise USC at https://usc.edu/advise to reach your own advisor. the office of academic programs, which runs the advising page, is at (213) 740-9033 or academic.programs@usc.edu",
+    "url": "https://academicprograms.usc.edu/services/academic-advising/",
+    "details": "u find and connect with your own academic advisor on advise usc (https://usc.edu/advise). usc calls it the central place where students across the university connect with their advisors, and u log in with your usc account.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Financial Aid Office",
+    "topics": [
+      "financial aid",
+      "fafsa",
+      "css profile",
+      "scholarship",
+      "grant",
+      "loans",
+      "work study",
+      "aid package",
+      "aid appeal",
+      "tuition help",
+      "cost of attendance"
+    ],
+    "contactMethod": "(213) 740-4444, or the askUSC contact form at https://ask.usc.edu/s/emailus",
+    "url": "https://financialaid.usc.edu/",
+    "details": "the financial aid office is in the john hubbard hall (jhh) lobby and answers phones 9am to 5pm pacific, monday to friday. current deadlines and cost of attendance are posted on financialaid.usc.edu, and the undergrad deadlines page is https://financialaid.usc.edu/undergraduate-financial-aid/admitted-and-continuing-students/dates-and-deadlines/.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Office of International Services (OIS)",
+    "topics": [
+      "international student",
+      "visa",
+      "f-1",
+      "j-1",
+      "i-20",
+      "ois",
+      "opt",
+      "cpt",
+      "full time enrollment",
+      "reduced course load",
+      "travel signature",
+      "sevis"
+    ],
+    "contactMethod": "askOIS contact form at https://ois.usc.edu/ask-ois/ (J-1 students: j1student@usc.edu)",
+    "url": "https://ois.usc.edu/contact/",
+    "details": "ois helps international students with visas, immigration requirements and travel. f-1 students can join zoom drop-in advising monday to friday 1 to 3pm (the room closes at 2:30, and it is off on university holidays) from the contact page, or send the askois form. if u are on an f-1 or j-1 u need ois approval before dropping below full time, so ask them before u drop a class.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Transportation",
+    "topics": [
+      "parking",
+      "parking permit",
+      "parking pass",
+      "parking rates",
+      "permit price",
+      "bus",
+      "shuttle",
+      "usc bus",
+      "bus schedule",
+      "track a bus",
+      "transportation",
+      "hsc shuttle"
+    ],
+    "contactMethod": "213-740-3575 (University Park Campus customer service) or online form at https://transnet.usc.edu/index.php/feedback/",
+    "url": "https://transnet.usc.edu/",
+    "details": "usc transportation handles parking permits and the free usc buses. permits are bought online at https://usc.aimsparking.com (student steps are linked from https://transnet.usc.edu/index.php/how-to-purchase-a-permit-2/), current permit prices are posted at https://transnet.usc.edu/index.php/parking-rates/, and bus maps and schedules are at https://transnet.usc.edu/index.php/bus-map-schedules/. the upc office is at 620 usc mccarthy way (mccarthy structure), open 8:30am to 3:00pm monday through friday.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USCard Services",
+    "topics": [
+      "lost id",
+      "lost uscard",
+      "student id",
+      "uscard",
+      "replacement id",
+      "stolen id",
+      "id card",
+      "id not working",
+      "freeze card",
+      "new id",
+      "lost my card"
+    ],
+    "contactMethod": "(213) 740-8709 or uscard@usc.edu",
+    "url": "https://mycard.usc.edu/",
+    "details": "uscard services handles student ids. if your uscard is lost or stolen, log in at https://mycard.usc.edu/login/ to freeze it, then request a replacement at https://mycard.usc.edu/replacement-id. the current replacement fee is posted on https://mycard.usc.edu/get-your-uscard/. the upc customer service center is in the mccarthy way parking structure, 620 mccarthy way, open monday to friday 9am to 5pm.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "ITS Customer Support Center",
+    "topics": [
+      "wifi",
+      "wi-fi",
+      "internet",
+      "usc secure",
+      "netid",
+      "password reset",
+      "duo",
+      "email",
+      "account locked",
+      "its",
+      "it help",
+      "tech support"
+    ],
+    "contactMethod": "213-740-5555 or online form",
+    "url": "https://itservices.usc.edu/contact/",
+    "details": "the its customer support center is usc's tech help desk. call 213-740-5555 any time (the page says 24 hours a day, 7 days a week) or open a ticket at https://itsusc.service-now.com/usc_its_support. some requests may need a government id to verify you.",
+    "isExample": false
+  },
+  {
+    "kind": "office",
+    "name": "USC Ticket Office",
+    "topics": [
+      "football tickets",
+      "student tickets",
+      "season ticket",
+      "game tickets",
+      "basketball tickets",
+      "athletics",
+      "coliseum",
+      "galen center",
+      "student section",
+      "guest ticket",
+      "ticket transfer"
+    ],
+    "contactMethod": "213-740-4672 or uscto@usc.edu",
+    "url": "https://ticketoffice.usc.edu/for-the-usc-community/usc-athletics-tickets-for-students/",
+    "details": "the usc ticket office handles student athletics tickets. full-time students can buy one football season ticket, it's sent to your phone and you still need your uscard to get into the coliseum; ordering links are on https://ticketoffice.usc.edu/for-the-usc-community/usc-athletics-tickets-for-students/. for other sports your uscard is your ticket to regular-season home games, first come first served. phones are answered monday to friday 11am to 4pm august through may (11am to 3pm june and july), and they're not open for walk-ins on non-event days.",
+    "isExample": false
+  }
+]
