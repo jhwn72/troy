@@ -126,7 +126,7 @@ test("landing page follows the design reference's rules", () => {
   assert.deepEqual(pairs.slice(0, 2), ["You need a ride to LAX", "Three people in your building do too"]);
   for (const line of pairs) assert.ok(!line.endsWith("."), line);
   // Every link that opens a text draft has the "Available on iMessage" badge right after it.
-  assert.equal([...html.matchAll(/<a class="btn" data-sms="[^"]+">[^<]+<\/a>(?:\s*<img id="qr"[^>]*>)?\s*<p class="badge-imessage">/g)].length, 3, "a badge with every Text Troy link");
+  assert.equal([...html.matchAll(/<a class="btn" data-sms="[^"]+">[^<]+<\/a>(?:\s*<img id="qr"[^>]*>(?:\s*<span class="qr-cap">[^<]*<br>[^<]*<\/span>)?)?\s*<p class="badge-imessage">/g)].length, 3, "a badge with every Text Troy link");
   assert.equal(html.split('<span class="badge-name">iMessage</span>').length - 1, 3);
   assert.equal(html.split("Coming to non-Apple devices soon").length - 1, 3);
   assert.ok(html.includes("Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it."));
