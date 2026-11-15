@@ -136,3 +136,33 @@ test("decide: a model pass is a handoff, a rule-score pass goes to the finder, a
   assert.equal(decide(15, "ai"), "no_handoff");
   assert.equal(decide(null, null), "no_handoff");
 });
+
+test("plain items: their own cases, run through the plain path and reported apart, with no wrong handoff", { skip: ready ? false : "skipped: matcher or verifier isn't there yet" }, async () => {
+  const { file } = readCases();
+  const plainCases = file.plainCases as AnyCase[];
+  assert.ok(Array.isArray(plainCases) && plainCases.length >= 6);
+  const { isPlainItem } = await import("../src/flows/lostfound/verify.ts");
+  for (const c of plainCases) {
+    const { locationText: _l, hoursAgo: _h, ...profile } = c.found;
+    assert.equal(isPlainItem(profile), true, `${c.id}: the found item is plain`);
+    assert.equal(c.expected, c.kind === "true_match" || c.kind === "hard" ? "handoff" : "no_handoff", c.id);
+  }
+  const { runEval } = await import("../src/eval.ts");
+  const r = await runEval({ useAi: false, save: false });
+  // The 40 main cases read exactly as before.
+  assert.equal(r.total, 40);
+  assert.ok(r.cases.every((c) => c.plain === false), "none of the main cases is a plain item");
+  const p = r.plain!;
+  assert.equal(p.total, plainCases.length);
+  assert.equal(p.wrongHandoffs, 0);
+  assert.equal(p.cases.filter((c) => c.decision === "handoff").length, 0, "rules alone never hand anything over");
+  const by = Object.fromEntries(p.cases.map((c) => [c.id, c]));
+  // Real owners of plain things reach the finder.
+  for (const id of ["pl-01", "pl-02", "pl-03"]) assert.equal(by[id]!.decision, "sent_to_finder", id);
+  // Junk and a wrong kind don't.
+  for (const id of ["pl-05", "pl-06", "pl-08"]) assert.equal(by[id]!.decision, "no_handoff", id);
+  // A vague true-of-anything line, alone or after a wrong guess, does reach the finder, and the eval says so.
+  for (const id of ["pl-04", "pl-07"]) assert.equal(by[id]!.decision, "sent_to_finder", id);
+  assert.equal(p.sentToFinderNotOwner, p.cases.filter((c) => c.sentToFinder && c.expected === "no_handoff").length);
+  assert.ok(p.sentToFinderNotOwner >= 2);
+});

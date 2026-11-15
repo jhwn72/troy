@@ -217,6 +217,7 @@ const BRAND_PATTERNS: [RegExp, string][] = [
   [/\bcarhart\b/, "carhartt"],
   [/\basus\b/, "asus"],
   [/\bacer\b/, "acer"],
+  [/\buniqlo\b/, "uniqlo"],
 ];
 
 /** Known brands a piece of text names, including through product names ("airpods" means apple). */

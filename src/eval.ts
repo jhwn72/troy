@@ -7,6 +7,12 @@
 // When the description was scored by the rules only (no model), a passing score is never a handoff: the live
 // flow shows the finder the claimant's words and the finder decides. The eval reports that as a third
 // outcome, "sent_to_finder". It is not a wrong handoff, because Troy handed nothing over.
+//
+// A plain found item (isPlainItem in verify.ts) whose description "fits" also goes to the finder, whatever the
+// score source: the finder decides. Those cases live in their own list (plainCases in evals/cases.json) and are
+// reported apart (result.plain), so the 40 main cases and their totals read the same as before. An impostor whose
+// vague, true-of-anything answer reaches the finder is counted in plain.sentToFinderNotOwner: not a wrong handoff,
+// but the finder is the only check left.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +22,8 @@ import { openDb } from "./db/index.ts";
 import { rankCandidates, scoreFallback } from "./flows/lostfound/match.ts";
 import type { ListingRow } from "./flows/lostfound/match.ts";
 import type { ItemProfile, LostReport } from "./flows/lostfound/types.ts";
-import { THRESHOLDS, scoreDescription } from "./flows/lostfound/verify.ts";
+import type { Verdict } from "./flows/lostfound/verify.ts";
+import { THRESHOLDS, isPlainItem, scoreDescription } from "./flows/lostfound/verify.ts";
 
 export const EVAL_KINDS = ["true_match", "look_alike", "fraud", "wrong_item", "hard"] as const;
 export type EvalKind = (typeof EVAL_KINDS)[number];
@@ -33,6 +40,8 @@ export interface EvalCase {
   lost: Omit<LostReport, "happenedAt"> & { hoursAgo: number };
   /** What the claimant says when asked to describe the item blind. */
   ownerDescription: string;
+  /** Plain-item cases only: an earlier description by the same claimant, scored first as a counted try. */
+  firstTry?: string;
   expected: EvalDecision;
   note: string;
 }
@@ -54,8 +63,22 @@ export interface EvalCaseResult {
   /** Null when confidence was under the clarify threshold, so the verifier never ran. */
   descriptionScore: number | null;
   descriptionSource: "ai" | "fallback" | null;
+  /** The verdict on the (last) description, when one was scored. */
+  verdict?: Verdict | null;
+  /** The found item is plain, so a description that fits goes to the finder. */
+  plain?: boolean;
   note: string;
   error?: string;
+}
+
+/** The plain-item cases, reported apart from the main ones. */
+export interface EvalPlainResult {
+  total: number;
+  correct: number;
+  wrongHandoffs: number;
+  sentToFinder: number;
+  sentToFinderNotOwner: number;
+  cases: EvalCaseResult[];
 }
 
 export interface EvalResult {
@@ -75,6 +98,8 @@ export interface EvalResult {
   ranAt: number;
   mode: "ai" | "fallback";
   thresholds: { confidence: number; description: number };
+  /** The plain-item cases (evals/cases.json plainCases). Absent in results saved before they existed. */
+  plain?: EvalPlainResult;
   isExampleData: true;
 }
 
@@ -83,6 +108,11 @@ export const CASES_PATH = join(ROOT, "evals", "cases.json");
 export const LATEST_PATH = join(ROOT, "data", "eval-latest.json");
 
 const HOUR = 60 * 60 * 1000;
+
+export function loadPlainCases(path = CASES_PATH): EvalCase[] {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as { plainCases?: EvalCase[] } | EvalCase[];
+  return Array.isArray(raw) ? [] : Array.isArray(raw.plainCases) ? raw.plainCases : [];
+}
 
 export function loadCases(path = CASES_PATH): EvalCase[] {
   const raw = JSON.parse(readFileSync(path, "utf8")) as { cases?: EvalCase[] } | EvalCase[];
@@ -167,10 +197,15 @@ function buildListings(c: EvalCase, index: number, now: number, place: PlaceFind
  * The same rule the live flow uses (handleDescribe in the handler): a pass from the model is a handoff,
  * a pass on the rule score alone goes to the finder, anything under the pass mark is a miss.
  */
-export function decide(score: number | null, source: "ai" | "fallback" | null): EvalOutcome {
-  if (score === null || score < THRESHOLDS.descriptionPass) return "no_handoff";
+export function decide(score: number | null, source: "ai" | "fallback" | null, plainFits = false): EvalOutcome {
+  if (score === null || score < THRESHOLDS.descriptionPass) return plainFits ? "sent_to_finder" : "no_handoff";
   return source === "ai" ? "handoff" : "sent_to_finder";
 }
+
+/** Roughly what the flow's whereWhen sees: a lost verb with a time word, or with a place the seed data knows. */
+const LOST_VERB = /\b(?:lost|lose|left|dropped|forgot|misplaced|last (?:saw|had))\b/i;
+const TIME_WORD = /\b(?:today|yesterday|tonight|last night|this morning|this afternoon|ago|\d{1,2}(?::\d\d)?\s?(?:am|pm))\b/i;
+const saidWhereWhen = (text: string, place: PlaceFinder): boolean => LOST_VERB.test(text) && (TIME_WORD.test(text) || place(text) !== null);
 
 async function runCase(c: EvalCase, index: number, now: number, useAi: boolean, place: PlaceFinder): Promise<EvalCaseResult> {
   const base = { id: c.id, kind: c.kind, item: c.found.publicSummary, expected: c.expected, note: c.note };
@@ -191,13 +226,26 @@ async function runCase(c: EvalCase, index: number, now: number, useAi: boolean, 
 
     let descriptionScore: number | null = null;
     let descriptionSource: "ai" | "fallback" | null = null;
+    let verdict: Verdict | null = null;
+    const profile = found.details as ItemProfile;
+    const plain = isPlainItem(profile);
+    let decision: EvalOutcome = "no_handoff";
     if (confidence >= THRESHOLDS.clarify) {
-      const scored = await scoreDescription(found.details as ItemProfile, c.ownerDescription, { useAi });
-      descriptionScore = scored.score;
-      descriptionSource = scored.source;
+      // A first try (plain cases only) is scored like any other. A pass ends it there; a fit goes to the finder
+      // (with the earlier try shown); a miss leaves one more try, as in the flow.
+      const tries = c.firstTry ? [c.firstTry, c.ownerDescription] : [c.ownerDescription];
+      for (const text of tries) {
+        const scored = await scoreDescription(profile, text, { useAi, saidWhereWhen: plain && saidWhereWhen(text, place) });
+        descriptionScore = scored.score;
+        descriptionSource = scored.source;
+        verdict = scored.verdict;
+        // The same rule as handleDescribe: on a plain item, "fits" (or a rule-score "match") goes to the finder.
+        const plainFits = plain && (scored.verdict === "fits" || (scored.verdict === "match" && scored.source === "fallback"));
+        decision = decide(scored.score, scored.source, plainFits);
+        if (decision !== "no_handoff") break;
+      }
     }
 
-    const decision = decide(descriptionScore, descriptionSource);
     return {
       ...base,
       decision,
@@ -208,6 +256,8 @@ async function runCase(c: EvalCase, index: number, now: number, useAi: boolean, 
       matchSource,
       descriptionScore,
       descriptionSource,
+      verdict,
+      plain,
     };
   } catch (err) {
     // A crash never counts as a handoff.
@@ -237,15 +287,20 @@ export async function runEval(opts: { useAi?: boolean; limit?: number; save?: bo
 
   const now = Date.now();
   const place = await loadPlaceFinder();
-  const results: EvalCaseResult[] = new Array(cases.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < cases.length) {
-      const i = next++;
-      results[i] = await runCase(cases[i], i, now, useAi, place);
-    }
+  const runAll = async (list: EvalCase[], offset: number): Promise<EvalCaseResult[]> => {
+    const out: EvalCaseResult[] = new Array(list.length);
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < list.length) {
+        const i = next++;
+        out[i] = await runCase(list[i]!, offset + i, now, useAi, place);
+      }
+    };
+    await Promise.all(Array.from({ length: useAi ? 4 : 1 }, worker));
+    return out;
   };
-  await Promise.all(Array.from({ length: useAi ? 4 : 1 }, worker));
+  const results = await runAll(cases, 0);
+  const plainResults = opts.limit !== undefined ? [] : await runAll(loadPlainCases(), cases.length);
 
   const byKind: Record<string, { total: number; correct: number }> = {};
   for (const r of results) {
@@ -267,6 +322,14 @@ export async function runEval(opts: { useAi?: boolean; limit?: number; save?: bo
     ranAt: now,
     mode: useAi ? "ai" : "fallback",
     thresholds: { confidence: THRESHOLDS.clarify, description: THRESHOLDS.descriptionPass },
+    plain: {
+      total: plainResults.length,
+      correct: plainResults.filter((r) => r.correct).length,
+      wrongHandoffs: plainResults.filter((r) => r.wrongHandoff).length,
+      sentToFinder: plainResults.filter((r) => r.sentToFinder).length,
+      sentToFinderNotOwner: plainResults.filter((r) => r.sentToFinder && r.expected === "no_handoff").length,
+      cases: plainResults,
+    },
     isExampleData: true,
   };
 

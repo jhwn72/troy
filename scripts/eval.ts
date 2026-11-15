@@ -38,4 +38,11 @@ console.log("");
 const finder = result.mode === "fallback" || result.sentToFinder > 0 ? `, ${result.sentToFinder} sent to the finder` : "";
 console.log(`${result.correct} of ${result.total} correct, ${result.wrong} wrong, ${result.wrongHandoffs} wrong handoffs${finder} (${result.mode} mode)`);
 if (result.sentToFinderNotOwner > 0) console.log(`${result.sentToFinderNotOwner} of those were not the owner: the finder is the last check there`);
+// Plain found items (nothing on them only an owner would know): a description that fits goes to the finder.
+if (result.plain && result.plain.total > 0) {
+  const p = result.plain;
+  console.log("");
+  for (const c of p.cases) console.log(`${pad(c.id, 7)}${pad(c.kind, 12)}${pad(c.expected, 12)}${pad(c.decision, 16)}${pad(c.verdict ?? "-", 14)}${c.correct ? "ok" : c.wrongHandoff ? "WRONG HANDOFF" : c.sentToFinder ? "finder is the last check" : "missed"}`);
+  console.log(`plain items: ${p.correct} of ${p.total} correct, ${p.wrongHandoffs} wrong handoffs, ${p.sentToFinder} sent to the finder, ${p.sentToFinderNotOwner} of those not the owner`);
+}
 process.exit(0);

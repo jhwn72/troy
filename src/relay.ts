@@ -90,6 +90,67 @@ export function endRelayByContext(db: DatabaseSync, context: string): void {
   db.prepare("UPDATE relays SET status = 'ended', endedAt = ? WHERE context = ? AND status = 'active'").run(Date.now(), context);
 }
 
+const NUMBER_WORDS: Record<string, string> = { zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9" };
+
+/** Dates and clock times are not phone numbers ("2026-11-13 around 3pm", "11/14", "11 14 2026"). */
+const DATE_SHAPES = /\b(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)?\d{2}\b|\b\d{1,2} \d{1,2} (?:19|20)\d{2}\b|\b\d{1,2}[/.]\d{1,2}\b|\b\d{1,2}:\d{2}\b/g;
+
+/** Apps that are only ever named to be found on. */
+const APPS_ALWAYS = /\b(?:insta|instagram|snapchat|whatsapp|telegram|venmo|zelle|cashapp|linkedin|wechat|kakao)\b/;
+/** Apps and short names that are also ordinary words ("they snap shut", "ig" for "i guess", "on facetime when i lost them"). */
+const APP = "(?:ig|sc|fb|dm|dms|tt|li|snap|gram|discord|facetime|imessage|twitter|facebook|tiktok)";
+/** A token shaped like a handle: letters with a digit, underscore or dot in it ("johnw72", "john_w"). */
+const HANDLE = "(?:[a-z]+\\d[a-z0-9_.]*|[a-z0-9]+[_.][a-z0-9_.]+)";
+
+const CONTACT_PATTERNS: RegExp[] = [
+  // an email, written out or spelled around the filter
+  /[\w.+-]+@[\w-]+\.[a-z]{2,}/,
+  /\b(?:gmail|g mail|yahoo|outlook|icloud|hotmail)\b|\busc\.edu\b|\b(?:dot|\(dot\)) ?(?:com|edu|net|org)\b|\b(?:at|\(at\)) (?:gmail|g mail|yahoo|outlook|icloud|hotmail)\b/,
+  // a handle or an app to find them on
+  /(?:^|[\s(:])@[a-z0-9_.]{2,}/,
+  APPS_ALWAYS,
+  // "my ig", "ur snap", "whats ur @"
+  new RegExp(`\\b(?:my|ur|your|their|his|her)(?: \\w+)? (?:${APP}\\b|@)`),
+  // "ig: johnw", "sc johnw72", "johnw72 on ig"
+  new RegExp(`\\b${APP}\\s*[:@]|\\b${APP} ${HANDLE}\\b|\\b${HANDLE} on (?:the )?${APP}\\b`),
+  // "add me on ig", "follow me on snap"
+  new RegExp(`\\b(?:add|find|follow|message|msg|dm|hmu|reach)\\b[^.?!]{0,20}\\bon (?:the )?${APP}\\b`),
+  // asking to be reached, or for what to reach them on
+  /\b(?:text|dm|message|msg|hmu|hit|add|follow|airdrop|email|facetime|venmo) (?:me|us)\b|\bcall (?:me|us)\b(?! (?:a|an|the|crazy|dumb|stupid|out)\b)|\b(?:look me up|hit my line|hmu|airdrop)\b|\bfind me (?:on|at)\b/,
+  /\b(?:my|ur|your|their|his|her) (?:number|#|phone number|phone #|cell|digits|email|handle|username|user|address|socials?)\b/,
+  // a name is who they are: it waits for the yes like everything else
+  /\b(?:ur|your|their|his|her) (?:full |first |last |real )?name\b|\bmy (?:full |first |last |real )?name(?:'?s| is) (?!on\b|in\b|inside\b|written\b|printed\b|engraved\b)/,
+  // a link
+  /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|edu|io|me|co|ly|ee|gg|app|link|xyz)\b|\b[a-z0-9-]+\.[a-z]{2,6}\/\S/,
+  // a street address
+  /\b\d{3,5}\s+(?:[a-z0-9]+\s){0,3}(?:st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|way|ct|court|ln|lane|pkwy|parkway)\b/,
+  // where someone lives: an apartment or suite number, or a building and a room said as theirs
+  // ("im in birnkrant 412", "knock on 312"). A classroom ("room 204 of taper hall") is just where something was lost.
+  /\b(?:apt|apartment|suite|ste)\.?\s*#?\s*\d+[a-z]?\b(?!\s*(?:days?|hours?|hrs?|weeks?|wks?|mins?|minutes?|months?|years?|yrs?)\b)|\bunit\s*#\s*\d+/,
+  /\b(?:i'?m|i am|i live|i stay|we'?re|come|knock|stop by|swing by|pull up|meet me|find me)\b[^.?!]{0,30}\b\d{3,4}\b/,
+  /\b(?:my|our) (?:room|dorm|suite|apt|apartment|place|door)\b[^.?!]{0,20}\b\d{2,4}\b/,
+];
+
+/**
+ * True when a message someone wants passed on carries a way to reach them or says who they are: a phone number
+ * (digits or spelled out), an email, a handle, a link, a name, or where they live. Used where Troy passes one
+ * message across before the two have agreed to share contact info (a finder's question for a claimant, and the
+ * answer). Errs toward yes where it can't tell (a bare "uniqlo.com" is a link): a blocked message only costs a
+ * retry. Ordinary answers to "where and when did u lose it" pass: a classroom number, a date, a street name with
+ * no house number, "at usc". It is pattern based, so a bare first and last name with nothing around it gets through.
+ */
+export function hasContactInfo(text: string): boolean {
+  let t = text.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
+  // "j o h n at u s c dot e d u": letters spelled out one at a time are read as the word.
+  t = t.replace(/\b(?:[a-z] ){2,}[a-z]\b/g, (m) => m.replace(/ /g, ""));
+  if (CONTACT_PATTERNS.some((re) => re.test(t))) return true;
+  // A phone number: seven or more digits however they are spaced or spelled ("two13 five55 0199"), or ten or more
+  // spread across the message ("213-555 then 0199"). Dates and times are taken out first.
+  const digits = t.replace(DATE_SHAPES, " ").replace(/zero|one|two|three|four|five|six|seven|eight|nine/g, (w) => NUMBER_WORDS[w]!).replace(/(\d)\s*\boh\b\s*(?=\d)/g, "$10");
+  if (/(?:\+?\d[\s().-]*){7,}/.test(digits)) return true;
+  return (digits.match(/\d/g) ?? []).length >= 10;
+}
+
 type EndListener = (ctx: FlowContext, relay: RelayEnd) => Promise<void>;
 const endListeners: { prefix: string; fn: EndListener }[] = [];
 

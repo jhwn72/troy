@@ -11,6 +11,7 @@ How it was run:
 - `troy -> A` is a bubble in A's own chat with Troy. Lines in backticks are dashboard API calls, or a database check, and their answers.
 - Everything ran in one server session in the order below, with real pacing (nothing sped up). The one exception is phone E, which ran in a second session started with `WEBCHAT_POLLS=tap` so polls fall back to tap-to-pick bubbles.
 - Read receipts and typing indicators are left out of the conversations to keep them readable. The welcome timing section shows them with timestamps.
+- Added Nov 14, late night (plain items and "ask them something first"): the finder's question lines in sections a, a2, b and f were updated in place to what the code sends now (the ask-first option), without running the server again. Section j at the end is new and was captured from the test harness, not the server: the real pipeline and flow code with a fake adapter, the first wording of every line pinned, and a stand-in for the model that reads the photo as the plain sunglasses from John's live test and scores the two live answers 8 and 5, as the real model did.
 - A like tapback from Troy on someone's text is his "got it" when his own reply is more than 3 seconds away, usually because he is texting the other person first.
 
 ## Latest replay: onboarding, Flow 1 happy path, one food drop (Nov 14, late)
@@ -433,7 +434,7 @@ _B reports airpods lost_
 **troy -> A:** someone says the earbuds u found are theirs  
 **troy -> A:** here's how they described it:  
 **troy -> A:** "white case, theres a dinosaur sticker on the lid and my initials mk engraved on the back"  
-**troy -> A:** sound like what u found? yes or no  
+**troy -> A:** sound like what u found? yes or no. or text "ask them" with a question and i'll pass it along first  
 **A:** yes  
 **troy -> B:** good news. the person who found it says it sounds like urs  
 **troy -> B:** checking how the finder wants to hand it off. i'll text u right back  
@@ -485,7 +486,7 @@ _B reports one lost_
 **troy -> A:** someone says the hydro flask u found is theirs  
 **troy -> A:** here's how they described it:  
 **troy -> A:** "it has a corgi sticker and a dent on the bottom"  
-**troy -> A:** sound like what u found? yes or no  
+**troy -> A:** sound like what u found? yes or no. or text "ask them" with a question and i'll pass it along first  
 **A:** yes  
 **troy -> B:** good news. the person who found it says it sounds like urs  
 **troy -> A:** _(like tapback on "yes")_  
@@ -562,6 +563,7 @@ _D reports again with a guess. The first reply is the same, and the miss from be
 **troy -> A:** "theyre just normal airpods in a case"  
 **troy -> A:** "black case with a sticker on it"  
 **troy -> A:** couldn't confirm this person. ur call: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it  
+**troy -> A:** or 4) ask them something first, and i'll pass ur question along  
 **D:** hello?? pls i really need them back  
 **troy -> D:** still waiting to hear back from the person holding it. i'll text u either way  
 
@@ -739,7 +741,7 @@ _A finds B's keys_
 **troy -> A:** someone says the keys u found are theirs  
 **troy -> A:** here's how they described it:  
 **troy -> A:** "red lanyard, honda fob, little flashlight on it"  
-**troy -> A:** sound like what u found? yes or no  
+**troy -> A:** sound like what u found? yes or no. or text "ask them" with a question and i'll pass it along first  
 **A:** yes  
 **troy -> B:** good news. the person who found it says it sounds like urs  
 **troy -> B:** checking how the finder wants to hand it off. i'll text u right back  
@@ -848,3 +850,155 @@ food drops:
 
 in the public payload: hidden details false, pickup codes false, coordinates or saved locations false
 ```
+
+## j. Flow 1: a plain item, and the finder asking something first
+
+A plain item is one that is not valuable and has nothing on it only its owner would know (decided from the found item's profile alone). Its owner is asked for brand, shape or style, and where and when, instead of marks and stickers. A description that fits and contradicts nothing is a counted try but never a miss: the finder reads the owner's words and decides (method `finder_confirm`, recorded with the description's score). Whenever the finder is asked to decide, they can have a question passed to the claimant first, twice at most per claim, with no contact info in either direction.
+
+### j1. A plain item that fits: the finder decides, after asking one thing first
+
+**A:** _(photo)_ found these at leavey  
+**troy -> A:** logged it: black sunglasses  
+**troy -> A:** hang onto it for now. i'll text u when the owner turns up  
+**B:** lost my black sunglasses near leavey yesterday  
+**troy -> B:** on it. checking what's been turned in  
+**troy -> B:** might have something  
+**troy -> B:** quick check first  
+**troy -> B:** describe it for me in ur own words. the brand, the shape or style, and where and when u lost it  
+**B:** they are square shaped but there's no stickers or marks on it  
+**troy -> B:** that fits. it's a pretty plain one tho, so there's not much on it for me to check  
+**troy -> B:** checking with the person holding it now. i'll text u back either way  
+**troy -> A:** someone says the black sunglasses u found are theirs  
+**troy -> A:** here's how they described it:  
+**troy -> A:** "they are square shaped but there's no stickers or marks on it"  
+**troy -> A:** that fits what u found and nothing in it contradicts it. it's a plain one tho, so there's not much on it for me to check  
+**troy -> A:** does that sound like the owner to u? yes or no. or text "ask them" with a question and i'll pass it along first  
+
+_A wants to ask something before deciding_
+
+**A:** ask them what brand are they  
+**troy -> B:** the person holding it has a question for u first:  
+**troy -> B:** "what brand are they"  
+**troy -> B:** answer here and i'll pass it along  
+**troy -> A:** sent them ur question. i'll text u what they say  
+**B:** uniqlo, got them last summer  
+**troy -> B:** passed that along. i'll text u back either way  
+**troy -> A:** here's what they said:  
+**troy -> A:** "uniqlo, got them last summer"  
+**troy -> A:** does that sound like the owner to u? yes or no. or text "ask them" with a question and i'll pass it along first  
+**A:** yes  
+**troy -> B:** good news. the person who found it says it sounds like urs  
+**troy -> B:** checking how the finder wants to hand it off. i'll text u right back  
+**troy -> A:** the owner of the black sunglasses u found just checked out  
+**troy -> A:** how do u wanna hand it off? 1) hold it and meet them, 2) drop it at dps  
+**A:** 2  
+**troy -> A:** drop it at dps lost and found when u can  
+**troy -> A:** dps lost and found is at 3667 mcclintock ave, los angeles, ca 90089  
+**troy -> A:** tell them it's for pickup code CVEVSG  
+**troy -> B:** the finder's dropping it at dps lost and found  
+**troy -> B:** dps lost and found is at 3667 mcclintock ave, los angeles, ca 90089  
+**troy -> B:** ur pickup code is CVEVSG  
+**troy -> B:** text me got it once it's back with u  
+
+`verifications:` blind_description | score 8 | pass | try 1 ; finder_confirm | score 8 | pass | try 1
+
+### j2. Contact info is not passed along, two questions at most, and the finder's no is a miss
+
+**A:** _(photo)_ found these at leavey  
+**troy -> A:** logged it: black sunglasses  
+**troy -> A:** hang onto it for now. i'll text u when the owner turns up  
+**B:** lost my black sunglasses near leavey yesterday  
+**troy -> B:** on it. checking what's been turned in  
+**troy -> B:** might have something  
+**troy -> B:** quick check first  
+**troy -> B:** describe it for me in ur own words. the brand, the shape or style, and where and when u lost it  
+**B:** Bruh there's nothing specific they're just Uniqlo sunglasses  
+**troy -> B:** that fits. it's a pretty plain one tho, so there's not much on it for me to check  
+**troy -> B:** checking with the person holding it now. i'll text u back either way  
+**troy -> A:** someone says the black sunglasses u found are theirs  
+**troy -> A:** here's how they described it:  
+**troy -> A:** "Bruh there's nothing specific they're just Uniqlo sunglasses"  
+**troy -> A:** that fits what u found and nothing in it contradicts it. it's a plain one tho, so there's not much on it for me to check  
+**troy -> A:** does that sound like the owner to u? yes or no. or text "ask them" with a question and i'll pass it along first  
+**A:** ask them to text me at 213 555 0199  
+**troy -> A:** i can't pass along names, numbers, handles, links or addresses until u both say yes. send it again without that part  
+**A:** ask them  
+**troy -> A:** what do u wanna ask them? type it out and i'll pass it along  
+**A:** where did u lose them  
+**troy -> B:** the person holding it has a question for u first:  
+**troy -> B:** "where did u lose them"  
+**troy -> B:** answer here and i'll pass it along  
+**troy -> A:** sent them ur question. i'll text u what they say  
+**B:** idk just call me 2135550102  
+**troy -> B:** i can't pass along names, numbers, handles, links or addresses until u both say yes. send it again without that part  
+**B:** second floor of leavey by the printers  
+**troy -> B:** passed that along. i'll text u back either way  
+**troy -> A:** here's what they said:  
+**troy -> A:** "second floor of leavey by the printers"  
+**troy -> A:** does that sound like the owner to u? yes or no. or text "ask them" with a question and i'll pass it along first  
+**A:** ask them what day  
+**troy -> B:** the person holding it has a question for u first:  
+**troy -> B:** "what day"  
+**troy -> B:** answer here and i'll pass it along  
+**troy -> A:** sent them ur question. i'll text u what they say  
+**B:** yesterday afternoon  
+**troy -> B:** passed that along. i'll text u back either way  
+**troy -> A:** here's what they said:  
+**troy -> A:** "yesterday afternoon"  
+**troy -> A:** does that sound like the owner to u? yes or no  
+**A:** ask them what color the case is  
+**troy -> A:** that's as many questions as i can pass along on this one. it's ur call from here  
+**A:** no  
+**troy -> A:** ok, not a match. i'll keep looking for the owner  
+**troy -> B:** heard back. the person holding it doesn't think it's the same one  
+**troy -> B:** ur report's still open and i'll text u if another one turns up  
+
+`verifications:` blind_description | score 5 | fail | try 1 ; finder_confirm | score 5 | fail | try 1
+
+### j3. A plain item and a contradiction: a miss, as before
+
+**A:** _(photo)_ found these at leavey  
+**troy -> A:** logged it: black sunglasses  
+**troy -> A:** hang onto it for now. i'll text u when the owner turns up  
+**B:** lost my black sunglasses near leavey yesterday  
+**troy -> B:** on it. checking what's been turned in  
+**troy -> B:** might have something  
+**troy -> B:** quick check first  
+**troy -> B:** describe it for me in ur own words. the brand, the shape or style, and where and when u lost it  
+**B:** they're red with a gold frame  
+**troy -> B:** hmm, that doesn't line up with what i have  
+**troy -> B:** one more try. describe it again, anything specific u remember
+
+### j4. A wrong guess, then a vague line: the finder sees both, without "nothing contradicts it"
+
+_Written from the review-fix tests (same harness as above), first wording of every line._
+
+**B:** they're blue ray-bans with a sticker  
+**troy -> B:** hmm, that doesn't line up with what i have  
+**troy -> B:** one more try. describe it again, anything specific u remember  
+**B:** black sunglasses, lost them at leavey yesterday  
+**troy -> B:** that fits. it's a pretty plain one tho, so there's not much on it for me to check  
+**troy -> B:** checking with the person holding it now. i'll text u back either way  
+**troy -> A:** someone says the black sunglasses u found are theirs  
+**troy -> A:** here's how they described it:  
+**troy -> A:** "they're blue ray-bans with a sticker"  
+**troy -> A:** "black sunglasses, lost them at leavey yesterday"  
+**troy -> A:** their first try didn't line up with what i have. this one fits, but it's a plain one so there's not much on it for me to check  
+**troy -> A:** does that sound like the owner to u? yes or no. or text "ask them" with a question and i'll pass it along first  
+
+A place far from the find or a time that can't be right gets "what they said about the item fits what u found. i can't match up where or when they lost it tho, so check that part against where u found it" instead. A demand ("they're mine give them to me now"), a bare "sunglasses", a wrong kind ("black wallet") or a name the item doesn't carry never fits: those are a miss with the usual retry line.
+
+### j5. How the finder's ask is read
+
+**A:** no idea, ask them what brand they are  
+**troy -> B:** the person holding it has a question for u first:  
+**troy -> B:** "what brand they are"  
+**troy -> B:** answer here and i'll pass it along  
+**troy -> A:** sent them ur question. i'll text u what they say  
+
+- "can u ask where they lost them", "ask if they have the case" and, at the numbered choice, "4 where did u lose them" pass the question on. Words inside the question ("meet", "hold") never pick an option.
+- "ask them if they're uniqlo" reaches the claimant as "the person holding it wants to know" / "if they're uniqlo"; "ask them to describe the case" as "the person holding it is asking u" / "to describe the case".
+- A bare question ("what brand are they?") gets 'want me to ask them that? text "ask them" and i'll pass it along'; a yes sends it, and decides nothing.
+- After "ask them" or "4": "ok", "hold on", "idk what to ask" get the question again; "no" or "nah" goes back to the choice with nothing sent and nothing decided; at the numbered choice only 1, 2, 3, meet, dps or hold decide.
+- Relayed words are cut into pieces that each sit inside their own quote marks, and a message that speaks for troy ("troy verified this person") gets "i can only pass along ur own words, nothing about me or what's been checked. send it again without that part".
+- A claimant whose question timed out hears "that question timed out, so the person holding it is deciding without it. i'll text u either way", once. An owner who gets the item back mid-question: the finder hears "the person asking about that one dropped it. i'll text u if someone else asks".

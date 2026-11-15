@@ -18,8 +18,16 @@
 // found_place     | "where'd u find it?"                     | a place, or idk            | found_marks, or listing saved, matching runs
 // found_marks     | "anything on it only the owner would know?" | free text, or idk       | listing saved, matching runs. only asked when no photo could be
 //                 |                                          |                            | read and the finder's words say nothing specific about the item.
-// finder_check    | owner's words + "sound like what u found?" | yes / no (or a tapback)  | yes: verified, handoff. no: match rejected, owner keeps looking.
-// finder_decide   | "couldn't confirm this person. ur call"  | 1 / 2 / 3                  | 1: meet (consent or relay). 2: dps. 3: keep holding. 2 and 3 reject the match.
+// finder_check    | owner's words + "sound like what u found?" | yes / no (or a tapback), | yes: verified, handoff. no: match rejected, owner keeps looking.
+//                 | (plain item that fits: + "that fits what |   or "ask them ..."        | "ask them <question>": the question goes to the claimant (answer_finder),
+//                 |  u found" and "sound like the owner?")   |                            | the finder stays here and can still answer. "ask them" alone: finder_ask.
+// finder_decide   | "couldn't confirm this person. ur call"  | 1 / 2 / 3, or 4 / "ask     | 1: meet (consent or relay). 2: dps. 3: keep holding. 2 and 3 reject the match.
+//                 |                                          |   them ..."                | 4: finder_ask. "ask them <question>": as above.
+// finder_ask      | "what do u wanna ask them?"              | free text (the question)   | question relayed, back to finder_check / finder_decide. nvm, no, nah: back,
+//                 |                                          |                            | nothing sent, nothing decided. filler (ok, yes, hold on, idk what to ask, the
+//                 |                                          |                            | option again): asked again. from finder_decide only 1 / 2 / 3 / meet / dps /
+//                 |                                          |                            | hold decide; from finder_check only "that's them" / "not them" style answers.
+//                 |                                          |                            | a clear new found report is set aside and handled as a new report.
 // handoff_choice  | "1) hold it and meet them, 2) drop it at dps" | 1 / meet, 2 / dps     | meet: gc_consent for both, or relay. dps: pickup code to both.
 // gc_consent      | "that shares ur contact info. ok?"       | yes / no (or a tapback)    | both yes: group chat (relay if it fails). any no: relay.
 //
@@ -31,12 +39,20 @@
 // lost_place      | "where do u think u lost it?"            | a place, or idk            | next missing question, or saved
 // lost_time       | "when'd u last have it?"                 | a rough time, or idk       | saved. a fit on kind, color, brand, place and time: verify_describe. else stays open.
 // verify_describe | "describe it for me in ur own words"     | free text                  | pass: verified, handoff. miss with tries left: stays. out of tries:
-//                 |                                          |                            | item at dps: dps in person, match rejected. finder has it: proof.
+//                 | (plain item: asks brand, shape or style, |                            | item at dps: dps in person, match rejected. finder has it: proof.
+//                 |  where and when instead of marks)        |                            | PLAIN ITEM and the description fits (nothing contradicts, no hidden
+//                 |                                          |                            | detail named): a counted try, never called a miss, no second try or
+//                 |                                          |                            | photo asked. finder has it: finder_check (finder). at dps: dps in person.
 //                 |                                          |                            | pass on the rule score only (AI down), or nothing on file to check
 //                 |                                          |                            | against: never verified on that alone. finder has it: finder_check
 //                 |                                          |                            | (finder). item at dps: dps in person.
 // proof           | "old photo of it, or a find my screenshot?" | a photo, or no          | same item: verified. no / no match / can't check: finder_decide (finder).
 // await_finder    | "i'll text u back either way"            | (nothing to answer)        | any text gets "still waiting to hear back". ends when the finder answers.
+// answer_finder   | "the person holding it has a question"   | free text                  | answer relayed to the finder, who is asked to choose again. back to
+//                 | + the finder's words                     |                            | await_finder. never scored, never a try, never verifies by itself.
+//                 |                                          |                            | "what do u mean" / "ok": answered, the question stays open. contact info or
+//                 |                                          |                            | words speaking for troy: not passed on, asked to resend. a clear new report:
+//                 |                                          |                            | set aside, handled as a new report. timed out: told once, back to await_finder.
 // gc_consent      | (same as the finder's)                   | yes / no (or a tapback)    | stays (answered) until the finder answers too, then await_pickup
 // await_pickup    | "text me got it once it's back with u"   | got it                     | listings returned, thanks_note. "code" sends the pickup code again.
 // thanks_note     | "want to send the finder a thank-you?"   | free text, or skip         | note relayed, "that's a win. fight on" with confetti to both, done
@@ -55,6 +71,23 @@
 // A claim nobody is moving is released (sweepClaims): after an hour when someone else is waiting on the item,
 // after a day otherwise. STOP and "delete my data" release at once. Every release looks for the next owner.
 //
+// THREE OUTCOMES FOR A DESCRIPTION (verify.ts decides the verdict, isPlainItem decides "plain" from the found item)
+// match: passes as before. contradiction, or no real description: a miss as before. fits: a miss as before,
+// unless the found item is plain (not valuable, nothing on it only an owner would know): then the finder decides
+// (method finder_confirm, recorded with the description's score), and the finder's no is a miss. "fits" has to be
+// earned: the answer must state something that agrees with the item (a color, a brand, a shape or material, no
+// marks, or where and when). When an earlier try by the same person was wrong, the finder is shown both and told
+// so, and when the place or time doesn't line up with the find the finder is told to check that part. The owner
+// hears the same "that fits" either way, and a finder's no on this path gets its own neutral line.
+//
+// ASK THEM SOMETHING FIRST
+// Whenever the finder is asked to decide (finder_check, finder_decide) they can have one question passed to the
+// claimant first, and the answer passed back, MAX_ASKS times per claim. Troy adds nothing to either message, and
+// a message with a phone number, email, handle, link or address is not passed on. The count and the time the open
+// question was asked live in settings (lf_ask:<matchId>); the question itself only in the claimant's open step.
+// A claimant who doesn't answer within the silent-claimant times (sweepClaims) loses the question, not the claim:
+// the finder is told once and chooses without the option.
+//
 // A claimant sees only the public summary of a found item (and after they pass, still nothing hidden).
 // The finder is the only one who is ever shown the other person's description.
 
@@ -64,15 +97,15 @@ import { getFlowState, getSetting, getUserById, setFlowState, setSetting } from 
 import type { SweepIo } from "../../pending.ts";
 import { dropPending, isBusy, isProtected, onSweep, onUserGone, parkAsk, registerPendingHooks } from "../../pending.ts";
 import { pullDetails } from "../../ai.ts";
-import { findPlace } from "../../places.ts";
-import { RELAY_COPY, endRelayByContext, onRelayEnd, startRelay } from "../../relay.ts";
+import { findPlace, walkingMinutes } from "../../places.ts";
+import { RELAY_COPY, endRelayByContext, hasContactInfo, onRelayEnd, startRelay } from "../../relay.ts";
 import type { Pools, Voice } from "../reports-shared.ts";
 import { makeVoice } from "../reports-shared.ts";
 import type { Category, ItemProfile, LostReport } from "./types.ts";
 import { canonTokens, isColorWord, isGenericWord, normalizeCategory } from "./types.ts";
 import type { MatchResult } from "./match.ts";
 import { findCandidates, loadListing, matchListing, publicScore } from "./match.ts";
-import { THRESHOLDS, generatePickupCode, nameMatches, scoreDescription } from "./verify.ts";
+import { THRESHOLDS, generatePickupCode, isPlainItem, nameMatches, saidNothingToCheck, scoreDescription } from "./verify.ts";
 import { profileItem, sameItem, sanitizeProfile } from "./vision.ts";
 import type { AsideNote } from "../../staff.ts";
 import { DECISION, aside, ctxAs, simulateIfAlone, simulationTurn } from "../../staff.ts";
@@ -99,6 +132,10 @@ export const COPY = {
   turnedUp: "something like what u lost just turned up",
   quickCheck: "quick check first",
   describe: "describe it for me in ur own words. anything only the owner would know, like marks, stickers or what's on it",
+  /** The blind question when the found item is plain. Just as blind: it names nothing about the item. */
+  describePlain: "describe it for me in ur own words. the brand, the shape or style, and where and when u lost it",
+  /** A plain item and a description that fits. Never a miss, and nothing here asks for another try or a photo. */
+  fitsOwner: ["that fits. it's a pretty plain one tho, so there's not much on it for me to check", "checking with the person holding it now. i'll text u back either way"],
   passed: "that checks out. it's urs",
   retry: ["hmm, that doesn't line up with what i have", "one more try. describe it again, anything specific u remember"],
   cantConfirmDescription: "couldn't confirm it from ur description",
@@ -108,8 +145,44 @@ export const COPY = {
   askingHolder: "i'll ask the person holding it and text u back either way",
   stillWaiting: "still waiting to hear back from the person holding it. i'll text u either way",
   checkingHolder: ["ok. running that by the person who found it", "i'll text u back either way"],
-  finderCheck: "sound like what u found? yes or no",
+  finderCheck: 'sound like what u found? yes or no. or text "ask them" with a question and i\'ll pass it along first',
+  /** The same question once no more questions can be passed along. */
+  finderCheckNoAsk: "sound like what u found? yes or no",
+  /** Plain item, description fits: what the finder is told before the question, and the question. */
+  fitsFinder: "that fits what u found and nothing in it contradicts it. it's a plain one tho, so there's not much on it for me to check",
+  /** The same, when they also said where or when they lost it and Troy couldn't line that up with the find. The finder knows where they found it. */
+  fitsFinderWhere: "what they said about the item fits what u found. i can't match up where or when they lost it tho, so check that part against where u found it",
+  /** The same, when an earlier description of theirs was wrong. The finder is shown both and hears it straight. */
+  fitsFinderEarlier: "their first try didn't line up with what i have. this one fits, but it's a plain one so there's not much on it for me to check",
+  /** The finder said no after a description that fit. Says nothing about what was off. */
+  fitsNo: ["heard back. the person holding it doesn't think it's the same one", "ur report's still open and i'll text u if another one turns up"],
+  finderOwner: 'does that sound like the owner to u? yes or no. or text "ask them" with a question and i\'ll pass it along first',
+  finderOwnerNoAsk: "does that sound like the owner to u? yes or no",
   finderCall: "couldn't confirm this person. ur call: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it",
+  /** Its own bubble right after finderCall while questions are left (one bubble would be long enough to get split). */
+  finderCallAsk: "or 4) ask them something first, and i'll pass ur question along",
+  // ask them something first
+  askWhatQ: "what do u wanna ask them? type it out and i'll pass it along",
+  askSent: "sent them ur question. i'll text u what they say",
+  askWaiting: "still waiting on their answer. i'll text u when they reply, or u can just decide now",
+  askNoContact: "i can't pass along names, numbers, handles, links or addresses until u both say yes. send it again without that part",
+  /** A message to pass along may not speak for Troy or say what has been checked. */
+  askNoTroy: "i can only pass along ur own words, nothing about me or what's been checked. send it again without that part",
+  /** The finder typed a question without saying to pass it on. A yes or "ask them" sends it; nothing is decided by either. */
+  askOffer: 'want me to ask them that? text "ask them" and i\'ll pass it along',
+  askNoMore: "that's as many questions as i can pass along on this one. it's ur call from here",
+  ownerQuestion: "the person holding it has a question for u first:",
+  /** The same lead for a question typed as "ask them if ..." or "ask them to ...", so the words read on from it. */
+  ownerQuestionIf: "the person holding it wants to know",
+  ownerQuestionTo: "the person holding it is asking u",
+  /** The claimant asked what the question is about. Nothing about the item, and the question stays open. */
+  answerWhat: "it's from the person holding it. just answer what u can and i'll pass it along",
+  /** The question was taken back after the claimant stayed silent. Said once. */
+  questionWithdrawn: "that question timed out, so the person holding it is deciding without it. i'll text u either way",
+  ownerQuestionHow: "answer here and i'll pass it along",
+  answerSent: "passed that along. i'll text u back either way",
+  theirAnswer: "here's what they said:",
+  noAnswer: "they haven't answered that one, so it's back to u",
   meetBusy: "meet somewhere busy, in the daytime if u can",
   handoffAsk: "how do u wanna hand it off? 1) hold it and meet them, 2) drop it at dps",
   consent: "i'll add u both to a group chat. heads up, that shares ur contact info. ok?",
@@ -165,6 +238,7 @@ export const COPY = {
   ownerWaitingDps: "ok. the owner's waiting on it tho, so dps it is",
   gotItWhenever: "ok. text me got it back whenever u have it",
   reply123: "reply 1, 2 or 3",
+  reply1234: "reply 1, 2, 3 or 4",
   reply12: "reply 1 to meet them or 2 to drop it at dps",
   noCode: "no code on this one. u two are sorting the handoff directly",
   noRush: "no rush. text me got it when u do",
@@ -239,6 +313,16 @@ export const LF_POOLS: Pools = {
     "tell me about it in ur own words. anything only the owner would know, like marks, stickers or what's on it",
     "describe it in ur own words for me. marks, stickers, what's on it, anything only the owner would know",
   ],
+  describePlain: [
+    COPY.describePlain,
+    "tell me about it in ur own words. the brand, the shape or style, and where and when u lost it",
+    "describe it in ur own words for me. what brand, what shape or style, and where and when u lost it",
+  ],
+  fitsOwner: [
+    COPY.fitsOwner,
+    ["that fits. it's a plain one tho, so there isn't much on it for me to check", "i'm checking with the person holding it now, and i'll text u back either way"],
+    ["ok, that fits. it's pretty plain tho, so there's not a lot on it i can check", "checking with the person holding it rn. i'll text u back either way"],
+  ],
   describeWords: [COPY.describeWords, "i need it in words. describe it for me", "can u describe it in words?"],
   passed: [COPY.passed, "yep, that checks out. it's urs", "that lines up. it's urs"],
   nameMatched: [COPY.nameMatched, "the name on it matches ur usc account. ur good", "name on it matches ur usc account, so ur all set"],
@@ -305,14 +389,87 @@ export const LF_POOLS: Pools = {
   finderClaims: (summary, theirs) => [T.finderClaims(summary, theirs), `someone's saying the ${summary} u found ${theirs}`, `someone thinks the ${summary} u found ${theirs}`],
   tryingToClaim: (summary) => [T.tryingToClaim(summary), `someone wants to claim the ${summary} u found`, `someone's asking to claim the ${summary} u found`],
   howDescribed: [COPY.howDescribed, "this is how they described it:", "their description:"],
-  finderCheck: [COPY.finderCheck, "does that sound like what u found? yes or no", "that sound like the one u found? yes or no"],
+  finderCheck: [
+    COPY.finderCheck,
+    'does that sound like what u found? yes or no. or text "ask them" with a question and i\'ll pass it along first',
+    'that sound like the one u found? yes or no. u can also text "ask them" with a question and i\'ll pass it along first',
+  ],
+  finderCheckNoAsk: [COPY.finderCheckNoAsk, "does that sound like what u found? yes or no", "that sound like the one u found? yes or no"],
+  fitsFinder: [
+    COPY.fitsFinder,
+    "that fits what u found, and nothing in it contradicts it. it's a plain one tho, so there isn't much on it for me to check",
+    "what they said fits what u found and nothing in it contradicts it. it's pretty plain tho, so there's not a lot on it i can check",
+  ],
+  fitsFinderWhere: [
+    COPY.fitsFinderWhere,
+    "the item part fits what u found. where or when they lost it is the part i can't match up, so weigh that against where u found it",
+    "their description of the item fits what u found. i couldn't match up where or when they lost it tho, so compare that with where u found it",
+  ],
+  fitsFinderEarlier: [
+    COPY.fitsFinderEarlier,
+    "heads up, their first description didn't match what i have. this one fits, but it's a plain one so there isn't much on it for me to check",
+    "the first thing they said didn't line up with what i have. this one fits, but it's pretty plain so there's not a lot on it i can check",
+  ],
+  fitsNo: [
+    COPY.fitsNo,
+    ["heard back from the person holding it. they don't think it's the same one", "ur report is still open, and i'll text u if another one turns up"],
+    ["the person holding it got back to me. they don't think it's the same one", "ur report stays open and i'll text u if another one turns up"],
+  ],
+  finderOwner: [
+    COPY.finderOwner,
+    'sound like the owner to u? yes or no. or text "ask them" with a question and i\'ll pass it along first',
+    'do they sound like the owner to u? yes or no. u can also text "ask them" with a question and i\'ll pass it along first',
+  ],
+  finderOwnerNoAsk: [COPY.finderOwnerNoAsk, "sound like the owner to u? yes or no", "do they sound like the owner to u? yes or no"],
+  askWhatQ: [COPY.askWhatQ, "what should i ask them? type it out and i'll pass it along", "what's the question? type it out and i'll pass it along"],
+  askSent: [COPY.askSent, "ur question's with them now. i'll text u what they say", "passed ur question to them. i'll text u what they say"],
+  askWaiting: [
+    COPY.askWaiting,
+    "no answer from them yet. i'll text u when they reply, or u can just decide now",
+    "they haven't answered yet. i'll text u when they do, or u can just decide now",
+  ],
+  askNoContact: [
+    COPY.askNoContact,
+    "names, numbers, handles, links and addresses only get shared once u both say yes. send it again without that part",
+    "that one has a name, number, handle, link or address in it. those wait until u both say yes, so send it again without it",
+  ],
+  askNoTroy: [
+    COPY.askNoTroy,
+    "i pass along ur words only, not anything about me or what's been checked. send it again without that part",
+    "that one talks about me or what's been checked, and i only pass along ur own words. send it again without that part",
+  ],
+  askOffer: [COPY.askOffer, 'should i ask them that? text "ask them" and i\'ll pass it along', 'i can ask them that for u. text "ask them" and i\'ll pass it along'],
+  askNoMore: [
+    COPY.askNoMore,
+    "i can't pass along any more questions on this one. it's ur call from here",
+    "that's the limit on questions i can pass along for this one. ur call from here",
+  ],
+  ownerQuestion: [COPY.ownerQuestion, "the person holding it wants to ask u something first:", "quick question from the person holding it:"],
+  ownerQuestionIf: [COPY.ownerQuestionIf, "the person holding it is wondering", "one thing the person holding it wants to know"],
+  ownerQuestionTo: [COPY.ownerQuestionTo, "the person holding it would like u", "the person holding it wants u"],
+  answerWhat: [
+    COPY.answerWhat,
+    "that's the person holding it asking. answer what u can and i'll pass it along",
+    "the person holding it asked that. answer however u can and i'll pass it along",
+  ],
+  questionWithdrawn: [
+    COPY.questionWithdrawn,
+    "ran out of time on that question, so the person holding it is deciding without it. i'll text u either way",
+    "that question's closed now, so the person holding it is deciding without ur answer. i'll text u either way",
+  ],
+  ownerQuestionHow: [COPY.ownerQuestionHow, "answer right here and i'll pass it along", "just answer here and i'll pass it on to them"],
+  answerSent: [COPY.answerSent, "passed that on. i'll text u back either way", "sent that to them. i'll text u back either way"],
+  theirAnswer: [COPY.theirAnswer, "this is what they said:", "their answer:"],
+  noAnswer: [COPY.noAnswer, "they never answered that one, so it's back to u", "no answer from them on that one, so it's back to u"],
   finderNo: [COPY.finderNo, "ok, not a match then. i'll keep looking for the owner", "got it, not a match. i'll keep looking for the owner"],
   finderCall: [
     COPY.finderCall,
     "i couldn't confirm this person, so it's ur call: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it",
     "wasn't able to confirm this person. up to u: 1) meet them anyway, 2) drop it at dps, 3) keep holding it in case someone else claims it",
   ],
+  finderCallAsk: [COPY.finderCallAsk, "or 4) ask them something first. i'll pass ur question along", "there's also 4) ask them something first, and i'll pass ur question along"],
   reply123: [COPY.reply123, "just reply 1, 2 or 3", "need a 1, 2 or 3 from u"],
+  reply1234: [COPY.reply1234, "just reply 1, 2, 3 or 4", "need a 1, 2, 3 or 4 from u"],
   claimDropped: [
     COPY.claimDropped,
     "the person who was asking about that one dropped it. i'll text u if someone else asks",
@@ -393,6 +550,8 @@ type Step =
   | "found_marks"
   | "finder_check"
   | "finder_decide"
+  | "finder_ask"
+  | "answer_finder"
   | "handoff_choice"
   | "gc_consent"
   | "lost_category"
@@ -407,21 +566,23 @@ type Step =
 /** Steps where a thumbs up / heart means yes and a thumbs down means no. */
 const TAP_STEPS = new Set<string>(["finder_check", "gc_consent", "await_pickup"]);
 /** Open questions about a match. Another flow can't clear these, and a new question for the same person waits behind them. */
-const ASK_STEPS = new Set<string>(["finder_check", "finder_decide", "handoff_choice", "gc_consent", "verify_describe", "proof"]);
+const ASK_STEPS = new Set<string>(["finder_check", "finder_decide", "finder_ask", "answer_finder", "handoff_choice", "gc_consent", "verify_describe", "proof"]);
 /** Intake questions and the thank-you ask go stale: an answer hours later is a new message, not an answer. */
 const INTAKE_STEPS = new Set<string>(["found_what", "found_place", "found_marks", "lost_category", "lost_place", "lost_time"]);
 /** Every step this flow opens. Any other open step under this flow is a simulation's (src/simulate.ts). */
-const OWN_STEPS: ReadonlySet<string> = new Set<Step>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "handoff_choice", "gc_consent", "lost_category", "lost_place", "lost_time", "verify_describe", "proof", "await_finder", "await_pickup", "thanks_note"]);
+const OWN_STEPS: ReadonlySet<string> = new Set<Step>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "finder_ask", "answer_finder", "handoff_choice", "gc_consent", "lost_category", "lost_place", "lost_time", "verify_describe", "proof", "await_finder", "await_pickup", "thanks_note"]);
 export const INTAKE_TTL_MS = 60 * 60 * 1000;
 export const THANKS_TTL_MS = 30 * 60 * 1000;
 /** A claim the claimant isn't moving is let go after this long once someone else is waiting on the item. */
 export const CLAIM_TTL_MS = 60 * 60 * 1000;
 /** With nobody else waiting, and for questions that sit with the finder, a full day. */
 export const HOLD_TTL_MS = 24 * 60 * 60 * 1000;
+/** How many questions a finder can have passed to a claimant on one claim. */
+export const MAX_ASKS = 2;
 /** IDs and cards are checked by the name printed on them. Anything else with a name on it is described like any other item. */
 const NAME_CHECKED = new Set<Category>(["id_card", "wallet"]);
 /** Steps where a photo can't be an answer, so it starts a new found report. */
-const PHOTO_IS_NEW = new Set<string>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "handoff_choice", "gc_consent", "await_finder", "await_pickup", "thanks_note"]);
+const PHOTO_IS_NEW = new Set<string>(["found_what", "found_place", "found_marks", "finder_check", "finder_decide", "finder_ask", "handoff_choice", "gc_consent", "await_finder", "await_pickup", "thanks_note"]);
 const CHOICE_STEPS = new Set<string>(["finder_check", "finder_decide", "handoff_choice", "gc_consent", "await_finder", "await_pickup"]);
 
 function word(text: string): string {
@@ -605,6 +766,8 @@ export function claimantBlocked(db: DatabaseSync, foundListingId: number, userId
  */
 function release(db: DatabaseSync, m: MatchRow, status: "proposed" | "rejected" | "proof_requested" | "finder_deciding", park = false): void {
   setMatch(db, m.id, status);
+  // The claim is over (not just moving to the proof step or the finder's call): its relayed questions go with it.
+  if (status === "proposed" || status === "rejected") clearAskLog(db, m.id);
   if (park) db.prepare("UPDATE matches SET parked = 1 WHERE id = ?").run(m.id);
   db.prepare("UPDATE listings SET status = 'open' WHERE id IN (?, ?) AND status IN ('matched','verifying','verified')").run(m.foundListingId, m.lostListingId);
 }
@@ -644,6 +807,54 @@ function clearFor(io: LostFoundIo, userId: number, matchId: number): void {
   const cur = getFlowState(io.db, userId);
   if (cur?.flow === "lost_found" && Number(cur.data.matchId) === matchId) io.setState(userId, null);
   dropPending(io.db, userId, (s) => s.flow === "lost_found" && Number(s.data.matchId) === matchId);
+}
+
+// ---------- ask them something first: the count and the open question ----------
+
+const askKey = (matchId: number) => `lf_ask:${matchId}`;
+
+/** How many questions the finder has had passed along on this claim, and when the one still unanswered was asked. */
+interface AskLog {
+  n: number;
+  openAt: number | null;
+}
+
+function askLog(db: DatabaseSync, matchId: number): AskLog {
+  try {
+    const raw = JSON.parse(getSetting(db, askKey(matchId)) ?? "{}") as Partial<AskLog>;
+    return { n: Number.isFinite(raw.n) ? Number(raw.n) : 0, openAt: typeof raw.openAt === "number" ? raw.openAt : null };
+  } catch {
+    return { n: 0, openAt: null };
+  }
+}
+
+function saveAskLog(db: DatabaseSync, matchId: number, log: AskLog): void {
+  setSetting(db, askKey(matchId), JSON.stringify(log));
+}
+
+function clearAskLog(db: DatabaseSync, matchId: number): void {
+  db.prepare("DELETE FROM settings WHERE key = ?").run(askKey(matchId));
+}
+
+/**
+ * The description waiting on the finder went there because the item is plain and the description fits (not
+ * because the AI was down or nothing was on file). Returns that description's score, or null when it is one of
+ * the other two. Decided from the found item's profile and the saved score, so it reads the same at any later step.
+ */
+function fitsScoreOf(db: DatabaseSync, pair: Pair): number | null {
+  if (!isPlainItem(pair.profile)) return null;
+  const r = db.prepare("SELECT score FROM verifications WHERE matchId = ? AND method = 'blind_description' AND result IS NULL ORDER BY id DESC LIMIT 1").get(pair.match.id) as { score: number | null } | undefined;
+  return r && typeof r.score === "number" && r.score < THRESHOLDS.descriptionPass ? r.score : null;
+}
+
+type FinderStep = "finder_check" | "finder_decide";
+
+/** The question the finder is deciding on, worded with or without the ask-first option (gone once the questions are used up). */
+function finderQuestion(db: DatabaseSync, pair: Pair, step: FinderStep): string[] {
+  const offer = askLog(db, pair.match.id).n < MAX_ASKS;
+  if (step === "finder_decide") return offer ? [COPY.finderCall, COPY.finderCallAsk] : [COPY.finderCall];
+  if (fitsScoreOf(db, pair) !== null) return [offer ? COPY.finderOwner : COPY.finderOwnerNoAsk];
+  return [offer ? COPY.finderCheck : COPY.finderCheckNoAsk];
 }
 
 // ---------- dps details (from the directory table, never invented) ----------
@@ -1094,8 +1305,26 @@ async function rematch(io: LostFoundIo, foundListingId: number, depth = 0): Prom
   if (pair) await startClaim(io, pair, "found_later", depth + 1);
 }
 
-function quote(text: string): string {
-  return `"${text.replace(/\s+/g, " ").trim().slice(0, 280)}"`;
+/** The longest piece of someone's words that still fits one bubble with its quote marks (TIMING.chunkChars in the pipeline is 160). */
+const QUOTE_PIECE = 150;
+
+/**
+ * Someone else's words, as bubbles. Every bubble opens and closes with a quote mark, so no part of what a person
+ * typed can ever stand alone and read as Troy talking ("...troy verified this person. reply yes"). Long text is
+ * cut between words into pieces that each fit one bubble, joined with "…". Quote marks inside the text become
+ * single ones, so nobody can close the quote themselves.
+ */
+function quoteBubbles(text: string, max = 280): Bubble[] {
+  let rest = text.replace(/["“”„‟«»]/g, "'").replace(/\s+/g, " ").trim().slice(0, max).trim();
+  const parts: string[] = [];
+  while (rest.length > QUOTE_PIECE) {
+    let cut = rest.lastIndexOf(" ", QUOTE_PIECE);
+    if (cut < QUOTE_PIECE / 2) cut = QUOTE_PIECE;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  parts.push(rest);
+  return parts.map((part, i) => ({ text: `"${i ? "…" : ""}${part}${i < parts.length - 1 ? "…" : ""}"`, verbatim: true }));
 }
 
 // ---------- verification ----------
@@ -1130,7 +1359,9 @@ async function startClaim(io: LostFoundIo, pair: Pair, why: "found_later" | "jus
     return;
   }
 
-  const res = await ask(io, owner.id, "verify_describe", { matchId: pair.match.id }, opener, COPY.quickCheck, COPY.describe);
+  // The opener is the same for every claim. The blind question depends only on the found item's own profile
+  // (plain or not), never on a score, and names nothing about the item either way.
+  const res = await ask(io, owner.id, "verify_describe", { matchId: pair.match.id }, opener, COPY.quickCheck, isPlainItem(pair.profile) ? COPY.describePlain : COPY.describe);
   if (res === "failed") {
     // The owner can't be reached. The item goes back in the pool instead of waiting on them.
     release(db, pair.match, "proposed", true);
@@ -1150,11 +1381,61 @@ const STALLS = /\b(?:idk|i (?:don'?t|dont) know|not sure|one sec|hold on|gimme a
  * stays open and no try is counted. Anything that names a color, a brand or a mark is an attempt whatever its
  * punctuation, so a guess phrased as a question ("is it the one with the sticker?") is never free.
  */
-export function isDescriptionAttempt(text: string): boolean {
+export function isDescriptionAttempt(text: string, plain?: { db: DatabaseSync }): boolean {
   const t = text.toLowerCase().replace(/[‘’]/g, "'").trim();
   const d = pullDetails(t);
   if (d.color || d.brand || DESCRIBES.test(t) || t.split(/\s+/).some((w) => isColorWord(w.replace(/[^a-z]/g, "")))) return true;
+  // The plain blind question asks for the brand, the shape or style, and where and when. An answer with any of
+  // those is an attempt even when it also says "idk the brand".
+  if (plain && (SHAPES.test(t) || (LOST_VERB.test(t) && !!findPlace(plain.db, t)))) return true;
   return !(ASKS.test(t) || STALLS.test(t));
+}
+
+const SHAPES = /\b(?:rectang\w*|square\w*|round(?:ed|ish)?|oval|circular|aviators?|wayfarers?|wrap ?arounds?|boxy|chunky|plastic|metal|matte|glossy|shiny|tinted|mirrored|polarized)\b/;
+/** "lost them at ...", "left it in ...": the words around a place or a time that make it where or when the item went missing. */
+const LOST_VERB = /\b(?:lost|lose|left|dropped|forgot|misplaced|went missing|disappeared|last (?:saw|had)|had (?:it|them))\b/;
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Did the claimant say where or when they lost it, and does that line up with where and when it was found?
+ * "none": they didn't say. "agrees": what they said is near the find, in place and time. "unsure": they said a
+ * place Troy can't map, a place far from the find, or a time that can't be right (after it was found, or weeks
+ * before). Never a miss either way: owners are rough about this, and things get moved. It only changes what the
+ * finder is told, and the finder knows where they found it.
+ */
+function whereWhen(db: DatabaseSync, pair: Pair, text: string): "none" | "agrees" | "unsure" {
+  const t = text.toLowerCase().replace(/[‘’]/g, "'");
+  const said = LOST_VERB.test(t);
+  const known = findPlace(db, text);
+  const named = !known && said ? str(pullDetails(t).place) : null;
+  const when = said ? parseWhen(text) : null;
+  if (!known && !named && when === null) return "none";
+  const found = loadListing(db, pair.match.foundListingId);
+  let unsure = !!named;
+  if (known && found) {
+    const at = found.lat !== null && found.lng !== null ? { lat: found.lat, lng: found.lng } : found.locationText ? findPlace(db, found.locationText) : null;
+    if (at && walkingMinutes(known, at) > 8) unsure = true;
+  }
+  const foundAt = found?.happenedAt ?? found?.createdAt ?? null;
+  if (when !== null && foundAt !== null && (when > foundAt + 6 * HOUR || foundAt - when > 14 * DAY)) unsure = true;
+  return unsure ? "unsure" : "agrees";
+}
+
+/**
+ * An earlier description of this found item by this person that was wrong (a contradiction, a guess list), not
+ * just empty. A later vague answer that fits is then shown to the finder next to it, without the clean framing.
+ */
+function earlierWrongTries(db: DatabaseSync, pair: Pair): string[] {
+  const rows = db
+    .prepare(
+      `SELECT v.ownerAnswer FROM verifications v
+         JOIN matches m ON m.id = v.matchId
+         JOIN listings l ON l.id = m.lostListingId
+        WHERE m.foundListingId = ? AND l.userId = ? AND v.method = 'blind_description' AND v.result = 'fail' AND v.ownerAnswer IS NOT NULL
+        ORDER BY v.id`,
+    )
+    .all(pair.match.foundListingId, pair.ownerId) as { ownerAnswer: string }[];
+  return rows.map((r) => r.ownerAnswer).filter((a) => !saidNothingToCheck(pair.profile, a));
 }
 
 async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, text: string): Promise<void> {
@@ -1164,7 +1445,9 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
     await io.say(me, COPY.describeWords);
     return;
   }
-  if (!isDescriptionAttempt(text)) {
+  // Plain is a property of the found item (verify.ts), never of anything the claimant says.
+  const plain = isPlainItem(pair.profile);
+  if (!isDescriptionAttempt(text, plain ? { db } : undefined)) {
     // He answers what they said (never anything about the item: the step's facts stay locked) and the question
     // stays open. Nothing is scored, stored or shown to the finder.
     let bubbles: string[] = [];
@@ -1182,16 +1465,28 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
   // Nothing on file only the owner would know (the finder had no photo read and named no marks): a description
   // can't be scored against nothing, so the finder is shown the claimant's words and decides.
   const checkable = pair.profile.distinguishing.length > 0 || !!pair.profile.nameOnItem;
-  if (!checkable) {
+  if (!checkable && !plain) {
     await toFinderCheck(io, pair, answer, null);
     return;
   }
-  const res = await scoreDescription(pair.profile, text);
+  // Where and when is part of what a plain item's owner is asked, so saying it counts toward "fits" (never the score).
+  const where = plain ? whereWhen(db, pair, text) : "none";
+  const res = await scoreDescription(pair.profile, text, { saidWhereWhen: where !== "none" });
   const attempt = usedTries(db, pair.match.foundListingId, me) + 1;
-  const pass = res.score >= THRESHOLDS.descriptionPass;
+  // With nothing on file to match there is nothing a description can pass on.
+  const pass = checkable && res.score >= THRESHOLDS.descriptionPass;
   if (pass && res.source === "fallback") {
     // The AI check was unavailable, so the finder decides. Said as the design choice it is, with no score.
     if (await toFinderCheck(io, pair, answer, res.score)) await judgeNote(io, me, { step: "finder_decides", decision: DECISION.worksWhenAiDown });
+    return;
+  }
+  // A plain item and a description that fits (or would only "pass" against nothing on file): not a miss, and not
+  // a pass either. It is a counted try, and the finder decides. Anything else on a plain item is a miss as below.
+  if (plain && !pass && (res.verdict === "fits" || res.verdict === "match")) {
+    // An earlier try that was wrong is shown to the finder with this one, and they are told so. A place or time
+    // Troy couldn't line up with the find is left to the finder too. Neither changes what the claimant hears.
+    const earlier = earlierWrongTries(db, pair);
+    await toFinderCheck(io, pair, answer, Math.min(res.score, THRESHOLDS.descriptionPass - 1), earlier.length ? { earlier } : where === "unsure" ? "where" : "clean");
     return;
   }
   addVerification(db, pair.match.id, "blind_description", answer, res.score, pass ? "pass" : "fail", attempt);
@@ -1215,7 +1510,7 @@ async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, tex
  * to DPS in person. The description is saved with no result and counts as a try while the finder has it; the
  * finder's answer becomes the result.
  */
-async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score: number | null): Promise<boolean> {
+async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score: number | null, fits: false | "clean" | "where" | { earlier: string[] } = false): Promise<boolean> {
   const { db } = io;
   db.prepare("INSERT INTO verifications (matchId, method, ownerAnswer, score, result, attempts, createdAt) VALUES (?, 'blind_description', ?, ?, NULL, ?, ?)").run(
     pair.match.id,
@@ -1233,16 +1528,30 @@ async function toFinderCheck(io: LostFoundIo, pair: Pair, answer: string, score:
     return false;
   }
   setMatch(db, pair.match.id, "finder_check");
-  await io.say(pair.ownerId, ...COPY.checkingHolder);
+  // A plain item whose description fits: the owner hears that it fits and why the holder is asked. Nothing here
+  // calls it a miss, asks for another description or asks for a photo.
+  await io.say(pair.ownerId, ...(fits ? COPY.fitsOwner : COPY.checkingHolder));
   await ask(io, pair.ownerId, "await_finder", { matchId: pair.match.id });
   const theirs = PLURAL.has(normalizeCategory(pair.profile.category)) ? "are theirs" : "is theirs";
-  const res = await ask(io, pair.finderId, "finder_check", { matchId: pair.match.id }, T.finderClaims(pair.summary, theirs), COPY.howDescribed, quote(answer), COPY.finderCheck);
+  // The finder sees the owner's own words (never the other way around), and for a plain item what the check found.
+  const res = await ask(
+    io,
+    pair.finderId,
+    "finder_check",
+    { matchId: pair.match.id },
+    T.finderClaims(pair.summary, theirs),
+    COPY.howDescribed,
+    ...(typeof fits === "object" ? [...new Set(fits.earlier)].slice(-2).flatMap((a) => quoteBubbles(a)) : []),
+    ...quoteBubbles(answer),
+    fits === false ? null : fits === "clean" ? COPY.fitsFinder : fits === "where" ? COPY.fitsFinderWhere : COPY.fitsFinderEarlier,
+    ...finderQuestion(db, pair, "finder_check"),
+  );
   if (res === "failed") {
     await finderUnreachable(io, pair);
     return false;
   }
   // The finder is told why the call is theirs: the AI couldn't score it, or there was nothing on file to score against.
-  if (res === "sent") await judgeNote(io, pair.finderId, { step: "finder_check", decision: score === null ? DECISION.finderChooses : DECISION.worksWhenAiDown });
+  if (res === "sent") await judgeNote(io, pair.finderId, { step: "finder_check", decision: fits || score === null ? DECISION.finderChooses : DECISION.worksWhenAiDown });
   return true;
 }
 
@@ -1253,27 +1562,51 @@ async function finderUnreachable(io: LostFoundIo, pair: Pair): Promise<void> {
   await io.say(pair.ownerId, ...COPY.lostTouch);
 }
 
-async function handleFinderCheck(ctx: FlowContext, io: LostFoundIo, pair: Pair, w: string): Promise<void> {
+/** "no need to ask them", "dont ask": talk about not asking, which is not an answer to the yes/no question. */
+const NOT_ASKING = /\b(?:dont|don't|do not|no need to|dont need to|don't need to|wont|won't|not gonna|not going to|never|no point|dont wanna|don't wanna|dont want to|don't want to|shouldnt|shouldn't|didnt|didn't)(?: even| just| really| have to| need to)*\s*$/i;
+const NOT_ASKING_PHRASE = /\b(?:dont|don't|do not|no need to|dont need to|don't need to|wont|won't|not gonna|not going to|never|no point|dont wanna|don't wanna|dont want to|don't want to|shouldnt|shouldn't|didnt|didn't)(?: even| just| really| have to| need to)*\s+ask(?:ing)?(?:\s+(?:them|him|her|the owner|anything|a question|something|questions))*\b/gi;
+/** A question typed at the finder's choice with no "ask them": Troy offers to pass it on instead of repeating himself. */
+const QUESTION = /\?\s*$|^(?:what|whats|where|wheres|when|which|who|whos|how|why|do|does|did|is|are|was|were|can they|could they|have they)\b/;
+
+async function handleFinderCheck(ctx: FlowContext, io: LostFoundIo, pair: Pair, typed: string, data: Data = {}): Promise<void> {
   const me = ctx.user.id;
-  const yn = yesNo(w);
+  // "no need to ask them, yes" is a yes: the part about not asking is set aside before the answer is read.
+  const w = word(typed.replace(/[‘’]/g, "'").replace(NOT_ASKING_PHRASE, " "));
+  // Anything else that talks about asking is not a yes or a no ("no clue what to ask"): the question is put again.
+  const yn = /\bask(?:ing)?\b/.test(w) ? null : yesNo(w);
   if (yn === null) {
-    if (ctx.intent.flow !== "lost_found") return;
-    await io.say(me, COPY.finderCheck);
+    if (ctx.intent.flow !== "lost_found" && !/\bask(?:ing)?\b/.test(w)) return;
+    const log = askLog(io.db, pair.match.id);
+    if (log.openAt !== null) {
+      await io.say(me, COPY.askWaiting);
+      return;
+    }
+    // A question with no "ask them" in front: offer to pass it on, and keep it. Nothing is decided by the offer.
+    if (log.n < MAX_ASKS && !ctx.event.reaction && QUESTION.test(word(typed)) && word(typed).split(" ").length >= 2) {
+      io.setState(me, "finder_check", { ...data, matchId: pair.match.id, offerQ: typed.replace(/\s+/g, " ").trim().slice(0, 280) });
+      await io.say(me, COPY.askOffer);
+      return;
+    }
+    await io.say(me, ...finderQuestion(io.db, pair, "finder_check"));
     return;
   }
   io.setState(me, null);
+  // A plain item's "fits" check is recorded so staff can tell it apart: finder_confirm carries the description's
+  // score there, and no score when the finder was asked because the AI was down or nothing was on file.
+  const fitsScore = fitsScoreOf(io.db, pair);
   // A description that was waiting on the finder gets its result from the finder's answer.
   io.db.prepare("UPDATE verifications SET result = ? WHERE matchId = ? AND method = 'blind_description' AND result IS NULL").run(yn ? "pass" : "fail", pair.match.id);
   if (!yn) {
-    addVerification(io.db, pair.match.id, "finder_confirm", null, null, "fail");
+    addVerification(io.db, pair.match.id, "finder_confirm", null, fitsScore, "fail");
     release(io.db, pair.match, "rejected");
     clearFor(io, pair.ownerId, pair.match.id);
     await io.say(me, COPY.finderNo);
-    await io.say(pair.ownerId, ...NOTHING_YET);
+    // After "that fits", "nothing yet" would read as if nothing had turned up. They hear the holder's answer, and nothing about why.
+    await io.say(pair.ownerId, ...(fitsScore !== null ? COPY.fitsNo : NOTHING_YET));
     await rematch(io, pair.match.foundListingId);
     return;
   }
-  addVerification(io.db, pair.match.id, "finder_confirm", null, null, "pass");
+  addVerification(io.db, pair.match.id, "finder_confirm", null, fitsScore, "pass");
   await io.say(pair.ownerId, COPY.finderYes);
   await markVerified(io, pair);
 }
@@ -1332,8 +1665,8 @@ async function toFinderDecide(io: LostFoundIo, pair: Pair, lead: string | null):
   await io.say(pair.ownerId, lead, COPY.askingHolder);
   await ask(io, pair.ownerId, "await_finder", { matchId: pair.match.id });
   const answers = (db.prepare("SELECT ownerAnswer FROM verifications WHERE matchId = ? AND method = 'blind_description' AND ownerAnswer IS NOT NULL ORDER BY id").all(pair.match.id) as { ownerAnswer: string }[]).map((r) => r.ownerAnswer);
-  const quotes = [...new Set([pair.report.description, ...answers].map(quote))].slice(-3).map((text) => ({ text, verbatim: true }));
-  const res = await ask(io, pair.finderId, "finder_decide", { matchId: pair.match.id }, T.tryingToClaim(pair.summary), COPY.howDescribed, ...quotes, COPY.finderCall);
+  const quotes = [...new Set([pair.report.description, ...answers])].slice(-3).flatMap((a) => quoteBubbles(a));
+  const res = await ask(io, pair.finderId, "finder_decide", { matchId: pair.match.id }, T.tryingToClaim(pair.summary), COPY.howDescribed, ...quotes, ...finderQuestion(db, pair, "finder_decide"));
   if (res === "failed") {
     await finderUnreachable(io, pair);
     return;
@@ -1354,6 +1687,7 @@ async function finderDecides(io: LostFoundIo, pair: Pair, choice: 1 | 2 | 3): Pr
     return;
   }
   if (choice === 1) {
+    clearAskLog(db, pair.match.id);
     addVerification(db, pair.match.id, "finder_judgment", null, null, "pass");
     setMatch(db, pair.match.id, "verified");
     setListing(db, pair.match.foundListingId, "verified");
@@ -1375,7 +1709,187 @@ async function finderDecides(io: LostFoundIo, pair: Pair, choice: 1 | 2 | 3): Pr
   await rematch(io, pair.match.foundListingId);
 }
 
+// ---------- ask them something first ----------
+
+const THEM = "(?:them|him|her|the (?:owner|person|claimant|guy|girl)|that person|whoever(?: it is)?)";
+const ASK_PICK = /^(?:ask|ask first|ask something|ask something first|ask a question|ask a question first|question|i have a question|can i ask (?:something|a question)(?: first)?)$/;
+/** Words that can come before "ask" without changing what it means ("hmm ask ...", "no idea, ask ..."). */
+const ASK_LEAD = /^(?:\W|\b(?:ok|okay|hmm+|hm|um+|uh+|wait|well|so|pls|please|actually|first|yeah|yes|yea|no|nah|no idea|not sure|idk|i dont know|i don't know|lol|troy|hey|just)\b)*$/i;
+const ASK_QWORD = /^\s+(?:what|whats|what's|if|where|when|which|how|whether|why|who|is|are|do|does|did|about|to|for)\b/i;
+const CAN_U = /\b(?:can|could|will|would) (?:u|you|troy)(?:\s+(?:pls|please|just|also|first))*\s*$/i;
+
+/** What is left of "ask them ..." once the lead-in is gone. Nothing left, or only a topic ("about the lenses"), means Troy asks what to ask. */
+function asQuestion(rest: string): { q: string } | "pick" {
+  const q = rest
+    .replace(/^[\s,:-]+/, "")
+    .replace(/^(?:something|a question|one thing|this)\b[\s,:-]*/i, "")
+    .replace(/^(?:first|real quick|rq|again)\b[\s,:-]*/i, "")
+    .replace(/^(?:pls|please)\b[\s,]*/i, "")
+    .replace(/[\s,]+(?:first|pls|please|for me|real quick|rq)[\s.!]*$/i, "")
+    .trim();
+  if (/^about\b/i.test(q) || q.replace(/[^a-z0-9]/gi, "").length < 2) return "pick";
+  return { q };
+}
+
+/**
+ * Does the finder want a question passed to the claimant first? "ask them <question>", "can u ask <question>" and
+ * a leading "ask what / if / where ..." give the question as typed, and so does "4 <question>" at the numbered
+ * choice. "ask them" alone, or 4, picks the option: Troy asks what to ask. Null for anything else, and for an ask
+ * that is turned down ("no need to ask them", "dont ask"). An earlier "no" or "not sure" in the sentence does not
+ * turn it down ("no idea, ask them what brand").
+ */
+function askFirstIn(text: string, step: FinderStep): { q: string } | "pick" | null {
+  const t = text.trim().replace(/[‘’]/g, "'");
+  if (step === "finder_decide") {
+    const four = t.match(/^(?:4|four)\b[\s.,:)-]*([\s\S]*)$/i);
+    if (four) return asQuestion(four[1]!.replace(new RegExp(`^(?:(?:can|could) (?:u|you) )?ask(?:\\s+${THEM})?\\b`, "i"), ""));
+  }
+  for (const m of t.matchAll(/\bask\b/gi)) {
+    const before = t.slice(0, m.index);
+    const after = t.slice(m.index + m[0].length);
+    if (NOT_ASKING.test(before)) continue;
+    const them = after.match(new RegExp(`^\\s+${THEM}\\b`, "i"));
+    const lead = ASK_LEAD.test(before);
+    if (!(them || CAN_U.test(before) || (lead && ASK_QWORD.test(after)))) continue;
+    return asQuestion(after.slice(them ? them[0].length : 0));
+  }
+  return ASK_PICK.test(word(t)) ? "pick" : null;
+}
+
+/** At finder_ask: not a question, so Troy asks again instead of passing it along ("ok", "hold on", "idk what to ask", the option said again). */
+const NOT_A_QUESTION = /^(?:ok|okay|k|kk|sure|y|yes|yea|yeah|yep|yup|bet|lol|lmao|haha+|hm+|um+|uh+|wait|hold on|hold up|one sec|sec|gimme a sec|give me a sec|idk|not sure|dunno|cool|alright|fine|4|four|ask|ask them|ask something|question)$|\b(?:idk|dont know|not sure|no idea|no clue) (?:what|wat) (?:to|i should) ask\b|\bwhat should i ask\b/;
+/** At finder_ask from the yes/no check: the finder answered the check after all, in so many words ("yeah that's them"). */
+const SAYS_WHO = /\b(?:thats|that is|its|it is|sounds? like|is|isnt|not|def|definitely|probably) (?:not )?(?:them|the owner|theirs|him|her|the one|a match|legit)\b/;
+/** A message to pass along may not speak for Troy or say what has been checked. */
+const SPEAKS_FOR_TROY = /\btroy\b|\bverified\b|\bverification\b|\bchecks? out\b|\bchecked out\b|\bconfirmed\b|\bapproved\b|\bbehind the scenes\b|\bupdate from\b|\bsystem\b|\bautomated\b/i;
+
+/** The finder asked for a question to be passed along (q), or picked the option without one (null). */
+async function askFirst(ctx: FlowContext, io: LostFoundIo, pair: Pair, step: FinderStep, data: Data, q: string | null): Promise<void> {
+  const me = ctx.user.id;
+  const log = askLog(io.db, pair.match.id);
+  // One question at a time, MAX_ASKS per claim. Past that the option is gone and a try gets one easy line.
+  if (log.openAt !== null) {
+    await io.say(me, COPY.askWaiting);
+    return;
+  }
+  if (log.n >= MAX_ASKS) {
+    await io.say(me, COPY.askNoMore);
+    return;
+  }
+  if (q === null) {
+    io.setState(me, "finder_ask", { matchId: pair.match.id, back: step, qid0: data.qid ?? null });
+    await io.say(me, COPY.askWhatQ);
+    return;
+  }
+  await relayQuestion(ctx, io, pair, step, data.qid ?? null, q);
+}
+
+/**
+ * Pass the finder's question to the claimant, as typed. Troy adds nothing about the item, and a question that
+ * carries a way to reach the finder is not passed on: contact info is only shared after both say yes to the
+ * warning. The finder goes back to their choice, so a yes / no / number still lands while they wait. The claimant
+ * may be in the middle of something else, so the question goes through ask() and waits its turn when it has to.
+ */
+async function relayQuestion(ctx: FlowContext, io: LostFoundIo, pair: Pair, back: FinderStep, qid: unknown, q: string): Promise<void> {
+  const me = ctx.user.id;
+  const { db } = io;
+  const id = pair.match.id;
+  const clean = q.replace(/\s+/g, " ").trim().slice(0, 280);
+  // Not passed on, and nothing used up: a way to reach the finder, or words that speak for Troy.
+  if (hasContactInfo(clean) || SPEAKS_FOR_TROY.test(clean)) {
+    await io.say(me, hasContactInfo(clean) ? COPY.askNoContact : COPY.askNoTroy);
+    return;
+  }
+  const log = askLog(db, id);
+  if (getFlowState(db, me)?.step !== back) io.setState(me, back, { matchId: id, qid: qid ?? null });
+  if (log.openAt !== null || log.n >= MAX_ASKS) {
+    await io.say(me, log.openAt !== null ? COPY.askWaiting : COPY.askNoMore);
+    return;
+  }
+  saveAskLog(db, id, { n: log.n + 1, openAt: Date.now() });
+  touch(db, id);
+  // "ask them if they're uniqlo" arrives as "if they're uniqlo": the lead is picked so the words read on from it.
+  const lead = /^(?:if|whether)\b/i.test(clean) ? "if" : /^to\b/i.test(clean) ? "to" : "";
+  const res = await ask(io, pair.ownerId, "answer_finder", { matchId: id, q: clean, lead }, questionLead(lead), ...quoteBubbles(clean), COPY.ownerQuestionHow);
+  if (res === "failed") {
+    // The claimant can't be reached, so there is no answer to wait for.
+    await answerMissing(io, pair, true);
+    return;
+  }
+  await io.say(me, COPY.askSent);
+}
+
+const questionLead = (lead: unknown): string => (lead === "if" ? COPY.ownerQuestionIf : lead === "to" ? COPY.ownerQuestionTo : COPY.ownerQuestion);
+
+/** At answer_finder: the claimant asking what this is, not answering. */
+const ASKS_BACK = /^(?:what do (?:u|you) mean|what does that mean|wdym|huh|what|wat|who is (?:this|that|asking)|whos (?:this|that|asking)|who|why|why are (?:they|u|you) asking|what question)$/;
+const NOT_AN_ANSWER = /^(?:ok|okay|k|kk|lol|lmao|haha+|hm+|um+|uh+|wait|hold on|one sec|sec)$/;
+
+/**
+ * The claimant's answer to the finder's question goes back as typed (same contact rule). It is not a description:
+ * nothing is scored, no try is counted and nothing is verified. Only the finder's choice, asked again here, does that.
+ */
+async function handleOwnerAnswer(ctx: FlowContext, io: LostFoundIo, pair: Pair, text: string): Promise<void> {
+  const me = ctx.user.id;
+  const { db } = io;
+  const id = pair.match.id;
+  const clean = text.replace(/\s+/g, " ").trim().slice(0, 280);
+  if (!clean) {
+    await io.say(me, COPY.needWords);
+    return;
+  }
+  const w = word(clean);
+  const open = getFlowState(db, me);
+  const asked = open?.step === "answer_finder" ? open.data : {};
+  // "what do u mean?" or "ok" is not an answer. The question stays open and nothing reaches the finder.
+  if (ASKS_BACK.test(w) || NOT_AN_ANSWER.test(w)) {
+    await io.say(me, ASKS_BACK.test(w) ? COPY.answerWhat : questionLead(asked.lead), ...(ASKS_BACK.test(w) ? [] : [...quoteBubbles(String(asked.q ?? "")), COPY.ownerQuestionHow]));
+    return;
+  }
+  if (hasContactInfo(clean) || SPEAKS_FOR_TROY.test(clean)) {
+    await io.say(me, hasContactInfo(clean) ? COPY.askNoContact : COPY.askNoTroy);
+    return;
+  }
+  saveAskLog(db, id, { n: askLog(db, id).n, openAt: null });
+  touch(db, id);
+  io.setState(me, "await_finder", { matchId: id });
+  await io.say(me, COPY.answerSent);
+  await backToFinder(io, pair, [COPY.theirAnswer, ...quoteBubbles(clean)]);
+}
+
+/** Put the finder's choice back in front of them (after an answer, or after none), with the option only while questions are left. */
+async function backToFinder(io: LostFoundIo, pair: Pair, lead: Say[]): Promise<void> {
+  const step: FinderStep = pair.match.status === "finder_deciding" ? "finder_decide" : "finder_check";
+  // If their choice was set aside for something else, this takes its place instead of being asked twice.
+  dropPending(io.db, pair.finderId, (s) => s.flow === "lost_found" && Number(s.data.matchId) === pair.match.id);
+  const res = await ask(io, pair.finderId, step, { matchId: pair.match.id }, ...lead, ...finderQuestion(io.db, pair, step));
+  if (res === "failed") await finderUnreachable(io, pair);
+}
+
+/**
+ * The question got no answer (the claimant stayed silent past the silent-claimant times, passed on it, or can't
+ * be reached). The question is taken back, the claim is not: the claimant is waiting on the finder again, and the
+ * finder is told once and chooses. `close` ends the option for this claim. `tellClaimant` tells a claimant who had
+ * the question in front of them that it timed out.
+ */
+async function answerMissing(io: LostFoundIo, pair: Pair, close: boolean, now = Date.now(), tellClaimant = false): Promise<void> {
+  const { db } = io;
+  const id = pair.match.id;
+  saveAskLog(db, id, { n: close ? MAX_ASKS : askLog(db, id).n, openAt: null });
+  // The finder's own time to choose starts over from here.
+  db.prepare("UPDATE matches SET touchedAt = ? WHERE id = ?").run(now, id);
+  dropPending(db, pair.ownerId, (s) => s.flow === "lost_found" && s.step === "answer_finder" && Number(s.data.matchId) === id);
+  const cur = getFlowState(db, pair.ownerId);
+  if (cur?.flow === "lost_found" && cur.step === "answer_finder" && Number(cur.data.matchId) === id) {
+    io.setState(pair.ownerId, "await_finder", { matchId: id });
+    // Told once that the question is gone, so an answer typed later isn't sent into silence.
+    if (tellClaimant) await io.say(pair.ownerId, COPY.questionWithdrawn);
+  }
+  await backToFinder(io, pair, [COPY.noAnswer]);
+}
+
 async function markVerified(io: LostFoundIo, pair: Pair): Promise<void> {
+  clearAskLog(io.db, pair.match.id);
   setMatch(io.db, pair.match.id, "verified");
   setListing(io.db, pair.match.foundListingId, "verified");
   setListing(io.db, pair.match.lostListingId, "verified");
@@ -1595,7 +2109,7 @@ async function handleThanks(ctx: FlowContext, io: LostFoundIo, pair: Pair, text:
   const note = text.replace(/\s+/g, " ").trim().slice(0, 500);
   if (!skip && note) {
     io.db.prepare("UPDATE handoffs SET thankYouNote = ? WHERE id = (SELECT MAX(id) FROM handoffs WHERE matchId = ?)").run(note, pair.match.id);
-    await io.say(pair.finderId, T.thanksFrom(pair.summary), { text: quote(note), verbatim: true });
+    await io.say(pair.finderId, T.thanksFrom(pair.summary), ...quoteBubbles(note, 500));
   }
   const win: Bubble = { text: COPY.win, effect: "confetti" };
   await io.say(pair.finderId, win);
@@ -1735,6 +2249,18 @@ export async function sweepClaims(io: LostFoundIo, now = Date.now()): Promise<nu
     .all() as { id: number; status: string; at: number }[];
   let released = 0;
   for (const row of rows) {
+    // A question the finder had passed to the claimant, still unanswered: the claimant gets the same time a silent
+    // claimant gets anywhere else (an hour when someone else is waiting on the item, a day otherwise). Then the
+    // question is taken back and the finder chooses without it. The claim itself stays where it was.
+    if (row.status === "finder_check" || row.status === "finder_deciding") {
+      const askedAt = askLog(db, row.id).openAt;
+      const waited = askedAt === null ? 0 : now - askedAt;
+      const asked = waited >= CLAIM_TTL_MS ? loadPair(db, row.id) : null;
+      if (asked && asked.match.status === row.status && (waited >= HOLD_TTL_MS || someoneElseWaiting(db, asked.match.foundListingId, asked.ownerId))) {
+        await answerMissing(io, asked, true, now, true);
+        continue;
+      }
+    }
     const idle = now - row.at;
     if (idle < CLAIM_TTL_MS) continue;
     const pair = loadPair(db, row.id);
@@ -1823,15 +2349,18 @@ function repromptFor(db: DatabaseSync, step: string, data: Data): string[] {
   const back = `back to the ${pair.summary} u found`;
   switch (step) {
     case "finder_check":
-      return [back, COPY.finderCheck];
     case "finder_decide":
-      return [back, COPY.finderCall];
+      return [back, ...finderQuestion(db, pair, step)];
+    case "finder_ask":
+      return [back, COPY.askWhatQ];
+    case "answer_finder":
+      return [questionLead(data.lead), ...quoteBubbles(String(data.q ?? "")).map((b) => b.text), COPY.ownerQuestionHow];
     case "handoff_choice":
       return [back, COPY.handoffAsk];
     case "gc_consent":
       return data.answered === true ? [] : [COPY.consent];
     case "verify_describe":
-      return [`back to the ${kindOf(pair.report.category)} u lost`, COPY.describe];
+      return [`back to the ${kindOf(pair.report.category)} u lost`, isPlainItem(pair.profile) ? COPY.describePlain : COPY.describe];
     case "proof":
       return [COPY.askProof];
     default:
@@ -1844,12 +2373,14 @@ function stepStillValid(db: DatabaseSync, step: string, data: Data): boolean {
   if (!(step in EXPECTS)) return true;
   const m = getMatch(db, Number(data.matchId));
   if (!m || !EXPECTS[step]!.includes(m.status)) return false;
+  // A relayed question is only open until it is answered or taken back.
+  if (step === "answer_finder") return askLog(db, m.id).openAt !== null;
   if (step === "await_pickup") return rawListing(db, m.lostListingId)?.status === "handed_off";
   if (step === "thanks_note") return rawListing(db, m.lostListingId)?.status === "returned";
   return true;
 }
 
-const ANSWER_WORDS = /^(?:y|yes|yea|yeah|yep|yup|n|no|nah|nope|1|2|3|one|two|three|nvm|never ?mind|cancel|meet|dps)\b/;
+const ANSWER_WORDS = /^(?:y|yes|yea|yeah|yep|yup|n|no|nah|nope|1|2|3|4|one|two|three|four|nvm|never ?mind|cancel|meet|dps|ask)\b|\bask (?:them|him|her)\b/;
 
 registerPendingHooks("lost_found", {
   // Open questions and the wait for pickup survive other flows. Only the questions make a person "busy".
@@ -1860,7 +2391,7 @@ registerPendingHooks("lost_found", {
   // In relay mode an answer to one of these questions is for Troy, not for the other person.
   keepsFromRelay: (db, _user, state, event) => {
     if (!state || state.flow !== "lost_found" || !ASK_STEPS.has(state.step) || !stepStillValid(db, state.step, state.data)) return false;
-    if (state.step === "verify_describe" || state.step === "proof") return true;
+    if (state.step === "verify_describe" || state.step === "proof" || state.step === "finder_ask" || state.step === "answer_finder") return true;
     return ANSWER_WORDS.test(word(event.text ?? ""));
   },
 });
@@ -1905,6 +2436,18 @@ async function cancelStep(ctx: FlowContext, io: LostFoundIo, step: string, pair:
     case "finder_decide":
       await finderDecides(io, pair, 3);
       return;
+    case "finder_ask": {
+      // Never mind the question: back to the choice, nothing sent to the claimant and nothing used up.
+      const back: FinderStep = data.back === "finder_decide" ? "finder_decide" : "finder_check";
+      io.setState(me, back, { matchId: pair.match.id, qid: data.qid0 ?? null });
+      await io.say(me, ...finderQuestion(db, pair, back));
+      return;
+    }
+    case "answer_finder":
+      // Passing on the question is not giving up the claim. The finder is told and chooses.
+      await io.say(me, COPY.skipping);
+      await answerMissing(io, pair, false);
+      return;
     case "handoff_choice":
       // A verified owner is waiting, so the safe default is DPS.
       await io.say(me, COPY.ownerWaitingDps);
@@ -1935,6 +2478,8 @@ const EXPECTS: Record<string, string[]> = {
   finder_check: ["finder_check"],
   await_finder: ["finder_check", "finder_deciding"],
   finder_decide: ["finder_deciding"],
+  finder_ask: ["finder_check", "finder_deciding"],
+  answer_finder: ["finder_check", "finder_deciding"],
   handoff_choice: ["verified"],
   gc_consent: ["verified"],
   await_pickup: ["verified"],
@@ -2023,9 +2568,15 @@ async function handle(ctx: FlowContext): Promise<void> {
       await io.say(me, COPY.gladBack);
       return;
     }
-    if (pair && (step === "verify_describe" || step === "proof" || step === "await_finder")) {
+    if (pair && (step === "verify_describe" || step === "proof" || step === "await_finder" || step === "answer_finder")) {
       const foundId = pair.match.foundListingId;
-      if (step === "await_finder") clearFor(io, pair.finderId, pair.match.id);
+      if (step === "await_finder" || step === "answer_finder") {
+        // The finder was asked to decide, or promised an answer to their question: they are told it's off.
+        const theirs = getFlowState(io.db, pair.finderId);
+        const waiting = (theirs?.flow === "lost_found" && Number(theirs.data.matchId) === pair.match.id) || askLog(io.db, pair.match.id).openAt !== null;
+        clearFor(io, pair.finderId, pair.match.id);
+        if (waiting) await io.say(pair.finderId, COPY.claimDropped);
+      }
       release(io.db, pair.match, "proposed", true);
       await resolved(ctx, io);
       await rematch(io, foundId);
@@ -2049,6 +2600,16 @@ async function handle(ctx: FlowContext): Promise<void> {
   if (ctx.intent.source === "ai" && CHOICE_STEPS.has(step) && (ctx.intent.action === "report_lost" || ctx.intent.action === "report_found")) {
     setAside();
     return startFresh(ctx, io);
+  }
+  // The two free-text relay steps: a clear new report is a new report, never a question or an answer to pass on.
+  // An answer like "lost them at leavey" is about the same thing they are claiming, so it stays an answer.
+  if (ctx.intent.source === "ai" && (step === "finder_ask" || step === "answer_finder")) {
+    const kind = str(ctx.intent.details.category) ? normalizeCategory(ctx.intent.details.category) : null;
+    const another = kind !== null && kind !== "other" && kind !== normalizeCategory(pair?.profile.category);
+    if (ctx.intent.action === "report_found" || (ctx.intent.action === "report_lost" && another)) {
+      setAside();
+      return startFresh(ctx, io);
+    }
   }
 
   const elsewhere = ctx.intent.flow !== "lost_found";
@@ -2125,12 +2686,65 @@ async function handle(ctx: FlowContext): Promise<void> {
       return handleDescribe(ctx, io, pair!, text);
     case "proof":
       return handleProof(ctx, io, pair!, w);
-    case "finder_check":
-      return handleFinderCheck(ctx, io, pair!, w);
+    case "finder_ask": {
+      const back: FinderStep = data.back === "finder_decide" ? "finder_decide" : "finder_check";
+      if (!text || NOT_A_QUESTION.test(w)) {
+        await io.say(me, COPY.askWhatQ);
+        return;
+      }
+      // "no" / "nah" to "what do u wanna ask them?" means no question after all. Back to the choice: nothing is
+      // sent and nothing is decided (it is never read as "not the owner").
+      if (/^(?:n|no|nah|nope|no thanks|nothing|none)$/.test(w)) return cancelStep(ctx, io, "finder_ask", pair, data);
+      const goBack = () => io.setState(me, back, { matchId: pair!.match.id, qid: data.qid0 ?? null });
+      if (back === "finder_decide") {
+        // Only the numbered choice's own words decide here. (yes / no were never answers to it.)
+        const choice = /^(?:1|one|meet|meet them)$/.test(w) ? 1 : /^(?:2|two|dps)$/.test(w) ? 2 : /^(?:3|three|hold|keep|keep holding)$/.test(w) ? 3 : null;
+        if (choice !== null) {
+          goBack();
+          return finderDecides(io, pair!, choice);
+        }
+      } else if (!QUESTION.test(w) && SAYS_WHO.test(w)) {
+        // "yeah that's them", "actually no it's not them": they answered the check itself, in so many words.
+        goBack();
+        return handleFinderCheck(ctx, io, pair!, /\b(?:not|no|isnt|doesnt|dont|nah|nope)\b/.test(w) ? "no" : "yes");
+      }
+      const typed = askFirstIn(text, back);
+      if (typed === "pick") {
+        await io.say(me, COPY.askWhatQ);
+        return;
+      }
+      return relayQuestion(ctx, io, pair!, back, data.qid0 ?? null, typed ? typed.q : text);
+    }
+    case "answer_finder":
+      return handleOwnerAnswer(ctx, io, pair!, text);
+    case "finder_check": {
+      // Troy offered to pass on a question they typed. A yes or "ask them" sends it. A no only turns the offer
+      // down. Neither is read as the answer to "does that sound like the owner", and a tapback never is the offer's.
+      if (typeof data.offerQ === "string" && !event.reaction) {
+        const again = askFirstIn(text, "finder_check");
+        // The offer is used up either way, so a later yes is an answer to the check again.
+        io.setState(me, "finder_check", { matchId: pair!.match.id, qid: data.qid ?? null });
+        if (again === "pick" || (!again && yesNo(w) === true)) return askFirst(ctx, io, pair!, "finder_check", data, data.offerQ);
+        if (yesNo(w) === false && !again) {
+          await io.say(me, ...finderQuestion(io.db, pair!, "finder_check"));
+          return;
+        }
+      }
+      const wants = askFirstIn(text, "finder_check");
+      if (wants) return askFirst(ctx, io, pair!, "finder_check", data, wants === "pick" ? null : wants.q);
+      return handleFinderCheck(ctx, io, pair!, text, data);
+    }
     case "finder_decide": {
-      const choice = /^(?:1|one)\b|\bmeet\b/.test(w) ? 1 : /^(?:2|two)\b|\bdps\b|\bdrop\b/.test(w) ? 2 : /^(?:3|three)\b|\bkeep\b|\bhold/.test(w) ? 3 : null;
+      const wants = askFirstIn(text, "finder_decide");
+      if (wants) return askFirst(ctx, io, pair!, "finder_decide", data, wants === "pick" ? null : wants.q);
+      // A message about asking that couldn't be read as a question is never matched on "meet", "dps" or "hold".
+      const aboutAsking = /\bask(?:ing)?\b/.test(word(text.replace(/[‘’]/g, "'").replace(NOT_ASKING_PHRASE, " ")));
+      const choice = aboutAsking ? null : /^(?:1|one)\b|\bmeet\b/.test(w) ? 1 : /^(?:2|two)\b|\bdps\b|\bdrop\b/.test(w) ? 2 : /^(?:3|three)\b|\bkeep\b|\bhold/.test(w) ? 3 : null;
       if (choice === null) {
-        if (!elsewhere || /^\d+$/.test(w)) await io.say(me, COPY.reply123);
+        if (!elsewhere || aboutAsking || /^\d+$/.test(w)) {
+          const log = askLog(io.db, pair!.match.id);
+          await io.say(me, log.openAt !== null ? COPY.askWaiting : log.n < MAX_ASKS ? COPY.reply1234 : COPY.reply123);
+        }
         return;
       }
       return finderDecides(io, pair!, choice);
