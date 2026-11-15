@@ -1,0 +1,513 @@
+/* Troy staff dashboard: the official's desk.
+   Loaded by dashboard.html only, after tokens.css, nav.css and tool.css. Everything is scoped to body.officium,
+   so the panel and the privacy page keep the shared look. Colors come from the palette in tokens.css (shades are
+   opacity or a mix with paper or white). Motion is transform and opacity only.
+
+   The devices, top to bottom:
+     band      a strip of the golden-hour painting with the site nav on it
+     plaque    the page title on paper, overlapping the band, then the Greek key rule
+     strip     the seal and the gate: Troy on or off, sign-ups open or closed, the cap (sticky)
+     plaques   the six offices, Roman numeral above the name, open count as a small seal
+     sheet     a register: ruled rows on paper with a ledger margin, the status as a stamp
+     thread    what Troy texted, as iMessage bubbles (rules copied from phone.css)
+     receipt   the toast: the text a student just got */
+
+body.officium {
+  --tilt: -2deg;
+  --tail-bg: var(--white);
+  --ledger: color-mix(in srgb, var(--cardinal) 26%, var(--white));
+  --plaque: color-mix(in srgb, var(--stone) 9%, var(--paper));
+  --gold-soft: color-mix(in srgb, var(--gold) 22%, var(--white));
+  font-variant-numeric: tabular-nums;
+}
+.officium .wrap { max-width: 1128px; }
+.officium .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- Band: the painting and the nav ---------- */
+.officium .band { position: relative; height: clamp(190px, 26vh, 250px); overflow: hidden; background: var(--line); }
+.officium .band img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 58%; }
+.officium .site-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  max-width: 1128px;
+  margin: 0 auto;
+  padding: 10px 24px 0;
+  color: var(--ink);
+}
+.officium .site-head .site-nav-brand,
+.officium .site-head .site-nav-links { color: var(--ink); background: rgba(var(--paper-rgb), 0.9); border-radius: var(--r-pill); }
+.officium .site-head .site-nav-brand { padding: 0 18px; }
+.officium .site-head .site-nav-links { margin-right: 0; padding: 0 6px; }
+.officium .site-head .site-nav-links a { color: var(--stone); }
+.officium .site-head .site-nav-links a:hover,
+.officium .site-head .site-nav-links a[aria-current="page"] { color: var(--ink); }
+
+/* ---------- Plaque: the title on paper, over the band's bottom edge ---------- */
+.officium .page-head {
+  position: relative;
+  margin-top: -76px;
+  padding: 22px 30px 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  box-shadow: inset 0 0 0 5px var(--paper), inset 0 0 0 6px var(--line), var(--shadow-soft);
+}
+.officium .page-head::before { width: 64px; height: 24px; margin: 0 0 8px -3px; }
+.officium .page-head h1 { font-size: clamp(2rem, 3.6vw, 2.75rem); }
+.officium .page-head .sub { margin-top: 8px; }
+.officium .key-rule { margin: 18px 0 16px; }
+
+/* ---------- The control strip: seal and gate ---------- */
+.officium .dock { position: sticky; top: 0; z-index: 6; margin: 0 -8px; padding: 8px 8px 0; background: var(--paper); border-radius: 0 0 36px 36px; }
+.officium .strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  box-shadow: var(--shadow-soft);
+}
+.officium .ctl {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 84px;
+  padding: 12px 22px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--tone, var(--stone));
+}
+.officium .ctl + .ctl { border-left: 1px solid var(--line); }
+.officium .ctl:first-child { border-radius: 27px 0 0 27px; }
+.officium button.ctl:hover:not(:disabled) { background: rgba(var(--paper-rgb), 0.8); }
+.officium .ctl[aria-checked="true"] { --tone: var(--laurel); }
+.officium .ctl[aria-checked="false"] { --tone: var(--cardinal); }
+.officium .ctl:disabled { --tone: var(--stone); cursor: default; }
+.officium .ctl:disabled .seal-switch, .officium .ctl:disabled .gate { opacity: 0.45; }
+.officium .ctl .words { display: grid; gap: 1px; min-width: 0; }
+.officium .ctl .lbl, .officium .lbl {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--stone);
+}
+.officium .ctl .state {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--tone);
+}
+.officium .ctl .sub { font-size: 12.5px; line-height: 1.3; color: var(--stone); }
+
+/* The seal: a round knob with an inner ring, on a short track. */
+.officium .seal-switch { position: relative; flex: none; width: 86px; height: 46px; border-radius: var(--r-pill); border: 2px solid var(--tone); }
+.officium .seal-switch::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--tone); opacity: 0.12; }
+.officium .seal-switch i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--tone);
+  box-shadow: inset 0 0 0 3px var(--tone), inset 0 0 0 4.5px rgba(var(--paper-rgb), 0.85);
+  transition: transform 0.22s cubic-bezier(0.3, 1.3, 0.5, 1);
+}
+.officium .ctl[aria-checked="true"] .seal-switch i { transform: translateX(40px); }
+
+/* The gate: two leaves under an arch. Open, the leaves swing back to the posts. */
+.officium .gate { flex: none; width: 74px; height: 58px; color: var(--tone); overflow: visible; }
+.officium .gate .leaf { transition: transform 0.28s cubic-bezier(0.3, 1.2, 0.5, 1); }
+.officium .gate .leaf.l { transform-origin: 9px 30px; }
+.officium .gate .leaf.r { transform-origin: 47px 30px; }
+.officium .ctl[aria-checked="true"] .gate .leaf { transform: scaleX(0.2); }
+
+/* The cap: big figures between two steps. */
+.officium .ctl.cap { gap: 14px; padding: 12px 18px; --tone: var(--ink); }
+.officium .cap .fig { display: grid; justify-items: center; gap: 2px; min-width: 132px; }
+.officium .cap .nums { font-family: var(--font-display); font-weight: var(--display-weight); font-size: 30px; line-height: 1; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.officium .cap .nums small { font: 500 14px/1 var(--font-body); color: var(--stone); margin: 0 3px; }
+.officium .cap.full .nums b:first-child { color: var(--cardinal); }
+.officium .cap.off .nums { opacity: 0.3; }
+.officium .cap.off .lbl { max-width: 150px; text-align: center; line-height: 1.35; letter-spacing: 0.06em; }
+.officium .ctl:disabled .state { font-size: 22px; }
+.officium .cap .nums b { font-weight: inherit; }
+.officium .step {
+  flex: none;
+  min-width: 56px;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.officium .step:hover:not(:disabled) { border-color: var(--stone); }
+.officium .step:active:not(:disabled) { transform: scale(0.96); }
+.officium .step:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- Offices as plaques ---------- */
+.officium .tabs { display: flex; gap: 10px; overflow-x: auto; padding: 22px 2px 8px; margin: 0 -2px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.officium .tabs::-webkit-scrollbar { display: none; }
+.officium .tabs button {
+  position: relative;
+  flex: 1 0 auto;
+  min-width: 132px;
+  min-height: 78px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 3px;
+  padding: 10px 22px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--plaque);
+  /* The engraved edge: a second line set in from the border. */
+  box-shadow: inset 0 0 0 3px var(--plaque), inset 0 0 0 4px rgba(var(--ink-rgb), 0.1);
+  color: var(--stone);
+  white-space: nowrap;
+  scroll-snap-align: start;
+  transition: transform 0.16s ease-out;
+}
+.officium .tabs .num { font-family: var(--font-display); font-weight: var(--display-weight); font-size: 15px; line-height: 1; letter-spacing: 0.14em; margin-right: -0.14em; color: var(--stone); text-shadow: 0 1px 0 var(--white); }
+.officium .tabs .name { font-weight: 600; font-size: 15px; line-height: 1.25; letter-spacing: 0.01em; color: rgba(var(--ink-rgb), 0.72); text-shadow: 0 1px 0 var(--white); }
+.officium .tabs button::after { content: ""; position: absolute; left: 50%; bottom: 9px; width: 34px; height: 3px; margin-left: -17px; border-radius: 2px; background: var(--gold); opacity: 0; transform: scaleX(0.3); transition: transform 0.2s ease-out, opacity 0.2s; }
+.officium .tabs button:hover { color: var(--ink); }
+.officium .tabs button[aria-selected="true"] {
+  background: var(--white);
+  box-shadow: inset 0 0 0 3px var(--white), inset 0 0 0 4px rgba(var(--ink-rgb), 0.1), 0 2px 3px rgba(var(--ink-rgb), 0.05), 0 10px 22px rgba(var(--ink-rgb), 0.1);
+  transform: translateY(-4px);
+}
+.officium .tabs button[aria-selected="true"] .num { color: var(--cardinal); }
+.officium .tabs button[aria-selected="true"] .name { color: var(--ink); }
+.officium .tabs button[aria-selected="true"]::after { opacity: 1; transform: none; }
+/* The open count, as a small seal on the plaque's corner. */
+.officium .tabs .count {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  min-width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--white);
+  color: var(--cardinal);
+  border: 1px solid currentColor;
+  box-shadow: 0 0 0 2px var(--white), 0 0 0 3px currentColor;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+.officium .tabs .count[data-zero] { color: var(--stone); }
+.officium .tabs button[aria-selected="true"] .count { background: var(--white); color: var(--cardinal); }
+.officium .tabs button[aria-selected="true"] .count[data-zero] { color: var(--stone); }
+
+/* ---------- Section heads ---------- */
+.officium h2 { display: flex; align-items: baseline; gap: 14px; margin-top: 22px; }
+.officium h2 { align-items: center; }
+.officium h2 .num { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--cardinal); box-shadow: inset 0 0 0 2.5px var(--paper), inset 0 0 0 3.5px color-mix(in srgb, var(--cardinal) 35%, var(--paper)); font-size: 15px; letter-spacing: 0.06em; color: var(--cardinal); }
+.officium h3 { margin: 30px 0 10px; }
+.officium .card { border-radius: var(--r-card); }
+
+/* ---------- The register ---------- */
+.officium .sheet {
+  position: relative;
+  margin: 0 0 16px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  --no: 68px;
+}
+/* The ledger's margin: a thin double rule down the sheet, right of the entry numbers. */
+.officium .sheet::before,
+.officium .sheet::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ledger); pointer-events: none; z-index: 1; }
+.officium .sheet::before { left: var(--no); }
+.officium .sheet::after { left: calc(var(--no) + 3px); }
+.officium .sheet-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 16px 22px 14px calc(var(--no) + 22px); border-bottom: 1px solid var(--line); }
+.officium .sheet-head .name { font-family: var(--font-display); font-weight: var(--display-weight); font-size: 21px; line-height: 1.15; letter-spacing: -0.02em; margin: 0; color: var(--ink); text-transform: none; }
+.officium .sheet-head .n { font-size: 13px; color: var(--stone); }
+
+.officium .cols,
+.officium .entry {
+  display: grid;
+  grid-template-columns: var(--no) 104px minmax(0, 1fr) 168px 150px;
+  column-gap: 0;
+}
+.officium .cols { border-bottom: 3px double var(--line); background: rgba(var(--paper-rgb), 0.7); }
+.officium .cols span { padding: 9px 0 8px 22px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--stone); }
+.officium .cols span:first-child { padding-left: 0; text-align: center; }
+.officium .cols span:last-child { text-align: center; padding-left: 0; }
+
+.officium .entry { position: relative; padding: 18px 0 16px; border-top: 1px solid var(--line); }
+.officium .cols + .entry, .officium .sheet > .entry:first-child { border-top: 0; }
+.officium .entry > div { min-width: 0; }
+.officium .e-no { text-align: center; padding-top: 1px; display: grid; align-content: start; gap: 1px; }
+.officium .e-no .lbl { font-size: 9.5px; }
+.officium .e-no b { font-family: var(--font-display); font-weight: var(--display-weight); font-size: 20px; line-height: 1.1; color: var(--ink); }
+.officium .e-no b.long { font-size: 13px; line-height: 1.7; letter-spacing: -0.01em; }
+.officium .e-when { padding-left: 22px; display: grid; align-content: start; justify-items: start; gap: 1px; font-size: 13px; line-height: 1.35; color: var(--stone); white-space: nowrap; }
+.officium .e-when .d { color: var(--ink); font-weight: 600; }
+.officium .e-when .tag { margin-top: 6px; }
+.officium .e-main { padding-left: 22px; display: flex; gap: 14px; align-items: flex-start; }
+.officium .e-text { flex: 1; min-width: 0; }
+.officium .e-main .title { font-size: 16px; font-weight: 600; line-height: 1.35; }
+.officium .e-main .title::first-letter { text-transform: uppercase; }
+.officium .e-main .meta { margin-top: 5px; gap: 3px 0; }
+.officium .e-main .meta > span:not(.pill):not(.stamp) + span:not(.pill):not(.stamp)::before { content: "\00b7"; margin: 0 8px; color: var(--line); filter: brightness(0.8); }
+.officium .e-main .meta .pill, .officium .e-main .meta .stamp { margin-right: 10px; }
+.officium .e-route { padding-left: 22px; font-size: 13px; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+.officium .e-route .lbl { display: none; }
+.officium .e-stamp { display: flex; justify-content: center; align-items: flex-start; padding: 2px 10px 0; }
+.officium .e-more { grid-column: 3 / -1; padding: 0 22px 0 22px; }
+.officium .entry:nth-of-type(even) { --tilt: 1.5deg; }
+.officium .entry:nth-of-type(3n) { --tilt: -1deg; }
+
+/* A new live row: it slides in at the top and holds a gold wash for a moment. */
+.officium .entry.arrive { animation: off-arrive 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.officium .entry.arrive::after { content: ""; position: absolute; inset: 0; background: var(--gold); opacity: 0; pointer-events: none; animation: off-gold 2.6s ease-out both; }
+@keyframes off-arrive { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+@keyframes off-gold { 0% { opacity: 0; } 12% { opacity: 0.3; } 100% { opacity: 0; } }
+
+/* live and example */
+.officium .tag { font-size: 10.5px; letter-spacing: 0.08em; padding: 1px 8px; background: transparent; }
+.officium .tag.eg { border: 1px dashed var(--stone); color: var(--stone); }
+.officium .tag.live { border: 1px solid var(--laurel); color: var(--laurel); background: color-mix(in srgb, var(--laurel) 10%, var(--white)); }
+.officium .tag.live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+
+/* ---------- Stamps ---------- */
+.officium .stamp {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  padding: 7px 12px 6px;
+  border: 2px solid currentColor;
+  border-radius: 9px;
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  text-align: center;
+  transform: rotate(var(--tilt));
+  opacity: 0.94;
+}
+.officium .stamp::before { content: ""; position: absolute; inset: 2px; border: 1px solid currentColor; border-radius: 5px; opacity: 0.5; }
+.officium .stamp.amber { color: var(--amber); }
+.officium .stamp.laurel { color: var(--laurel); }
+.officium .stamp.stone { color: var(--stone); }
+.officium .stamp.cardinal { color: var(--cardinal); }
+.officium .stamp.round { border-radius: var(--r-pill); padding: 7px 14px 6px; }
+.officium .stamp.round::before { border-radius: var(--r-pill); }
+.officium .stamp.small { font-size: 10px; padding: 4px 8px 3px; border-width: 1.5px; letter-spacing: 0.1em; }
+.officium .stamp.press { animation: off-press 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@keyframes off-press {
+  0% { opacity: 0; transform: rotate(var(--tilt)) scale(1.9); }
+  55% { opacity: 1; transform: rotate(var(--tilt)) scale(0.9); }
+  100% { opacity: 0.94; transform: rotate(var(--tilt)) scale(1); }
+}
+
+/* ---------- Status buttons: a quiet row under the entry ---------- */
+.officium .statuses { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; }
+.officium .statuses .lbl { margin-right: 6px; }
+.officium .statuses button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 0 15px;
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--stone);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.officium .statuses button::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0.7; }
+.officium .statuses button:hover { border-color: var(--stone); color: var(--ink); }
+.officium .statuses button:active { transform: scale(0.97); }
+.officium .statuses button.current { color: var(--amber); border-color: currentColor; font-weight: 600; cursor: default; background: color-mix(in srgb, var(--amber) 8%, var(--white)); }
+.officium .statuses button.current.done { color: var(--laurel); background: color-mix(in srgb, var(--laurel) 8%, var(--white)); }
+.officium .statuses button.current.closed { color: var(--stone); background: color-mix(in srgb, var(--stone) 8%, var(--white)); }
+.officium .statuses button.current::before { background: currentColor; opacity: 1; }
+
+/* Who posted a reported drop, whether they can still post, and the ban. */
+.officium .poster { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 14px; }
+
+/* The mocked link into the office's own system: dashed, and it says so. */
+.officium .mock { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 12px; min-height: 40px; border: 1px dashed var(--stone); background: transparent; color: var(--stone); border-radius: var(--r-pill); padding: 6px 16px; font-size: 13px; text-align: left; }
+.officium .mock b { color: var(--ink); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
+.officium .mock:hover { color: var(--ink); }
+
+/* ---------- What Troy texted: iMessage bubbles (copied from landing/phone.css) ---------- */
+.officium .texts { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); max-width: 460px; }
+.officium .texts-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--stone); margin-bottom: 8px; }
+.officium .texts-head img, .officium .rc-head img { width: 22px; height: 22px; border-radius: 50%; background: var(--line); flex: none; }
+.officium .texts-head b { color: var(--ink); font-weight: 600; }
+.officium .thread { position: relative; z-index: 0; display: flex; flex-direction: column; gap: 2px; padding: 0 10px; font-size: 14px; line-height: 1.3; color: var(--ink); }
+.officium .bubble { position: relative; max-width: 86%; padding: 7px 12px; border-radius: 18px; overflow-wrap: break-word; white-space: pre-line; text-align: left; }
+.officium .bubble.from-me { align-self: flex-end; background: var(--imessage-blue); color: var(--white); }
+.officium .bubble.from-them { align-self: flex-start; background: var(--bubble-gray); color: var(--ink); }
+.officium .bubble.from-me + .bubble.from-them,
+.officium .bubble.from-them + .bubble.from-me,
+.officium .msg-status + .bubble,
+.officium .msg-note + .bubble { margin-top: 8px; }
+.officium .bubble.tail::before,
+.officium .bubble.tail::after { content: ""; position: absolute; bottom: 0; height: 16px; }
+.officium .bubble.from-me.tail::before { right: -6px; width: 18px; background: var(--imessage-blue); border-bottom-left-radius: 14px 12px; z-index: -1; }
+.officium .bubble.from-me.tail::after { right: -10px; width: 10px; background: var(--tail-bg); border-bottom-left-radius: 9px; z-index: -1; }
+.officium .bubble.from-them.tail::before { left: -6px; width: 18px; background: var(--bubble-gray); border-bottom-right-radius: 14px 12px; z-index: -1; }
+.officium .bubble.from-them.tail::after { left: -10px; width: 10px; background: var(--tail-bg); border-bottom-right-radius: 9px; z-index: -1; }
+.officium .msg-status { align-self: flex-start; margin: 2px 0 0 2px; font-size: 11px; line-height: 1.3; color: var(--stone); }
+.officium .msg-status.right { align-self: flex-end; margin: 2px 2px 0 0; }
+.officium .msg-note { align-self: center; margin: 8px 0 2px; font-size: 11px; line-height: 1.3; color: var(--stone); text-align: center; }
+
+/* ---------- The receipt (toast): the text that just went out ---------- */
+.officium #toast {
+  --tail-bg: var(--white);
+  left: auto;
+  right: 24px;
+  bottom: 24px;
+  transform: translateY(16px);
+  width: min(400px, calc(100vw - 32px));
+  max-width: none;
+  padding: 14px 16px 12px;
+  background: var(--white);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: 0 2px 6px rgba(var(--ink-rgb), 0.08), 0 18px 44px rgba(var(--ink-rgb), 0.18);
+  text-align: left;
+  z-index: 10;
+}
+.officium #toast.show { transform: none; pointer-events: auto; }
+.officium .rc-head { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; line-height: 1.4; color: var(--ink); font-weight: 500; }
+.officium .rc-head img { margin-top: -1px; }
+.officium .rc-head .tag { margin-left: 4px; }
+.officium #toast .thread { margin-top: 12px; }
+.officium .rc-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--stone); }
+
+/* ---------- Smaller pieces kept from the old page ---------- */
+.officium .hold { margin-top: 10px; max-width: 420px; }
+.officium .hold .bar { height: 6px; border-radius: var(--r-pill); background: var(--stone-soft); overflow: hidden; }
+.officium .hold .bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--amber); }
+.officium .hold.over .bar i { background: var(--cardinal); }
+.officium .hold .txt { font-size: 12.5px; color: var(--stone); margin-top: 5px; }
+
+.officium .counter { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 28px; align-items: start; }
+.officium .result { position: relative; margin-top: 14px; border-radius: 20px; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line); }
+.officium .counter .result { margin-top: 0; }
+.officium #code-result:empty { min-height: 100%; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--line); border-radius: 20px; padding: 16px; }
+.officium #code-result:empty::before { content: "The answer is stamped here."; font-size: 13px; color: var(--stone); }
+.officium .result .stamp { float: right; margin: 0 0 8px 12px; }
+.officium .result.good { background: var(--laurel-soft); border-color: transparent; }
+.officium .result.bad { background: var(--cardinal-soft); border-color: transparent; color: var(--cardinal); }
+.officium .hint code { font: inherit; font-weight: 600; letter-spacing: 0.14em; color: var(--ink); background: var(--stone-soft); border-radius: 8px; padding: 2px 8px; }
+
+.officium .roll { padding: 4px 22px 6px calc(var(--no) + 22px); }
+.officium .roll .list { margin: 0; }
+.officium .roll .list li:first-child { border-top: 0; }
+.officium .roll .list li { padding: 12px 0; }
+
+.officium .kill { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; padding: 24px 26px; }
+.officium .kill.on { border-color: var(--laurel); }
+.officium .kill.off { border-color: var(--cardinal); background: var(--cardinal-soft); }
+.officium .kill .lamp { width: 84px; height: 84px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: var(--white); font-family: var(--font-display); font-weight: var(--display-weight); font-size: 21px; letter-spacing: 0.04em; box-shadow: inset 0 0 0 4px currentColor, inset 0 0 0 5.5px rgba(var(--paper-rgb), 0.8); }
+.officium .kill.on .lamp { background: var(--laurel); color: var(--white); box-shadow: inset 0 0 0 4px var(--laurel), inset 0 0 0 5.5px rgba(var(--paper-rgb), 0.8); }
+.officium .kill.off .lamp { background: var(--cardinal); box-shadow: inset 0 0 0 4px var(--cardinal), inset 0 0 0 5.5px rgba(var(--paper-rgb), 0.8); }
+.officium .kill .state { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 28px; line-height: 1.05; }
+.officium .kill .body { flex: 1; min-width: 220px; }
+.officium .kill .btn { min-height: 52px; padding: 0 30px; font-size: 16px; }
+.officium .kill.off .btn { background: var(--laurel); border-color: var(--laurel); color: var(--white); }
+.officium .strip-note { margin: 8px 6px 0; font-size: 12.5px; color: var(--stone); }
+
+/* ---------- Narrow screens ---------- */
+@media (max-width: 900px) {
+  .officium .cols, .officium .entry { grid-template-columns: var(--no) 96px minmax(0, 1fr) 132px; }
+  .officium .cols span:nth-child(4) { display: none; }
+  .officium .e-route { grid-column: 3; grid-row: 2; padding-top: 6px; color: var(--stone); }
+  .officium .e-route .lbl { display: inline; font-size: 10px; margin-right: 8px; }
+  .officium .e-stamp { grid-column: 4; grid-row: 1; }
+  .officium .e-more { grid-column: 3 / -1; grid-row: 3; }
+  .officium .strip { grid-template-columns: 1fr 1fr; }
+  .officium .ctl.cap { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); justify-content: center; min-height: 64px; }
+  .officium .counter { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .officium .band { height: 132px; }
+  .officium .site-head { padding: 6px 8px 0; }
+  .officium .site-head .site-nav-links { padding: 0 2px; }
+  .officium .page-head { margin-top: -44px; padding: 16px 18px 18px; border-radius: 26px; }
+  .officium .page-head::before { width: 54px; height: 20px; margin-bottom: 6px; }
+  .officium .page-head h1 { font-size: 1.75rem; }
+  .officium .page-head .sub { font-size: 14px; }
+  .officium .key-rule { margin: 14px 0 12px; }
+
+  /* Three full-width rows, one tap each. */
+  .officium .dock { margin: 0 -16px; padding: 6px 16px 0; border-radius: 0 0 38px 38px; }
+  .officium .strip { grid-template-columns: 1fr; border-radius: 22px; }
+  .officium .ctl { min-height: 54px; padding: 4px 14px; gap: 12px; }
+  .officium .ctl + .ctl, .officium .ctl.cap { border-left: 0; border-top: 1px solid var(--line); }
+  .officium .ctl:first-child { border-radius: 21px 21px 0 0; }
+  .officium .ctl .words { grid-template-columns: auto auto 1fr; align-items: baseline; column-gap: 8px; flex: 1; }
+  .officium .ctl .state { font-size: 22px; }
+  .officium .ctl .sub { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .officium .seal-switch { width: 66px; height: 36px; order: 2; }
+  .officium .seal-switch i { width: 26px; height: 26px; }
+  .officium .ctl[aria-checked="true"] .seal-switch i { transform: translateX(30px); }
+  .officium .gate { width: 52px; height: 41px; order: 2; margin: 0 7px; }
+  .officium .ctl.cap { min-height: 56px; justify-content: space-between; padding: 4px 8px; }
+  .officium .cap .fig { grid-auto-flow: column; align-items: baseline; gap: 8px; min-width: 0; }
+  .officium .cap .nums { font-size: 22px; }
+  .officium .step { min-height: 44px; min-width: 64px; }
+
+  .officium .tabs { padding: 18px 16px 6px; margin: 0 -16px; gap: 8px; }
+  .officium .tabs button { flex: 0 0 auto; min-width: 112px; min-height: 72px; padding: 10px 18px 14px; }
+
+  /* Two lines per entry: number, time and stamp, then the words. */
+  .officium .sheet { --no: 46px; border-radius: 22px; }
+  .officium .cols { display: none; }
+  .officium .sheet-head { padding: 14px 14px 12px calc(var(--no) + 14px); }
+  .officium .sheet-head .name { font-size: 18px; }
+  .officium .entry { grid-template-columns: var(--no) minmax(0, 1fr) auto; padding: 14px 0 14px; row-gap: 8px; }
+  .officium .e-no b { font-size: 17px; }
+  .officium .e-when { grid-column: 2; grid-row: 1; padding-left: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; align-self: center; }
+  .officium .e-when .tag { margin-top: 0; }
+  .officium .e-stamp { grid-column: 3; grid-row: 1; padding: 0 12px 0 6px; max-width: 132px; align-items: center; }
+  .officium .page-foot a { display: inline-block; padding: 13px 4px; }
+  .officium .e-main { grid-column: 2 / -1; grid-row: 2; padding: 0 14px; }
+  .officium .e-route { grid-column: 2 / -1; grid-row: 3; padding: 0 14px; }
+  .officium .e-more { grid-column: 2 / -1; grid-row: 4; padding: 0 14px; }
+  .officium .stamp { font-size: 10.5px; padding: 6px 9px 5px; letter-spacing: 0.1em; }
+  .officium .statuses { gap: 8px; }
+  .officium .statuses .lbl { flex: 1 1 100%; }
+  .officium .statuses button { min-height: 44px; flex: 1 1 calc(50% - 8px); justify-content: center; padding: 0 8px; }
+  .officium .mock { min-height: 44px; border-radius: 22px; }
+  .officium .roll { padding: 2px 14px 4px calc(var(--no) + 14px); }
+  .officium .roll .btn.small, .officium .e-more .btn { min-height: 44px; }
+  .officium .thread { padding: 0 8px; }
+  .officium #toast { right: 16px; bottom: 16px; }
+  .officium .kill { padding: 20px; }
+  .officium .kill .btn { width: 100%; }
+  .officium .inline .btn { flex: 1 1 auto; }
+  .officium .inline .field { flex: 1 1 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .officium .entry.arrive, .officium .entry.arrive::after, .officium .stamp.press { animation: none; }
+  .officium .seal-switch i, .officium .gate .leaf, .officium .tabs button, .officium .tabs button::after { transition: none; }
+}

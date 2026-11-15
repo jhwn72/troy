@@ -12,67 +12,11 @@
 <link rel="stylesheet" href="landing/tokens.css">
 <link rel="stylesheet" href="landing/nav.css">
 <link rel="stylesheet" href="landing/tool.css">
-<style>
-  /* Only what this page has that the other working pages don't. The shared look is landing/tool.css. */
-  .tabs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 20px; margin: 0 -2px; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tabs button { min-height: var(--tap); border: 1px solid var(--line); background: var(--white); border-radius: var(--r-pill); padding: 0 20px; font-weight: 500; white-space: nowrap; }
-  .tabs button:hover { border-color: var(--stone); }
-  .tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-  .tabs .count { display: inline-block; min-width: 20px; text-align: center; margin-left: 6px; border-radius: var(--r-pill); background: var(--stone-soft); color: var(--stone); font-size: 12px; padding: 0 6px; }
-  .tabs button[aria-selected="true"] .count { background: rgba(var(--paper-rgb), 0.18); color: var(--paper); }
-
-  .statuses { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-  .statuses button { min-height: var(--tap); border: 1px solid var(--line); background: var(--paper); border-radius: var(--r-pill); padding: 0 20px; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 9px; }
-  .statuses button::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--stone); }
-  .statuses button:hover { border-color: var(--stone); }
-  .statuses button.current { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
-  .statuses button.current::before { background: var(--amber); border-color: var(--amber); }
-  .statuses button.current.done { background: var(--laurel-soft); border-color: var(--laurel); color: var(--laurel); }
-  .statuses button.current.done::before { background: var(--laurel); border-color: var(--laurel); }
-  .statuses button.current.closed { background: var(--stone-soft); border-color: var(--stone); color: var(--stone); }
-  .statuses button.current.closed::before { background: var(--stone); }
-  .mock { margin-top: 14px; min-height: 36px; border: 1px dashed var(--stone); background: transparent; color: var(--stone); border-radius: var(--r-pill); padding: 6px 14px; font-size: 13px; text-align: left; }
-  .mock b { color: var(--ink); font-weight: 600; }
-  .stafflog { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--stone); }
-  .stafflog .line { display: flex; gap: 10px; align-items: baseline; margin-top: 6px; flex-wrap: wrap; }
-  .stafflog .line .said { flex: 1; min-width: min(100%, 220px); color: var(--ink); white-space: pre-line; overflow-wrap: anywhere; }
-  .stafflog .line.did .said { color: var(--stone); }
-  .stafflog .line.eg .said { border: 1px dashed var(--stone); border-radius: 18px; padding: 8px 14px; color: var(--stone); }
-
-  .hold { margin-top: 12px; }
-  .hold .bar { height: 8px; border-radius: var(--r-pill); background: var(--stone-soft); overflow: hidden; }
-  .hold .bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--amber); }
-  .hold.over .bar i { background: var(--cardinal); }
-  .hold .txt { font-size: 13px; color: var(--stone); margin-top: 5px; }
-
-  .result { margin-top: 14px; border-radius: 20px; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line); }
-  .result.good { background: var(--laurel-soft); border-color: transparent; }
-  .result.bad { background: var(--cardinal-soft); border-color: transparent; color: var(--cardinal); }
-  .hint code { font: inherit; font-weight: 600; letter-spacing: 0.14em; color: var(--ink); background: var(--stone-soft); border-radius: 8px; padding: 2px 8px; }
-
-  .kill { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; padding: 26px; border-radius: var(--r-panel); }
-  .kill.on { border-color: var(--laurel); }
-  .kill.off { border-color: var(--cardinal); background: var(--cardinal-soft); }
-  .kill .lamp { width: 88px; height: 88px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: var(--white); font-family: var(--font-display); font-weight: var(--display-weight); font-size: 22px; }
-  .kill.on .lamp { background: var(--laurel); }
-  .kill.off .lamp { background: var(--cardinal); }
-  .kill .state { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 30px; line-height: 1.05; }
-  .kill .body { flex: 1; min-width: 220px; }
-  .kill .btn { min-height: 52px; padding: 0 30px; font-size: 16px; }
-  .kill.off .btn { background: var(--laurel); border-color: var(--laurel); color: var(--white); }
-
-  @media (max-width: 620px) {
-    .statuses button { flex: 1 1 calc(50% - 8px); justify-content: center; padding: 0 10px; }
-    .kill { padding: 20px; }
-    .kill .btn { width: 100%; }
-    .inline .btn { flex: 1 1 auto; }
-    .inline .field { flex: 1 1 100%; }
-  }
-</style>
+<link rel="stylesheet" href="landing/officium.css">
 </head>
-<body>
-<div class="wrap">
+<body class="officium">
+<div class="band">
+  <img alt="" src="img/campus-golden-1600.webp" srcset="img/campus-golden-1600.webp 1600w, img/campus-golden.webp 2560w" sizes="100vw" fetchpriority="high">
   <header class="site-head">
     <a class="site-nav-brand" href="./">Troy</a>
     <nav class="site-nav-links" aria-label="Site">
@@ -82,7 +26,8 @@
       <a href="privacy.html">Privacy</a>
     </nav>
   </header>
-
+</div>
+<div class="wrap">
   <div class="page-head">
     <div class="page-head-row">
       <div class="grow">
@@ -94,48 +39,75 @@
   </div>
   <hr class="key-rule" aria-hidden="true">
 
-  <div class="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" data-tab="dps" aria-selected="true">DPS<span class="count" id="c-dps">0</span></button>
-    <button role="tab" data-tab="repairs" aria-selected="false">FMS and Housing<span class="count" id="c-repairs">0</span></button>
-    <button role="tab" data-tab="usg" aria-selected="false">USG<span class="count" id="c-usg">0</span></button>
-    <button role="tab" data-tab="moderation" aria-selected="false">Moderation<span class="count" id="c-moderation">0</span></button>
-    <button role="tab" data-tab="people" aria-selected="false">People<span class="count" id="c-people">0</span></button>
-    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+  <!-- The seal and the gate: always in reach. -->
+  <div class="dock">
+  <div class="strip" id="strip" role="group" aria-label="Troy and sign-ups">
+    <button class="ctl" id="sw-troy" type="button" role="switch" aria-checked="true" aria-label="Troy">
+      <span class="seal-switch" aria-hidden="true"><i></i></span>
+      <span class="words"><span class="lbl">Troy is</span><span class="state" id="troy-state">ON</span><span class="sub" id="troy-sub">Reading allowed chats and replying.</span></span>
+    </button>
+    <button class="ctl" id="sw-gate" type="button" role="switch" aria-checked="true" aria-label="Sign-ups" disabled>
+      <svg class="gate" viewBox="0 0 56 44" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 42V15Q28 -3 51 15V42M5 15.5H51" stroke-width="2.4"/>
+        <path d="M28 6.5V15M17 9.6V15M39 9.6V15" stroke-width="1.4"/>
+        <g class="leaf l"><rect x="9" y="18.5" width="18.4" height="23.5" fill="currentColor" stroke="none" opacity="0.16"/><path d="M9 18.5H27.4V42H9ZM13.6 18.5V42M18.2 18.5V42M22.8 18.5V42" stroke-width="1.5"/></g>
+        <g class="leaf r"><rect x="28.6" y="18.5" width="18.4" height="23.5" fill="currentColor" stroke="none" opacity="0.16"/><path d="M28.6 18.5H47V42H28.6ZM33.2 18.5V42M37.8 18.5V42M42.4 18.5V42" stroke-width="1.5"/></g>
+        <path d="M1 42.8H55" stroke-width="1.6"/>
+      </svg>
+      <span class="words"><span class="lbl">Sign-ups</span><span class="state" id="gate-state">OPEN</span><span class="sub" id="gate-sub">Checking.</span></span>
+    </button>
+    <div class="ctl cap" id="cap" role="group" aria-label="How many people can be in the demo">
+      <button class="step" id="cap-down" type="button" aria-label="Lower the cap by 10" disabled>&minus;10</button>
+      <div class="fig" aria-live="polite"><span class="nums"><b id="cap-count">0</b><small>of</small><b id="cap-max">0</b></span><span class="lbl" id="cap-lbl">in the demo</span></div>
+      <button class="step" id="cap-up" type="button" aria-label="Raise the cap by 10" disabled>+10</button>
+    </div>
+  </div>
   </div>
 
-  <section id="tab-dps" role="tabpanel">
-    <h2>Items in DPS custody</h2>
+  <div class="tabs" role="tablist" aria-label="Offices">
+    <button role="tab" id="p-dps" data-tab="dps" aria-controls="tab-dps" aria-selected="true"><span class="num" aria-hidden="true">I</span><span class="name">DPS</span><span class="count" id="c-dps">0</span></button>
+    <button role="tab" id="p-repairs" data-tab="repairs" aria-controls="tab-repairs" aria-selected="false" tabindex="-1"><span class="num" aria-hidden="true">II</span><span class="name">FMS and Housing</span><span class="count" id="c-repairs">0</span></button>
+    <button role="tab" id="p-usg" data-tab="usg" aria-controls="tab-usg" aria-selected="false" tabindex="-1"><span class="num" aria-hidden="true">III</span><span class="name">USG</span><span class="count" id="c-usg">0</span></button>
+    <button role="tab" id="p-moderation" data-tab="moderation" aria-controls="tab-moderation" aria-selected="false" tabindex="-1"><span class="num" aria-hidden="true">IV</span><span class="name">Moderation</span><span class="count" id="c-moderation">0</span></button>
+    <button role="tab" id="p-people" data-tab="people" aria-controls="tab-people" aria-selected="false" tabindex="-1"><span class="num" aria-hidden="true">V</span><span class="name">People</span><span class="count" id="c-people">0</span></button>
+    <button role="tab" id="p-settings" data-tab="settings" aria-controls="tab-settings" aria-selected="false" tabindex="-1"><span class="num" aria-hidden="true">VI</span><span class="name">Settings</span></button>
+  </div>
+
+  <section id="tab-dps" role="tabpanel" aria-labelledby="p-dps">
+    <h2><span class="num" aria-hidden="true">I</span>Items in DPS custody</h2>
     <p class="lead">Found items a finder dropped off. Each is held for 90 days. When someone comes to the counter, check their pickup code here.</p>
-    <div class="card">
-      <div class="title">Check a pickup code</div>
-      <div class="meta">Troy texts the code to the owner once they are verified.</div>
-      <form id="code-form" class="inline" style="margin-top:14px" autocomplete="off">
-        <input class="field mono" id="code-input" placeholder="6 character code" maxlength="12" aria-label="Pickup code" style="text-transform:uppercase;letter-spacing:.18em">
-        <button class="btn primary" type="submit">Check code</button>
-      </form>
-      <p id="code-hint" class="note hint" hidden></p>
+    <div class="card counter">
+      <div>
+        <div class="title">Check a pickup code</div>
+        <div class="meta">Troy texts the code to the owner once they are verified.</div>
+        <form id="code-form" class="inline" style="margin-top:14px" autocomplete="off">
+          <input class="field mono" id="code-input" placeholder="6 character code" maxlength="12" aria-label="Pickup code" style="text-transform:uppercase;letter-spacing:.18em">
+          <button class="btn primary" type="submit">Check code</button>
+        </form>
+        <p id="code-hint" class="note hint" hidden></p>
+      </div>
       <div id="code-result"></div>
     </div>
     <h3>In custody</h3>
     <div id="dps-list"></div>
   </section>
 
-  <section id="tab-repairs" role="tabpanel" hidden>
-    <h2>Broken things</h2>
+  <section id="tab-repairs" role="tabpanel" aria-labelledby="p-repairs" hidden>
+    <h2><span class="num" aria-hidden="true">II</span>Broken things</h2>
     <p class="lead">Reports students texted to Troy, grouped by the office they were routed to. Every status change sends a new text to the reporter and everyone following the report. A technician assigned under People gets a text for each new report and can answer it.</p>
     <div id="repairs-list"></div>
   </section>
 
-  <section id="tab-usg" role="tabpanel" hidden>
-    <h2>USG concerns</h2>
+  <section id="tab-usg" role="tabpanel" aria-labelledby="p-usg" hidden>
+    <h2><span class="num" aria-hidden="true">III</span>USG concerns</h2>
     <p class="lead">Concerns grouped by committee. Anonymous concerns never show who sent them. Every status change sends a new text to the student and any followers. A member assigned under People gets a summary with counts only, never names.</p>
     <div id="usg-list"></div>
     <h3>Programs and committees Troy points students to</h3>
     <div id="directory-list"></div>
   </section>
 
-  <section id="tab-moderation" role="tabpanel" hidden>
-    <h2>Reported food drops</h2>
+  <section id="tab-moderation" role="tabpanel" aria-labelledby="p-moderation" hidden>
+    <h2><span class="num" aria-hidden="true">IV</span>Reported food drops</h2>
     <p class="lead">Drops that students reported. Banning stops that person from posting new drops; they can still use the rest of Troy.</p>
     <div id="moderation-list"></div>
     <h3>Topic requests waiting for review</h3>
@@ -146,8 +118,8 @@
     <div id="topic-list"></div>
   </section>
 
-  <section id="tab-people" role="tabpanel" hidden>
-    <h2>People</h2>
+  <section id="tab-people" role="tabpanel" aria-labelledby="p-people" hidden>
+    <h2><span class="num" aria-hidden="true">V</span>People</h2>
     <p class="lead">Put a phone on an office or a USG committee and Troy texts it when a report lands there. None of these are real staff yet, so every assignment is labeled example. One phone per role; a new one replaces the old.</p>
     <div class="card">
       <div class="title">Assign a phone</div>
@@ -159,13 +131,14 @@
         <button class="btn primary" type="submit">Assign</button>
       </form>
       <div id="staff-error" class="warn" hidden></div>
-      <ul class="list" id="staff-list"></ul>
     </div>
+    <h3>Who is assigned</h3>
+    <div class="sheet"><div class="roll"><ul class="list" id="staff-list"></ul></div></div>
   </section>
 
-  <section id="tab-settings" role="tabpanel" hidden>
-    <h2>Settings</h2>
-    <p class="lead">The kill switch stops all sending and processing right away.</p>
+  <section id="tab-settings" role="tabpanel" aria-labelledby="p-settings" hidden>
+    <h2><span class="num" aria-hidden="true">VI</span>Settings</h2>
+    <p class="lead">The kill switch stops all sending and processing right away. It is the same switch as the seal at the top of the page.</p>
     <div id="kill"></div>
     <h3>Manual allow-list</h3>
     <div class="card">
@@ -176,8 +149,8 @@
         <button class="btn primary" type="submit">Add</button>
       </form>
       <div id="allow-error" class="warn" hidden></div>
-      <ul class="list" id="allow-list"></ul>
     </div>
+    <div class="sheet"><div class="roll"><ul class="list" id="allow-list"></ul></div></div>
     <h3>Matcher eval</h3>
     <div class="card" id="eval-card"></div>
   </section>
@@ -195,6 +168,7 @@
   const POLL_MS = 4000;
   const STATUS_LABEL = { received: "Received", in_progress: "In progress", fixed: "Fixed", on_agenda: "On the agenda", acted_on: "Acted on", closed: "Closed" };
   const DONE = ["fixed", "acted_on"];
+  const AVATAR = "assets/troy-avatar.png";
   const revealed = new Set();
   const last = {};
   let tab = "dps";
@@ -208,24 +182,105 @@
       else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
       else n.setAttribute(k, v === true ? "" : v);
     }
-    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid);
+    for (const kid of kids.flat(3)) if (kid !== null && kid !== undefined && kid !== false) n.append(kid);
     return n;
   }
-  const exampleTag = (on) => (on ? el("span", { class: "tag", text: "example" }) : null);
   const empty = (text) => el("div", { class: "empty" }, el("div", { class: "dot" }), text);
 
-  // Live from the Troy server when it answers, otherwise the example data (landing/demo.js). Same answers either way.
-  const api = (path, method, body) => TroyData.api(path, method, body);
-  /** In the demo a button's answer carries the line to show: what Troy would have texted. */
-  const say = (r, text) => toast((r && r.json && r.json.demoNote) || text);
+  // ---------- live and example ----------
+  /** Seeded rows say so (isExample true or 1). A row with no such field is an example on the demo site and live on the Mac. */
+  const isEx = (x) => !!x && (x.isExample === true || x.isExample === 1 || (x.isExample === undefined && TroyData.isDemo()));
+  const originTag = (example) => el("span", { class: "tag " + (example ? "eg" : "live"), text: example ? "example" : "live" });
+  /** Live rows above example rows, newest first. */
+  const order = (rows) => rows.slice().sort((a, b) => (isEx(a) - isEx(b)) || ((b.createdAt || 0) - (a.createdAt || 0)) || ((b.id || 0) - (a.id || 0)));
+  /** Which live rows are new since the last look at this list. The first look marks nothing. */
+  const seen = {};
+  function arrivals(key, rows) {
+    const first = !seen[key];
+    const known = seen[key] || (seen[key] = new Set());
+    const fresh = new Set();
+    for (const r of rows) {
+      if (known.has(r.id)) continue;
+      known.add(r.id);
+      if (!first && !isEx(r)) fresh.add(r.id);
+    }
+    return fresh;
+  }
+  /** True when this entry's stamp is not the one it carried last time, so the new one presses in. */
+  const stamped = {};
+  function restamped(key, value) {
+    const was = stamped[key];
+    stamped[key] = value;
+    return was !== undefined && was !== value;
+  }
 
+  // ---------- the data layer ----------
+  // Live from the Troy server when it answers, otherwise the example data (landing/demo.js). Same answers either way.
+  // The sign-up gate and the cap are this page's own controls, so in the demo their in-memory copy lives here.
+  const demoSignups = { open: true, max: 40, count: 23 };
+  const demoOk = (json, note) => ({ status: 200, json: Object.assign({ ok: true, signups: Object.assign({}, demoSignups) }, json, { demoNote: note }) });
+  async function api(path, method, body) {
+    await TroyData.ready;
+    if (TroyData.isDemo()) {
+      const b = body || {};
+      if (path === "/api/settings/signups" && method === "POST") {
+        if (typeof b.open !== "boolean") return { status: 400, json: { ok: false, error: "bad_request" } };
+        demoSignups.open = b.open;
+        return demoOk({}, b.open
+          ? "Demo: sign-ups are open. A new chat that says \"hey troy\" would be let in while the count is under the cap. Nothing was sent."
+          : "Demo: sign-ups are closed. Troy would text a new chat that tries, once: \"sign-ups are closed rn\". Nothing was sent.");
+      }
+      if (path === "/api/settings/cap" && method === "POST") {
+        if (typeof b.max !== "number" || !Number.isFinite(b.max)) return { status: 400, json: { ok: false, error: "bad_request" } };
+        demoSignups.max = Math.max(0, Math.min(500, Math.round(b.max)));
+        return demoOk({}, demoSignups.count >= demoSignups.max
+          ? "Demo: the cap is " + demoSignups.max + ", so the demo is full. Troy would text a new chat that tries, once: \"demo's full rn, try again in a bit\". Nothing was sent."
+          : "Demo: the cap is " + demoSignups.max + " on this page only. Troy sends no text for this.");
+      }
+    }
+    const r = await TroyData.api(path, method, body);
+    if (TroyData.isDemo() && path === "/api/settings" && (!method || method === "GET") && r.json && r.json.ok) r.json.signups = Object.assign({}, demoSignups);
+    return r;
+  }
+
+  // ---------- what Troy texted, as messages ----------
+  const bubble = (who, text) => el("div", { class: "bubble tail " + (who === "student" ? "from-me" : "from-them"), text });
+  /** A demo answer reads: Demo: Troy would text 2 students: "the text". Nothing was sent. Split it into the line and the text. */
+  function readNote(note) {
+    const body = note.replace(/^Demo:\s*/, "");
+    const m = body.match(/^([\s\S]*?):\s*"([\s\S]*)"\.?\s*(Nothing was sent\.)?\s*$/);
+    if (m) return { caption: m[1] + ".", troy: m[2], foot: "Demo. Nothing was sent." };
+    const plain = body.replace(/\s*Nothing was sent\.\s*$/, "");
+    return { caption: plain, troy: null, foot: plain === body ? "Demo. Nothing left this page." : "Demo. Nothing was sent." };
+  }
   let toastTimer;
-  function toast(text) {
+  /** The receipt at the corner of the page: what happened and, when a text went out, the text itself. */
+  function receipt(o) {
     const t = $("toast");
-    t.textContent = text;
+    const caption = o.caption.charAt(0).toUpperCase() + o.caption.slice(1);
+    const hasThread = o.troy || o.student;
+    t.replaceChildren(...[
+      el("div", { class: "rc-head" }, el("img", { src: AVATAR, alt: "" }), el("span", { text: caption })),
+      hasThread ? el("div", { class: "thread" },
+        o.student ? [bubble("student", o.student), el("div", { class: "msg-status right", text: o.studentNote || "The student's report" })] : null,
+        o.troy ? [bubble("troy", o.troy), el("div", { class: "msg-status", text: o.troyNote || "Troy" })] : null) : null,
+      o.foot ? el("div", { class: "rc-foot", text: o.foot }) : null].filter(Boolean));
     t.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove("show"), TroyData.isDemo() ? 6500 : 2600);
+    toastTimer = setTimeout(() => t.classList.remove("show"), hasThread ? 9000 : TroyData.isDemo() ? 6500 : 3200);
+  }
+  $("toast").addEventListener("click", () => $("toast").classList.remove("show"));
+  const toast = (text) => receipt({ caption: text });
+  /** After a button: in the demo the answer carries what Troy would have texted; live it may carry the text he sent. */
+  function say(r, text, ctx) {
+    const json = (r && r.json) || {};
+    const c = ctx || {};
+    if (json.demoNote) {
+      const n = readNote(json.demoNote);
+      return receipt({ caption: n.caption, troy: n.troy, student: n.troy ? c.student : null, studentNote: c.studentNote, troyNote: n.troy ? "Troy's text. Not sent, this is the demo." : null, foot: n.foot });
+    }
+    const sent = typeof json.text === "string" ? json.text : typeof json.sentText === "string" ? json.sentText : null;
+    receipt({ caption: text, troy: sent, student: sent ? c.student : null, studentNote: c.studentNote, troyNote: sent ? "Troy's text. Sent." : null });
   }
 
   function ago(ms) {
@@ -233,13 +288,15 @@
     if (s < 60) return "just now";
     if (s < 3600) return Math.floor(s / 60) + " min ago";
     if (s < 86400) return Math.floor(s / 3600) + " hr ago";
+    if (s < 172800) return "1 day ago";
     return Math.floor(s / 86400) + " days ago";
   }
+  const day = (ms) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const clock = (ms) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
-  function statusPill(status) {
-    const cls = DONE.includes(status) ? "done" : status === "closed" ? "" : "pending";
-    return el("span", { class: "pill " + cls, text: STATUS_LABEL[status] || status });
-  }
+  const STATUS_TONE = { received: "amber", in_progress: "amber", on_agenda: "amber", fixed: "laurel", acted_on: "laurel", closed: "stone" };
+  /** The status, stamped. amber: received or pending. laurel: fixed or acted on. stone: closed. cardinal: flagged. */
+  const stamp = (text, tone, press, extra) => el("span", { class: "stamp " + tone + (press ? " press" : "") + (extra ? " " + extra : ""), text });
 
   /** Render only when the data changed, so buttons and inputs don't flicker under the mouse. */
   function changed(key, data) {
@@ -248,9 +305,15 @@
     last[key] = s;
     return true;
   }
+  function setCount(id, n) {
+    const c = $(id);
+    c.textContent = n;
+    if (n) c.removeAttribute("data-zero"); else c.setAttribute("data-zero", "");
+    c.setAttribute("aria-label", n + " open");
+  }
 
   function photo(src, key, sensitive, has) {
-    if (!has) return el("div", { class: "photo none", "aria-label": "No photo" });
+    if (!has) return null;
     const blurred = sensitive && !revealed.has(key);
     const box = el("button", { class: "photo" + (blurred ? " blurred" : ""), type: "button", "aria-label": blurred ? "Blurred photo. Press to reveal." : "Photo. Press to blur again.",
       onclick: () => {
@@ -261,35 +324,57 @@
     return box;
   }
 
+  // ---------- the register ----------
+  /** One sheet of the register: an optional title, the column heads, then the entries. */
+  function sheet(title, entries, n) {
+    return el("div", { class: "sheet" },
+      title ? el("div", { class: "sheet-head" }, el("h3", { class: "name", text: title }), el("span", { class: "n", text: n === 1 ? "1 entry" : n + " entries" })) : null,
+      el("div", { class: "cols", "aria-hidden": "true" }, ["No.", "Entered", "Entry", "Routed to", "Status"].map((t) => el("span", { text: t }))),
+      entries);
+  }
+  /** One ruled row: number, date and time, the thing in plain words, where it went, the stamp, then what can be done. */
+  function entry(o) {
+    return el("article", { class: "entry" + (o.fresh ? " arrive" : ""), "data-origin": o.example ? "example" : "live" },
+      el("div", { class: "e-no" }, el("span", { class: "lbl", text: "No." }), el("b", { class: String(o.no).length > 3 ? "long" : null, text: String(o.no) })),
+      el("div", { class: "e-when" }, o.at ? [el("span", { class: "d", text: day(o.at) }), el("span", { class: "t", text: clock(o.at) })] : null, originTag(o.example)),
+      el("div", { class: "e-main" }, o.photo, el("div", { class: "e-text" }, el("div", { class: "title" }, o.title), o.meta ? el("div", { class: "meta" }, o.meta) : null, o.under)),
+      el("div", { class: "e-route" }, el("span", { class: "lbl", text: "Routed to" }), o.route),
+      el("div", { class: "e-stamp" }, o.stamp),
+      o.more && o.more.some(Boolean) ? el("div", { class: "e-more" }, o.more) : null);
+  }
+
   // ---------- DPS ----------
   function renderDps(data) {
-    $("c-dps").textContent = data.items.length;
+    setCount("c-dps", data.items.length);
     if (!changed("dps", data.items)) return;
     const box = $("dps-list");
     box.replaceChildren();
     if (!data.items.length) return box.append(empty("Nothing in custody right now."));
-    for (const it of data.items) {
+    const fresh = arrivals("dps", data.items);
+    box.append(sheet(null, order(data.items).map((it) => {
       const pct = Math.min(100, Math.round((it.daysHeld / data.holdDays) * 100));
-      const state = it.pickedUpAt ? el("span", { class: "pill done", text: "Picked up" })
-        : it.hasPickupCode ? el("span", { class: "pill pending", text: "Pickup code sent" })
-        : el("span", { class: "pill", text: "Waiting for owner" });
-      box.append(el("div", { class: "card" }, el("div", { class: "row" },
-        photo("/api/photo/" + it.id + "?staff=1", "l" + it.id, it.photoSensitive, it.hasPhoto),
-        el("div", { class: "body" },
-          el("div", { class: "title" }, it.publicSummary || it.title || it.category || "Found item", " ", exampleTag(it.isExample)),
-          el("div", { class: "meta" }, state, it.locationText ? el("span", { text: "Found at " + it.locationText }) : null, it.isValuable ? el("span", { text: "Valuable" }) : null, it.isDangerous ? el("span", { class: "pill stop", text: "Dangerous item" }) : null),
-          el("div", { class: "hold" + (it.holdExpired ? " over" : "") },
-            el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(pct, 2) + "%" })),
-            el("div", { class: "txt", text: it.holdExpired ? "Day " + it.daysHeld + ". The " + data.holdDays + " day hold has ended." : "Day " + it.daysHeld + " of " + data.holdDays + ". " + it.daysLeft + " days left." }))))));
-    }
+      const state = it.pickedUpAt ? ["Picked up", "laurel"] : it.hasPickupCode ? ["Pickup code sent", "amber"] : ["Waiting for owner", "amber"];
+      return entry({
+        no: it.id, at: it.createdAt, example: isEx(it), fresh: fresh.has(it.id),
+        photo: photo("/api/photo/" + it.id + "?staff=1", "l" + it.id, it.photoSensitive, it.hasPhoto),
+        title: it.publicSummary || it.title || it.category || "Found item",
+        meta: [it.isDangerous ? stamp("Dangerous item", "cardinal", false, "small") : null, it.locationText ? el("span", { text: "Found at " + it.locationText }) : null, it.isValuable ? el("span", { text: "Valuable" }) : null, el("span", { text: ago(it.createdAt) })],
+        under: el("div", { class: "hold" + (it.holdExpired ? " over" : "") },
+          el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(pct, 2) + "%" })),
+          el("div", { class: "txt", text: it.holdExpired ? "Day " + it.daysHeld + ". The " + data.holdDays + " day hold has ended." : "Day " + it.daysHeld + " of " + data.holdDays + ". " + it.daysLeft + " days left." })),
+        route: "DPS custody",
+        stamp: stamp(state[0], state[1], restamped("dps" + it.id, state[0])),
+      });
+    })));
   }
 
-  function showHandoff(h, already) {
+  function showHandoff(h, pressed) {
     const box = $("code-result");
     const item = h.item || {};
     const done = !!h.completedAt;
     box.replaceChildren(el("div", { class: "result good" },
-      el("div", { class: "title" }, done ? "Already picked up" : "Code matches", " ", exampleTag(item.isExample)),
+      stamp(done ? "Picked up" : "Code matches", "laurel", pressed !== false),
+      el("div", { class: "title" }, done ? "Already picked up" : "Code matches", " ", originTag(isEx(item))),
       el("div", { class: "meta" },
         el("span", { text: "Item: " + (item.publicSummary || item.title || "found item") }),
         h.ownerFirstName ? el("span", { text: "Owner first name: " + h.ownerFirstName }) : null,
@@ -309,38 +394,44 @@
     if (!code) return;
     const r = await api("/api/dps/check-code", "POST", { code });
     if (r.json.found) showHandoff(r.json.handoff);
-    else $("code-result").replaceChildren(el("div", { class: "result bad" }, el("div", { class: "title", text: "No pickup with that code" }), el("div", { text: "Check the code with the student. Nothing was changed." })));
+    else $("code-result").replaceChildren(el("div", { class: "result bad" }, stamp("No match", "cardinal", true), el("div", { class: "title", text: "No pickup with that code" }), el("div", { text: "Check the code with the student. Nothing was changed." })));
   });
 
   // ---------- reports ----------
   function renderReports(key, boxId, countId, data, emptyText) {
-    $(countId).textContent = data.total;
+    setCount(countId, data.total);
     if (!changed(key, data.groups)) return;
     const box = $(boxId);
     box.replaceChildren();
     if (!data.groups.length) return box.append(empty(emptyText));
-    for (const g of data.groups) {
-      box.append(el("h3", { text: g.routedTo + " (" + g.reports.length + ")" }));
-      for (const r of g.reports) {
+    const all = data.groups.flatMap((g) => g.reports);
+    const fresh = arrivals(key, all);
+    // An office with something live in it comes first, so a new report is at the top of the page.
+    const groups = data.groups.slice().sort((a, b) => b.reports.some((r) => !isEx(r)) - a.reports.some((r) => !isEx(r)));
+    for (const g of groups) {
+      box.append(sheet(g.routedTo, order(g.reports).map((r) => {
         const who = r.kind === "usg_concern" ? (r.anonymous ? "Sent anonymously" : r.reporterFirstName ? "From " + r.reporterFirstName : null) : null;
         const mock = r.kind === "repair"
-          ? el("button", { class: "mock", type: "button", onclick: () => toast("Mocked. Nothing was opened or sent to " + g.routedTo + "." ) }, el("b", { text: "Mocked: " }), "would open the " + g.routedTo + " work order")
+          ? el("button", { class: "mock", type: "button", onclick: () => toast("Mocked. Nothing was opened or sent to " + g.routedTo + ".") }, el("b", { text: "Mocked" }), "would open the " + g.routedTo + " work order")
           : null;
-        box.append(el("div", { class: "card" }, el("div", { class: "row" },
-          r.hasPhoto ? photo("/api/report-photo/" + r.id, "r" + r.id, false, true) : null,
-          el("div", { class: "body" },
-            el("div", { class: "title" }, r.description || r.category || "Report", " ", exampleTag(r.isExample)),
-            el("div", { class: "meta" }, statusPill(r.status),
-              r.locationText ? el("span", { text: r.locationText }) : null,
-              r.category && r.description ? el("span", { text: r.category }) : null,
-              who ? el("span", { text: who }) : null,
-              el("span", { text: r.followerCount === 1 ? "1 follower" : r.followerCount + " followers" }),
-              el("span", { text: ago(r.createdAt) })))),
-          el("div", { class: "statuses", role: "group", "aria-label": "Set status" }, r.statusOptions.map((s) =>
-            el("button", { type: "button", class: s === r.status ? "current" + (DONE.includes(s) ? " done" : s === "closed" ? " closed" : "") : "", "aria-pressed": s === r.status ? "true" : "false", text: STATUS_LABEL[s] || s,
-              onclick: () => setStatus(r, s) }))),
-          mock, staffLog(r)));
-      }
+        return entry({
+          no: r.id, at: r.createdAt, example: isEx(r), fresh: fresh.has(r.id),
+          photo: r.hasPhoto ? photo("/api/report-photo/" + r.id, "r" + r.id, false, true) : null,
+          title: r.description || r.category || "Report",
+          meta: [r.locationText ? el("span", { text: r.locationText }) : null,
+            r.category && r.description ? el("span", { text: r.category }) : null,
+            who ? el("span", { text: who }) : null,
+            el("span", { text: r.followerCount === 1 ? "1 follower" : r.followerCount + " followers" }),
+            el("span", { text: ago(r.createdAt) })],
+          route: g.routedTo,
+          stamp: stamp(STATUS_LABEL[r.status] || r.status, STATUS_TONE[r.status] || "amber", restamped("r" + r.id, r.status)),
+          more: [
+            el("div", { class: "statuses", role: "group", "aria-label": "Set status" }, el("span", { class: "lbl", text: "Stamp it" }), r.statusOptions.map((s) =>
+              el("button", { type: "button", class: s === r.status ? "current" + (DONE.includes(s) ? " done" : s === "closed" ? " closed" : "") : "", "aria-pressed": s === r.status ? "true" : "false", text: STATUS_LABEL[s] || s,
+                onclick: () => setStatus(r, s) }))),
+            mock, staffLog(r)],
+        });
+      }), g.reports.length));
     }
   }
 
@@ -349,11 +440,19 @@
     const s = r.staff;
     if (!s) return null;
     const who = s.assigned ? (s.assigned.label || s.assigned.handle) : null;
-    const head = el("div", {}, "Texts to " + (r.kind === "repair" ? "the technician" : "the usg member"), who ? " (" + who + ") " : " ", exampleTag(true));
-    const lines = s.log.map((l) => el("div", { class: "line" + (l.kind === "action" ? " did" : "") },
-      el("div", { class: "said", text: l.text }), l.hasPhoto ? el("span", { class: "tag", text: "photo" }) : null, el("span", { text: ago(l.createdAt) })));
-    if (s.exampleText) lines.push(el("div", { class: "line eg" }, el("div", { class: "said", text: s.exampleText }), el("span", { text: s.exampleNote || "example" })));
-    return el("div", { class: "stafflog" }, head, lines);
+    const lines = [];
+    let lastBubble = null;
+    for (const l of s.log) {
+      if (l.kind === "action") { lines.push(el("div", { class: "msg-note", text: (who || "they") + " " + l.text + " · " + ago(l.createdAt) })); lastBubble = null; continue; }
+      lastBubble = el("div", { class: "bubble from-them", text: l.text });
+      lines.push(lastBubble, el("div", { class: "msg-status", text: (l.hasPhoto ? "With a photo · " : "") + "Sent " + ago(l.createdAt) }));
+      lastBubble.classList.add("tail");
+    }
+    if (s.exampleText) lines.push(el("div", { class: "bubble from-them tail", text: s.exampleText }), el("div", { class: "msg-status", text: "Not sent · " + (s.exampleNote || "example") }));
+    if (!lines.length) return null;
+    return el("div", { class: "texts" },
+      el("div", { class: "texts-head" }, el("img", { src: AVATAR, alt: "" }), el("span", {}, el("b", { text: "Troy" }), " to " + (r.kind === "repair" ? "the technician" : "the usg member") + (who ? " (" + who + ")" : "")), originTag(true)),
+      el("div", { class: "thread" }, lines));
   }
 
   async function setStatus(report, status) {
@@ -361,7 +460,8 @@
     const r = await api("/api/reports/" + report.id + "/status", "POST", { status });
     if (!r.json.ok) return toast("Could not change the status.");
     const n = r.json.notified || 0;
-    say(r, "Set to " + (STATUS_LABEL[status] || status).toLowerCase() + ". " + (n === 0 ? "No texts sent." : n === 1 ? "Troy texted 1 student." : "Troy texted " + n + " students."));
+    say(r, "Set to " + (STATUS_LABEL[status] || status).toLowerCase() + ". " + (n === 0 ? "No texts sent." : n === 1 ? "Troy texted 1 student." : "Troy texted " + n + " students."),
+      { student: report.description || report.category, studentNote: "The student's report, No. " + report.id });
     refresh();
   }
 
@@ -372,78 +472,91 @@
     const rows = data.entries.filter((e) => e.kind !== "office");
     if (!rows.length) return box.append(empty("The directory is empty."));
     const KIND = { usg_program: "Program", usg_committee: "Committee" };
-    box.append(el("div", { class: "card" }, el("ul", { class: "list", style: "margin-top:-10px" }, rows.map((e, i) =>
-      el("li", { style: i === 0 ? "border-top:0" : null }, el("div", { class: "grow" },
-        el("div", { class: "title", style: "font-size:15px" }, e.name, " ", exampleTag(e.isExample)),
-        el("div", { class: "meta" }, el("span", { text: KIND[e.kind] || e.kind }), e.topics.length ? el("span", { text: e.topics.join(", ") }) : null)))))));
+    box.append(el("div", { class: "sheet" }, el("div", { class: "roll" }, el("ul", { class: "list" }, rows.map((e) =>
+      el("li", {}, el("div", { class: "grow" },
+        el("div", { class: "title", style: "font-size:15px" }, e.name, " ", isEx(e) ? originTag(true) : null),
+        el("div", { class: "meta" }, el("span", { text: KIND[e.kind] || e.kind }), e.topics.length ? el("span", { text: e.topics.join(", ") }) : null))))))));
   }
 
   // ---------- moderation ----------
   function renderModeration(data) {
     const requests = data.topicRequests || [];
     const topics = data.topics || [];
-    $("c-moderation").textContent = data.drops.length + requests.length;
+    setCount("c-moderation", data.drops.length + requests.length);
     if (changed("topics", [requests, topics])) renderTopics(requests, topics);
     if (!changed("moderation", data.drops)) return;
     const box = $("moderation-list");
     box.replaceChildren();
     if (!data.drops.length) return box.append(empty("No reported drops."));
-    for (const d of data.drops) {
+    const fresh = arrivals("drops", data.drops);
+    box.append(sheet(null, order(data.drops).map((d) => {
       const banned = d.poster.bannedFromPosting;
-      box.append(el("div", { class: "card" }, el("div", { class: "row" }, el("div", { class: "body" },
-        el("div", { class: "title" }, d.description || "Food drop", " ", exampleTag(d.isExample)),
-        el("div", { class: "meta" },
-          el("span", { class: "pill stop", text: d.reports === 1 ? "1 report" : d.reports + " reports" }),
-          d.clubName ? el("span", { text: d.clubName }) : null,
+      return entry({
+        no: d.id, at: d.createdAt, example: isEx(d), fresh: fresh.has(d.id),
+        title: d.description || "Food drop",
+        meta: [d.clubName ? el("span", { text: d.clubName }) : null,
           d.locationText ? el("span", { text: d.locationText }) : null,
           el("span", { text: d.servingsLeft + " of " + d.servingsTotal + " left" }),
-          el("span", { text: "Drop is " + d.status })),
-        el("div", { class: "meta", style: "margin-top:12px" },
-          el("span", { text: "Posted by " + (d.poster.firstName || "student " + d.poster.id) }),
-          banned ? el("span", { class: "pill stop", text: "Banned from posting" }) : el("span", { class: "pill done", text: "Can post" })),
-        el("div", { style: "margin-top:14px" }, el("button", { class: "btn" + (banned ? "" : " primary"), type: "button", text: banned ? "Lift the ban" : "Ban from posting", onclick: async () => {
-          const r = await api("/api/moderation/ban", "POST", { userId: d.poster.id, banned: !banned });
-          say(r, r.json.ok ? (banned ? "Ban lifted" : "Banned from posting") : "Could not save.");
-          refresh();
-        } }))))));
-    }
+          el("span", { text: "Drop is " + d.status })],
+        route: "Moderation",
+        stamp: stamp(d.reports === 1 ? "1 report" : d.reports + " reports", "cardinal", restamped("d" + d.id, d.reports)),
+        more: [el("div", { class: "poster" },
+          el("span", { class: "lbl", text: "Posted by " + (d.poster.firstName || "student " + d.poster.id) }),
+          stamp(banned ? "Banned from posting" : "Can post", banned ? "cardinal" : "laurel", restamped("ban" + d.poster.id, banned), "small round"),
+          el("button", { class: "btn small" + (banned ? "" : " primary"), type: "button", text: banned ? "Lift the ban" : "Ban from posting", onclick: async () => {
+            const r = await api("/api/moderation/ban", "POST", { userId: d.poster.id, banned: !banned });
+            say(r, r.json.ok ? (banned ? "Ban lifted" : "Banned from posting") : "Could not save.");
+            refresh();
+          } }))],
+      });
+    })));
   }
 
   function renderTopics(requests, topics) {
     const reqBox = $("topic-requests");
     reqBox.replaceChildren();
     if (!requests.length) reqBox.append(empty("Nothing waiting for review."));
-    for (const q of requests) {
-      const act = async (what, done) => {
-        const r = await api("/api/moderation/topic-requests/" + q.id + "/" + what, "POST", {});
-        say(r, r.json.ok ? done(r.json) : "Could not save.");
-        refresh();
-      };
-      reqBox.append(el("div", { class: "card" }, el("div", { class: "row" }, el("div", { class: "body" },
-        el("div", { class: "title", text: q.text }),
-        el("div", { class: "meta" }, el("span", { class: "pill pending", text: "Waiting for review" }), el("span", { text: "Asked by " + (q.requesterFirstName || "a student") }), el("span", { text: ago(q.createdAt) })),
-        el("div", { class: "inline", style: "margin-top:14px" },
-          el("button", { class: "btn primary", type: "button", text: "Approve and create", onclick: () => act("approve", (j) => "Topic created. " + (j.notified ? "Troy texted the student." : "No text sent.")) }),
-          el("button", { class: "btn", type: "button", text: "Dismiss", onclick: () => act("dismiss", () => "Dismissed") }))))));
+    else {
+      const fresh = arrivals("requests", requests);
+      reqBox.append(sheet(null, order(requests).map((q) => {
+        const act = async (what, done) => {
+          const r = await api("/api/moderation/topic-requests/" + q.id + "/" + what, "POST", {});
+          say(r, r.json.ok ? done(r.json) : "Could not save.", { student: "can u add a topic for " + q.text + "?", studentNote: "What " + (q.requesterFirstName || "the student") + " asked for, in short" });
+          refresh();
+        };
+        return entry({
+          no: q.id, at: q.createdAt, example: isEx(q), fresh: fresh.has(q.id),
+          title: q.text,
+          meta: [el("span", { text: "Asked by " + (q.requesterFirstName || "a student") }), el("span", { text: ago(q.createdAt) })],
+          route: "Topic review",
+          stamp: stamp("Waiting for review", "amber"),
+          more: [el("div", { class: "inline", style: "margin-top:14px" },
+            el("button", { class: "btn primary", type: "button", text: "Approve and create", onclick: () => act("approve", (j) => "Topic created. " + (j.notified ? "Troy texted the student." : "No text sent.")) }),
+            el("button", { class: "btn", type: "button", text: "Dismiss", onclick: () => act("dismiss", () => "Dismissed") }))],
+        });
+      })));
     }
     const box = $("topic-list");
     box.replaceChildren();
     if (!topics.length) return box.append(empty("No student-created topics yet."));
-    box.append(el("div", { class: "card" }, el("ul", { class: "list", style: "margin-top:-10px" }, topics.map((t, i) =>
-      el("li", { style: i === 0 ? "border-top:0" : null },
-        el("div", { class: "grow" },
-          el("div", { class: "title", style: "font-size:15px", text: t.label }),
-          el("div", { class: "meta" }, el("span", { text: "Suggested by " + (t.suggestedByFirstName || "a student") }), el("span", { text: ago(t.createdAt) }))),
-        el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove topic " + t.label, onclick: async () => {
-          const r = await api("/api/moderation/topics/" + t.id + "/remove", "POST", {});
-          say(r, r.json.ok ? "Topic removed" : "Could not remove.");
-          refresh();
-        } }))))));
+    const fresh = arrivals("topics", topics);
+    box.append(sheet(null, order(topics).map((t) => entry({
+      no: t.id, at: t.createdAt, example: isEx(t), fresh: fresh.has(t.id),
+      title: t.label,
+      meta: [el("span", { text: "Suggested by " + (t.suggestedByFirstName || "a student") }), el("span", { text: ago(t.createdAt) })],
+      route: "Topics",
+      stamp: stamp("Active", "laurel", restamped("t" + t.id, "active")),
+      more: [el("div", { class: "inline", style: "margin-top:12px" }, el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove topic " + t.label, onclick: async () => {
+        const r = await api("/api/moderation/topics/" + t.id + "/remove", "POST", {});
+        say(r, r.json.ok ? "Topic removed" : "Could not remove.");
+        refresh();
+      } }))],
+    }))));
   }
 
   // ---------- people ----------
   function renderPeople(data) {
-    $("c-people").textContent = data.contacts.length;
+    setCount("c-people", data.contacts.length);
     if (!changed("people", data)) return;
     const select = $("staff-role");
     const keep = select.value;
@@ -454,9 +567,9 @@
     for (const s of data.contacts) {
       ul.append(el("li", {},
         el("div", { class: "grow" },
-          el("div", { class: "title", style: "font-size:15px" }, s.roleLabel, " ", exampleTag(true)),
+          el("div", { class: "title", style: "font-size:15px" }, s.roleLabel, " ", originTag(true)),
           el("div", { class: "meta" }, el("span", { class: "mono", text: s.handle }), s.label ? el("span", { text: "Troy calls them " + s.label }) : null, el("span", { text: s.kind === "usg" ? "USG member" : "Technician" }))),
-        el("span", { class: "pill" + (s.reachable ? " done" : " pending"), text: s.reachable ? "Troy can text them" : "Hasn't texted Troy yet" }),
+        stamp(s.reachable ? "Troy can text them" : "Hasn't texted Troy yet", s.reachable ? "laurel" : "amber", false, "small round"),
         el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove " + s.roleLabel + " assignment", onclick: async () => {
           const r = await api("/api/staff/" + s.id, "DELETE");
           say(r, r.json.ok ? "Removed" : "Could not remove.");
@@ -482,11 +595,78 @@
     }
   });
 
+  // ---------- the seal and the gate ----------
+  let settings = null;
+  function renderStrip(data) {
+    settings = data;
+    const troy = $("sw-troy");
+    troy.setAttribute("aria-checked", data.enabled ? "true" : "false");
+    $("troy-state").textContent = data.enabled ? "ON" : "OFF";
+    $("troy-sub").textContent = data.envOff ? "Held off by TROY_ENABLED in .env." : data.enabled ? "Reading allowed chats and replying." : "Not reading, replying or sending.";
+
+    const g = data.signups;
+    const has = !!g && typeof g.open === "boolean" && typeof g.max === "number";
+    const gate = $("sw-gate");
+    gate.disabled = !has;
+    $("cap").classList.toggle("full", has && g.count >= g.max);
+    if (!has) {
+      gate.removeAttribute("aria-checked");
+      $("gate-state").textContent = "NOT YET";
+      $("gate-sub").textContent = "Coming with the next server update.";
+      $("cap-count").textContent = "0";
+      $("cap-max").textContent = "0";
+      $("cap").classList.add("off");
+      $("cap-lbl").textContent = "coming with the next server update";
+      $("cap-down").disabled = $("cap-up").disabled = true;
+      return;
+    }
+    $("cap").classList.remove("off");
+    const count = typeof g.count === "number" ? g.count : 0;
+    gate.setAttribute("aria-checked", g.open ? "true" : "false");
+    $("gate-state").textContent = g.open ? "OPEN" : "CLOSED";
+    $("gate-sub").textContent = g.open ? (count >= g.max ? "Open, but the demo is full." : "A new \"hey troy\" gets in.") : "New chats are turned away.";
+    $("cap-count").textContent = count;
+    $("cap-max").textContent = g.max;
+    $("cap-lbl").textContent = count >= g.max ? "the demo is full" : "in the demo";
+    $("cap-down").disabled = g.max <= 0;
+    $("cap-up").disabled = g.max >= 500;
+  }
+  /** Show the new state at once, then ask the server and take whatever it says. */
+  async function press(mutate, path, body, text) {
+    if (!settings) return;
+    const next = JSON.parse(JSON.stringify(settings));
+    mutate(next);
+    renderStrip(next);
+    let r;
+    try { r = await api(path, "POST", body); } catch { r = { json: {} }; }
+    say(r, r.json.ok ? text(r.json) : "Could not save.");
+    refresh();
+  }
+  $("sw-troy").addEventListener("click", () => {
+    if (!settings) return;
+    const on = !settings.settingOn;
+    press((s) => { s.settingOn = on; s.enabled = on && !s.envOff; }, "/api/settings/enabled", { enabled: on }, (j) => (j.enabled ? "Troy is on" : "Troy is off"));
+  });
+  $("sw-gate").addEventListener("click", () => {
+    if (!settings || !settings.signups) return;
+    const open = !settings.signups.open;
+    press((s) => { s.signups.open = open; }, "/api/settings/signups", { open }, () => (open ? "Sign-ups are open" : "Sign-ups are closed"));
+  });
+  function capStep(by) {
+    if (!settings || !settings.signups) return;
+    const max = Math.max(0, Math.min(500, settings.signups.max + by));
+    if (max === settings.signups.max) return;
+    press((s) => { s.signups.max = max; }, "/api/settings/cap", { max }, (j) => "The cap is " + ((j.signups && j.signups.max) ?? j.max ?? max));
+  }
+  $("cap-down").addEventListener("click", () => capStep(-10));
+  $("cap-up").addEventListener("click", () => capStep(10));
+
   // ---------- settings ----------
   function renderSettings(data) {
     const live = $("live");
     live.className = "pill " + (data.enabled ? "done" : "stop");
     live.textContent = data.enabled ? "Troy is on" : "Troy is off";
+    renderStrip(data);
     if (!changed("settings", data)) return;
 
     const on = data.enabled;
@@ -507,10 +687,10 @@
     const ul = $("allow-list");
     ul.replaceChildren();
     const REASON = { manual: "Added here", opt_in_phrase: "Opted in by text", troy_group: "Group chat Troy made" };
-    for (const e of data.allowList.envEntries) ul.append(el("li", {}, el("span", { class: "grow mono", text: e.handle }), el("span", { class: "pill", text: "From .env" })));
+    for (const e of data.allowList.envEntries) ul.append(el("li", {}, el("span", { class: "grow mono" }, e.handle, " ", originTag(TroyData.isDemo())), el("span", { class: "pill", text: "From .env" })));
     for (const e of data.allowList.entries) {
       ul.append(el("li", {},
-        el("span", { class: "grow mono", text: e.isGroup ? "Group chat" : e.handle }),
+        el("span", { class: "grow mono" }, e.isGroup ? "Group chat" : e.handle, " ", originTag(isEx(e))),
         el("span", { class: "pill" + (e.reason === "manual" ? " done" : ""), text: REASON[e.reason] || e.reason }),
         e.removable ? el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove " + e.handle, onclick: async () => {
           const r = await api("/api/settings/allow-list/" + e.id, "DELETE");
@@ -549,7 +729,7 @@
   async function refresh() {
     try {
       const jobs = [api("/api/settings").then((r) => r.json.ok && renderSettings(r.json))];
-      // Counts in the tab bar stay fresh on every tab; lists only re-render when their data changed.
+      // Counts on the plaques stay fresh on every tab; lists only re-render when their data changed.
       jobs.push(api("/api/dps").then((r) => r.json.ok && renderDps(r.json)));
       jobs.push(api("/api/reports?kind=repair").then((r) => r.json.ok && renderReports("repairs", "repairs-list", "c-repairs", r.json, "No repair reports yet.")));
       jobs.push(api("/api/reports?kind=usg_concern").then((r) => r.json.ok && renderReports("usg", "usg-list", "c-usg", r.json, "No USG concerns yet.")));
@@ -565,13 +745,26 @@
     }
   }
 
-  for (const b of document.querySelectorAll(".tabs button")) {
+  // ---------- the plaques ----------
+  const plaques = [...document.querySelectorAll(".tabs button")];
+  for (const b of plaques) {
     b.addEventListener("click", () => {
       tab = b.dataset.tab;
-      for (const o of document.querySelectorAll(".tabs button")) o.setAttribute("aria-selected", o === b ? "true" : "false");
+      for (const o of plaques) { o.setAttribute("aria-selected", o === b ? "true" : "false"); o.tabIndex = o === b ? 0 : -1; }
       for (const s of document.querySelectorAll("section[role=tabpanel]")) s.hidden = s.id !== "tab-" + tab;
       try { history.replaceState(null, "", "#" + tab); } catch {}
+      const row = b.parentElement;
+      if (row.scrollWidth > row.clientWidth) row.scrollTo({ left: b.offsetLeft - row.offsetLeft - (row.clientWidth - b.offsetWidth) / 2, behavior: "smooth" });
       refresh();
+    });
+    b.addEventListener("keydown", (e) => {
+      const at = plaques.indexOf(b);
+      const to = e.key === "ArrowRight" ? at + 1 : e.key === "ArrowLeft" ? at - 1 : e.key === "Home" ? 0 : e.key === "End" ? plaques.length - 1 : -1;
+      if (to < 0 || to === at && e.key !== "Home" && e.key !== "End") return;
+      e.preventDefault();
+      const next = plaques[(to + plaques.length) % plaques.length];
+      next.focus();
+      next.click();
     });
   }
   const start = location.hash.slice(1);
