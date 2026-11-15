@@ -143,7 +143,7 @@ What to look for:
 | 2.7s | Troy | all good. which usc email should i use? |
 | 7.2s | Them | John.Cheng.wang@gmail.com |
 | 2.5s | Troy | has to be ur usc one, it ends in @usc.edu |
-| 1.7s | Troy | did u mean "john.cheng.wang@usc.edu"? if so i'll send the code now |
+| 1.7s | Troy | did u mean "johnwang@usc.edu"? if so i'll send the code now |
 | 7.8s | Them | Johnwang |
 | 2.9s | Troy | did u mean "johnwang@usc.edu"? if so i'll send the code now |
 | 7.7s | Them | Johnwang usc edu |
