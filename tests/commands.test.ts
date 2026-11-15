@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchCommand, isEmergency, isHeyTroy, TEMPLATES, DPS } from "../src/commands.ts";
+import { COMMAND_POOLS, matchCommand, isCrisis, isEmergency, isHeyTroy, endsPlayful, safetySignal, TEMPLATES, DPS } from "../src/commands.ts";
 
 const kind = (t: string) => matchCommand(t)?.kind ?? null;
 const EMOJI = /\p{Extended_Pictographic}/u;
@@ -102,7 +102,7 @@ test("welcome is the fixed spec text", () => {
 test("the STOP confirmation keeps the welcome's promise and says how to come back", () => {
   const stop = TEMPLATES.stop.join(" ");
   assert.match(stop, /leave u alone/);
-  assert.match(stop, /START or hey troy/);
+  assert.match(stop, /"START" or "hey troy"/);
   assert.ok(!EMOJI.test(stop));
   assert.ok(isHeyTroy("hey troy") && isHeyTroy("Hey Troy!") && isHeyTroy("heyy troy u there"));
   assert.ok(!isHeyTroy("hey") && !isHeyTroy("troy hey") && !isHeyTroy("hey troye"));
@@ -188,4 +188,77 @@ test("forget my location: the reply says plainly that reading stops until they s
   assert.match(reply, /erased ur saved location/);
   assert.match(reply, /won't read it again until u share it with me again/);
   assert.equal(reply, reply.toLowerCase());
+});
+
+// ---------- jokes versus real distress ----------
+
+test("obvious slang is nothing at all: no fixed line, and nothing for the model to read", () => {
+  for (const t of ["that exam killed me lol", "i'm dead 😂", "im dead", "this class is killing me", "that midterm murdered me", "dying of laughter", "kill me now this line is so long", "that's fire", "this pset is the death of me"]) {
+    assert.equal(kind(t), null, t);
+    assert.equal(isCrisis(t), false, t);
+    const s = safetySignal(t);
+    assert.equal(s.selfHarmWords, false, t);
+    assert.ok(s.level === "none" || s.level === "ambiguous", t);
+    if (!/kill me now/.test(t)) assert.equal(s.level, "none", t);
+  }
+});
+
+test("a self-harm phrase inside a joke, and a bare kms, are ambiguous: never the fixed line by pattern alone", () => {
+  for (const t of ["kms", "kms lol", "kms i left my charger at home", "gonna kill myself if i fail this midterm lol", "i want to die this lecture is 3 hours", "i wanna die 💀", "if i fail ochem i'm jumping off leavey 💀", "this essay makes me want to kill myself lmao"]) {
+    assert.equal(kind(t), null, t);
+    assert.deepEqual(safetySignal(t), { level: "ambiguous", selfHarmWords: true }, t);
+  }
+});
+
+test("heavy lines with no self-harm word get one read by the model, never a hotline by pattern", () => {
+  for (const t of ["i can't do this anymore", "whats the point of anything", "nobody would care if i was gone", "i just want to disappear", "i feel like a burden"]) {
+    assert.equal(kind(t), null, t);
+    assert.deepEqual(safetySignal(t), { level: "ambiguous", selfHarmWords: false }, t);
+  }
+});
+
+test("a plain first-person statement with nothing light around it is still unmistakable", () => {
+  for (const t of ["i want to kill myself", "im going to kill myself tonight", "i'm suicidal", "i want to end my life", "i've been cutting myself", "i don't want to live anymore"]) {
+    assert.equal(kind(t), "crisis", t);
+    assert.equal(safetySignal(t).level, "crisis", t);
+  }
+  assert.equal(safetySignal("there's a fire in my dorm").level, "emergency");
+  assert.equal(safetySignal("lost my wallet").level, "none");
+});
+
+test("endsPlayful: a laugh or an emoji at the end", () => {
+  for (const t of ["stop lol", "omg stop 😂", "STOP LMAO", "stop ur so funny haha", "leave me alone 💀", "stop!! 😭😭"]) assert.equal(endsPlayful(t), true, t);
+  for (const t of ["stop", "leave me alone", "stop texting me pls", "lol stop texting me", ""]) assert.equal(endsPlayful(t), false, t);
+});
+
+// ---------- commands by meaning: the wording pools ----------
+
+test("command pools: lowercase, no em dashes, at most one emoji, and exact words to type sit in double quotes", () => {
+  for (const [name, pool] of Object.entries(COMMAND_POOLS)) {
+    assert.ok(pool.length >= 2, `${name} has variants`);
+    assert.equal(new Set(pool).size, pool.length, `${name} has no repeats`);
+    for (const line of pool) {
+      assert.equal(line, line.toLowerCase(), line);
+      assert.ok(!/[—–]/.test(line), line);
+      assert.ok(!/\byou\b|\byour\b/.test(line), line);
+      for (const b of line.split("|")) assert.ok(b.trim().length <= 160, b);
+    }
+  }
+  // Each of these tells the student one exact word to text, so the word is quoted.
+  for (const line of COMMAND_POOLS.pause) assert.match(line, /"resume"/, line);
+  for (const name of ["askStop", "askPause", "askResume", "askForgetLocation", "askUnsubscribe", "askStart"] as const) for (const line of COMMAND_POOLS[name]) assert.match(line, /"yes"/, line);
+  // The location confirmation always says both halves.
+  for (const line of COMMAND_POOLS.forgetLocation) assert.match(line, /(?:won't|only).*(?:again|share)/, line);
+});
+
+test("fixed lines quote the exact words to type", () => {
+  assert.match(TEMPLATES.stop[0], /text "START" or "hey troy"/);
+  assert.match(TEMPLATES.pause[0], /text "resume"/);
+  assert.match(TEMPLATES.deleteData[1], /text "hey troy"/);
+  assert.match(TEMPLATES.help[2], /"STOP" to opt out, "pause" to mute alerts, "resume" to unmute, "settings", "human", "forget my location", "delete my data"/);
+  assert.deepEqual(TEMPLATES.confirmDelete, ['want me to delete everything i have on u? reply "yes"']);
+  // Variant 0 of a pool is the line the exact word gets.
+  assert.equal(COMMAND_POOLS.pause[0], TEMPLATES.pause[0]);
+  assert.equal(COMMAND_POOLS.resume[0], TEMPLATES.resume[0]);
+  assert.equal(COMMAND_POOLS.forgetLocation[0], TEMPLATES.forgetLocation[0]);
 });

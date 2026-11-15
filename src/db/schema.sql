@@ -264,3 +264,61 @@ CREATE TABLE IF NOT EXISTS outbox (
   text TEXT NOT NULL,
   createdAt INTEGER NOT NULL
 );
+
+-- Alert topics (src/topics.ts owns these; same definitions as the ones it creates on first use).
+-- users.subscriptions holds topic keys. Built-in topics are inserted by migrateTopics when the database opens.
+CREATE TABLE IF NOT EXISTS topics (
+  id INTEGER PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,            -- the poll text, emoji included
+  plain TEXT NOT NULL,            -- how Troy says it: "when there's a pickup game near u"
+  builtIn INTEGER NOT NULL DEFAULT 0,
+  suggestedBy INTEGER,            -- userId of the student who suggested a created topic
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','removed')),
+  createdAt INTEGER NOT NULL
+);
+
+-- A suggested topic Troy could not judge: nothing was created, John reviews it on the dashboard.
+CREATE TABLE IF NOT EXISTS topic_requests (
+  id INTEGER PRIMARY KEY,
+  text TEXT NOT NULL,
+  userId INTEGER NOT NULL,
+  createdAt INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','created','declined'))
+);
+
+-- Something a verified student posted to a topic ("anyone want to play pickup at lyon at 6").
+CREATE TABLE IF NOT EXISTS topic_posts (
+  id INTEGER PRIMARY KEY,
+  topicId INTEGER NOT NULL,
+  posterUserId INTEGER NOT NULL,
+  text TEXT NOT NULL,             -- the poster's words with contact details taken out
+  locationText TEXT,
+  lat REAL,
+  lng REAL,
+  whenText TEXT,
+  status TEXT NOT NULL DEFAULT 'live' CHECK (status IN ('live','ended','removed')),
+  reports INTEGER NOT NULL DEFAULT 0,
+  expiresAt INTEGER NOT NULL,     -- 3 hours after posting, or the time they gave
+  createdAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS topic_posts_live ON topic_posts(status, expiresAt);
+
+-- Every bubble of a topic alert, so a tapback on any of them means "i'm in". 'report' rows mark one report per person.
+CREATE TABLE IF NOT EXISTS topic_alert_bubbles (
+  messageId TEXT PRIMARY KEY,
+  postId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('alert','walk','join','report')),
+  createdAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS topic_alert_bubbles_user ON topic_alert_bubbles(userId, createdAt);
+
+-- Who said they're in on a post, and how far connecting them to the poster got.
+CREATE TABLE IF NOT EXISTS topic_joins (
+  postId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'asked' CHECK (status IN ('asked','connected','declined','told')),
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (postId, userId)
+);

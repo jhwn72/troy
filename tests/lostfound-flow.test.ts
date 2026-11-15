@@ -10,7 +10,7 @@ import { openDb, getOrCreateUser, updateUser, getFlowState, getUserById } from "
 import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
-import { CLAIM_TTL_MS, COPY, HOLD_TTL_MS, LF_POOLS, LF_VOICE, claimantBlocked, completeHandoff, lostFound, parseWhen } from "../src/flows/lostfound/handler.ts";
+import { CLAIM_TTL_MS, COPY, HOLD_TTL_MS, LF_POOLS, LF_VOICE, claimantBlocked, completeHandoff, isDescriptionAttempt, lostFound, parseWhen } from "../src/flows/lostfound/handler.ts";
 import { repair } from "../src/flows/repair.ts";
 import { RELAY_COPY } from "../src/relay.ts";
 import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
@@ -375,6 +375,28 @@ test("two failed descriptions: attempts are counted in code and the owner is nev
   assert.equal(w.owner.state()?.step, "proof");
   assert.equal(w.images.length, 0, "the finder's photo is never sent to a claimant");
   assertNoLeak(w.owner.texts());
+});
+
+test("a question or a stall at the describe step is answered, not scored: no try is counted and the step stays open", async () => {
+  // What counts as an attempt, by the rules.
+  for (const no of ["wait do u actually have them", "how many tries do i get", "idk man i cant even think rn", "hold on lemme think", "who found it?"]) assert.equal(isDescriptionAttempt(no), false, no);
+  // A guess phrased as a question is never free, and a plain description always counts.
+  for (const yes of ["is it the one w the sticker on the lid or the plain one?", "white case", "its got a dinosaur on it, black", "plain, nothing on it", "there's a scratch on the back"]) assert.equal(isDescriptionAttempt(yes), true, yes);
+
+  const w = world();
+  await toDescribe(w);
+  const finderBefore = w.finder.texts().length;
+  const reply = await w.owner.say("wait do u actually have them");
+  assert.equal(reply.length, 1);
+  assert.ok(!COPY.retry.includes(reply[0]!), "never the didn't-line-up line");
+  assert.deepEqual(checks(w.db), [], "nothing scored, nothing counted");
+  assert.equal(w.owner.state()?.step, "verify_describe");
+  assert.equal(w.finder.texts().length, finderBefore, "the finder is shown nothing");
+  assertNoLeak(w.owner.texts());
+
+  // Both tries are still theirs.
+  await w.owner.say("white case with a dinosaur sticker on the lid");
+  assert.deepEqual(checks(w.db).map((c) => [c.result, c.attempts]), [["pass", 1]]);
 });
 
 test("proof photo can't be checked, finder picks 1: meet anyway, with the busy-place reminder (relay when group chats are off)", async () => {

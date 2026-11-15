@@ -18,6 +18,7 @@ import { completeHandoff } from "./flows/lostfound/handler.ts";
 import { createLandingRoutes } from "./web/landing.ts";
 import { createWebRoutes } from "./web/api.ts";
 import { createLocationRefresher, ensureLocationColumns } from "./location.ts";
+import { setStaffNotifier } from "./staff.ts";
 
 const db = getDb();
 // Go-live is fixed the first time Troy ever starts (and kept after that), never by the first incoming text.
@@ -51,6 +52,9 @@ app.route("/", created.routes);
 // own 1:1 chat. Stopped users get nothing. Someone paused or inside their quiet hours gets a status update when
 // that ends (src/outbox.ts). The adapter enforces the gate and kill switch.
 const { notify, flush: flushOutbox } = createNotifier({ db, getAdapter: () => adapter, enabled: () => isEnabled(db) });
+// Texts to an assigned technician or usg member, and the status texts their answers send to students, use the same
+// outbox: quiet hours and pause hold them back instead of dropping them.
+setStaffNotifier(db, notify);
 
 // Flow 2: holds that ran out go back to the pool and old drops end, every 30 seconds.
 const stopFoodTimers = startFoodTimers({ db, getAdapter: () => adapter! });
@@ -70,6 +74,27 @@ const sweepTimer = setInterval(async () => {
   }
 }, 30_000);
 sweepTimer.unref();
+// One sweep right away, so anything that learns how to send from its first sweep (the first-ten follow-ups) has it
+// before the first 30 second beat.
+void pipeline.sweep().catch((err) => console.error("sweep failed:", describe(err)));
+
+// The first-ten scheduler and topic expiry run inside pipeline.sweep above. If either module also exports its own
+// starter, it is called once here; a module or export that isn't there is simply skipped.
+const stopExtras: (() => void)[] = [];
+for (const [path, names] of [
+  ["./firstten.ts", ["startFirstTen", "startFirstTenTimers", "startFirstTenSweep"]],
+  ["./flows/topics.ts", ["startTopicTimers", "startTopicSweep", "startTopics"]],
+] as const) {
+  try {
+    const mod = (await import(path)) as Record<string, unknown>;
+    const name = names.find((n) => typeof mod[n] === "function");
+    if (!name) continue;
+    const stop = (mod[name] as (d: { db: typeof db; getAdapter: () => MessagingAdapter | null; notify: typeof notify }) => unknown)({ db, getAdapter: () => adapter, notify });
+    if (typeof stop === "function") stopExtras.push(stop as () => void);
+  } catch (err) {
+    console.error("optional sweep not started:", describe(err));
+  }
+}
 
 // Saved locations stay current while someone shares through Find My: every 45 seconds, a few students at a time.
 // Real phones: only with the patched helper connected (it is what reads Find My). The simulator always can.
@@ -114,6 +139,13 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     stopFoodTimers();
     clearInterval(sweepTimer);
+    for (const stop of stopExtras) {
+      try {
+        stop();
+      } catch {
+        /* shutting down anyway */
+      }
+    }
     locationRefresh.stop();
     // BlueBubbles mode with a helper token: closes the helper listener. Nothing to do otherwise.
     try {

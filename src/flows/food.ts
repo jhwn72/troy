@@ -644,7 +644,7 @@ const snapshot = (d: Drop) => ({ left: d.servingsLeft, live: d.status === "live"
  * last known location), else the saved fix (worded as "where u last shared" once it is over 3 hours old),
  * else their first usual spot. Only ever used for this user's own walking time.
  */
-async function whereIs(db: DatabaseSync, adapter: MessagingAdapter, user: User, now: number): Promise<{ lat: number; lng: number; from: WalkFrom } | null> {
+export async function whereIs(db: DatabaseSync, adapter: MessagingAdapter, user: User, now: number): Promise<{ lat: number; lng: number; from: WalkFrom } | null> {
   // Never look someone up after "forget my location" or STOP until they share again themselves.
   const live = shouldReadLiveLocation(db, user.id) ? await adapter.getLiveLocation(user.handle).catch(() => null) : null;
   if (live && Number.isFinite(live.lat) && Number.isFinite(live.lng)) {
@@ -659,29 +659,41 @@ async function whereIs(db: DatabaseSync, adapter: MessagingAdapter, user: User, 
   return { lat: loc.lat, lng: loc.lng, from };
 }
 
-interface Recipient {
+export interface Recipient {
   user: User;
   minutes: number | null;
   /** Where `minutes` was measured from. Null when there is no walking time. */
   from: WalkFrom | null;
 }
 
-/** Subscribed, verified, not stopped or paused, not in their own quiet hours, not the poster, and within their own alert distance. */
-export async function findRecipients(db: DatabaseSync, adapter: MessagingAdapter, drop: { posterUserId: number; lat: number | null; lng: number | null }, kind: "food" | "stuff", now: number): Promise<Recipient[]> {
-  const key = kind === "stuff" ? "free_stuff" : "free_food";
+/**
+ * The alert engine both the food flow and the topics flow use. Everyone who should hear about something at
+ * `target`: verified, not stopped or paused, not an example user, not in their own quiet hours, not the poster,
+ * following one of `keys` (values of users.subscriptions), and within their own alert distance by the best
+ * location Troy has (a live fix, the saved fix, then a usual spot). No location at all still gets the alert,
+ * just without a walking time. `extra.skip` leaves out people a caller has its own reason to skip (a rate limit).
+ */
+export async function findSubscribers(
+  db: DatabaseSync,
+  adapter: MessagingAdapter,
+  target: { posterUserId: number; lat: number | null; lng: number | null },
+  keys: readonly string[],
+  now: number,
+  extra: { skip?: (user: User) => boolean } = {},
+): Promise<Recipient[]> {
   // Example users exist only as demo data and can never be texted, so they are never alert recipients.
-  const rows = db.prepare("SELECT * FROM users WHERE verifiedAt IS NOT NULL AND stopped = 0 AND paused = 0 AND isExample = 0 AND id != ? ORDER BY id").all(drop.posterUserId) as Row[];
+  const rows = db.prepare("SELECT * FROM users WHERE verifiedAt IS NOT NULL AND stopped = 0 AND paused = 0 AND isExample = 0 AND id != ? ORDER BY id").all(target.posterUserId) as Row[];
   const out: Recipient[] = [];
   await Promise.all(
     rows.map(async (r) => {
       const user = rowToUser(r);
-      if (!user.subscriptions.includes(key) || !canAlert(user, new Date(now))) return;
+      if (!keys.some((k) => user.subscriptions.includes(k)) || !canAlert(user, new Date(now)) || extra.skip?.(user)) return;
       let minutes: number | null = null;
       let from: WalkFrom | null = null;
-      // Asked even when the drop has no coordinates, so a live fix still refreshes what's saved.
+      // Asked even when the target has no coordinates, so a live fix still refreshes what's saved.
       const at = await whereIs(db, adapter, user, now);
-      if (at && drop.lat !== null && drop.lng !== null) {
-        minutes = walkingMinutes(at, { lat: drop.lat, lng: drop.lng });
+      if (at && target.lat !== null && target.lng !== null) {
+        minutes = walkingMinutes(at, { lat: target.lat, lng: target.lng });
         from = at.from;
       }
       // Outside their own alert distance by the best location we have: skipped. No location at all: still alerted.
@@ -690,6 +702,34 @@ export async function findRecipients(db: DatabaseSync, adapter: MessagingAdapter
     }),
   );
   return out.sort((a, b) => a.user.id - b.user.id);
+}
+
+/** Free food goes to "free_food", free items to "free_stuff", and both to people who follow the free topic. */
+const FOOD_KEYS = { food: ["free_food", "free_nearby"], stuff: ["free_stuff", "free_nearby"] } as const;
+
+/** Subscribed, verified, not stopped or paused, not in their own quiet hours, not the poster, and within their own alert distance. */
+export async function findRecipients(db: DatabaseSync, adapter: MessagingAdapter, drop: { posterUserId: number; lat: number | null; lng: number | null }, kind: "food" | "stuff", now: number): Promise<Recipient[]> {
+  return findSubscribers(db, adapter, drop, FOOD_KEYS[kind], now);
+}
+
+/** "that was fake", "nothing was there": the words that report an alert, for any flow that sends alerts. */
+export function saysFake(text: string): boolean {
+  return FAKE.test(word(text));
+}
+
+/** A plain yes or no, read the way the food flow reads them. Null for anything else (a question, a new request). */
+export function yesOrNo(text: string): "yes" | "no" | null {
+  const w = word(text);
+  if (!w || /\?/.test(text ?? "")) return null;
+  if (YES.test(w)) return "yes";
+  if (NO.test(w)) return "no";
+  return null;
+}
+
+/** Resolve a campus place named in a text, worded the way the student said it. Coordinates come from campus_places. */
+export function spotIn(db: DatabaseSync, text: string): { spot: string; lat: number; lng: number } | null {
+  const hit = resolveSpot(db, text);
+  return hit ? { spot: hit.spot, lat: hit.lat, lng: hit.lng } : null;
 }
 
 // ---------- posting ----------
@@ -954,7 +994,10 @@ async function handleReaction(ctx: FlowContext, state: FlowState | null): Promis
 
   const bubble = ctx.db.prepare("SELECT foodDropId FROM food_alert_bubbles WHERE messageId = ? AND userId = ? AND role != 'report'").get(r.targetMessageId, ctx.user.id) as { foodDropId: number } | undefined;
   const drop = bubble ? getDrop(ctx.db, bubble.foodDropId) : null;
-  if (!drop) return;
+  if (!drop) {
+    await passTapToTopics(ctx);
+    return;
+  }
 
   if (positive) {
     await doClaim(ctx, drop, true);
@@ -963,6 +1006,23 @@ async function handleReaction(ctx: FlowContext, state: FlowState | null): Promis
   // Taking the tapback off, or switching it to something else, gives the serving back.
   const held = heldClaim(ctx.db, drop.id, ctx.user.id);
   if (held !== null) await doRelease(ctx, drop, held);
+}
+
+/**
+ * The pipeline hands a tapback to this flow when the person has no open step. One that landed on a topic alert
+ * ("react if ur in") belongs to the topics flow. Loaded at call time: that file imports this one.
+ */
+async function passTapToTopics(ctx: FlowContext): Promise<void> {
+  const target = ctx.event.reaction?.targetMessageId;
+  if (!target) return;
+  try {
+    const row = ctx.db.prepare("SELECT 1 FROM topic_alert_bubbles WHERE messageId = ? AND userId = ? AND role != 'report' LIMIT 1").get(target, ctx.user.id);
+    if (!row) return;
+    const { topics } = await import("./topics.ts");
+    await topics.handle({ ...unvoiced(ctx), state: ctx.state && ctx.state.flow !== "food" ? ctx.state : null });
+  } catch {
+    // A tapback is never worth an error.
+  }
 }
 
 // ---------- the poster's side ----------

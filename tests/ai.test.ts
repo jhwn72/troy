@@ -2,7 +2,9 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { FlowState } from "../src/types.ts";
 import { config } from "../src/config.ts";
-import { askJson, composeReply, detectIntent, extractJson, fallbackIntent, setModelCall } from "../src/ai.ts";
+import { askJson, chatModel, composeReply, detectIntent, extractJson, fallbackIntent, readSafety, setModelCall } from "../src/ai.ts";
+import type { AskOpts } from "../src/ai.ts";
+import { chatModelSetting, explainMode, lookupOn } from "../src/config.ts";
 import { countEmoji, isDistress, limitEmoji, lowercase, pickVariant, polishBubbles, splitBubbles, youToU } from "../src/voice.ts";
 import { openDb } from "../src/db/index.ts";
 
@@ -157,6 +159,8 @@ test("voice helpers enforce lowercase and the emoji limit", () => {
   assert.equal(limitEmoji("no 👀 emoji 🙏", 0), "no emoji");
   assert.equal(countEmoji("👨‍👩‍👧 and 🇺🇸 and 👍🏽"), 3);
   assert.deepEqual(splitBubbles("**one**\n\n- two\n\"three\""), ["one", "two", "three"]);
+  // Quotes that belong to the text stay, at either end of a bubble.
+  assert.deepEqual(splitBubbles(['"forget my location" erases it', `text "on it" or "can't"`, '"just one wrapped bubble"']), ['"forget my location" erases it', `text "on it" or "can't"`, "just one wrapped bubble"]);
   const long = polishBubbles("x".repeat(200));
   assert.equal(long, null);
   const split = polishBubbles(`${"This is a sentence that goes on for a while. ".repeat(5)}`);
@@ -210,4 +214,83 @@ test("pickVariant rotates per user and key and never repeats the last line", () 
   assert.equal(pickVariant(db, 7, "none", []), "");
   db.prepare("INSERT INTO settings (key, value) VALUES ('var:7:short', '9')").run();
   assert.ok(["a", "b"].includes(pickVariant(db, 7, "short", ["a", "b"])));
+});
+
+test("readSafety returns the model's read of a message in its conversation", async () => {
+  const history = [
+    { from: "student" as const, text: "worst week of my life" },
+    { from: "troy" as const, text: "that sounds rough. what's going on?" },
+  ];
+  let seen: AskOpts | null = null;
+  for (const read of ["none", "joke", "concern", "crisis"] as const) {
+    setModelCall(async (opts) => {
+      seen = opts;
+      return `{"read":"${read}"}`;
+    });
+    assert.equal(await readSafety({ text: "honestly kms", history }), read);
+  }
+  // One fast call, and the recent turns travel with the message.
+  const sent = seen as AskOpts | null;
+  assert.equal(sent?.model, "fast");
+  assert.ok(sent?.prompt.includes("student: worst week of my life"));
+  assert.ok(sent?.prompt.includes("troy: that sounds rough"));
+  assert.ok(sent?.prompt.includes("honestly kms"));
+  // Tolerates casing and chatter around the json.
+  setModelCall(async () => 'sure: {"read": "Concern"}');
+  assert.equal(await readSafety({ text: "i just don't see the point anymore", history: [] }), "concern");
+});
+
+test("readSafety never throws and reads none when it can't tell", async () => {
+  // No key and no injected model.
+  assert.equal(await readSafety({ text: "kms", history: [] }), "none");
+  let called = 0;
+  setModelCall(async () => {
+    called++;
+    return '{"read":"panic"}';
+  });
+  assert.equal(await readSafety({ text: "kms", history: [] }), "none");
+  setModelCall(async () => "not json");
+  assert.equal(await readSafety({ text: "kms", history: [] }), "none");
+  setModelCall(async () => { throw new Error("boom"); });
+  assert.equal(await readSafety({ text: "kms", history: [] }), "none");
+  // Nothing to read in an empty message: no call at all.
+  called = 0;
+  setModelCall(async () => {
+    called++;
+    return '{"read":"crisis"}';
+  });
+  assert.equal(await readSafety({ text: "   ", history: [] }), "none");
+  assert.equal(called, 0);
+  // Only the last few turns are sent.
+  let prompt = "";
+  setModelCall(async (opts) => {
+    prompt = opts.prompt;
+    return '{"read":"joke"}';
+  });
+  const long = Array.from({ length: 20 }, (_, i) => ({ from: "student" as const, text: `turn ${i}` }));
+  assert.equal(await readSafety({ text: "that exam killed me lol", history: long }), "joke");
+  assert.ok(prompt.includes("turn 19") && prompt.includes("turn 12") && !prompt.includes("turn 11\n"));
+});
+
+test("settings: chat runs on the smart model by default, explain is detailed, lookup is off", () => {
+  const saved = { chat: process.env.TROY_CHAT_MODEL, explain: process.env.TROY_EXPLAIN, lookup: process.env.TROY_LOOKUP };
+  try {
+    delete process.env.TROY_CHAT_MODEL;
+    delete process.env.TROY_EXPLAIN;
+    delete process.env.TROY_LOOKUP;
+    assert.deepEqual([chatModel(), chatModelSetting(), explainMode(), lookupOn()], ["smart", "smart", "detailed", false]);
+    process.env.TROY_CHAT_MODEL = " Fast ";
+    process.env.TROY_EXPLAIN = "GENERIC";
+    process.env.TROY_LOOKUP = "on";
+    assert.deepEqual([chatModel(), explainMode(), lookupOn()], ["fast", "generic", true]);
+    process.env.TROY_CHAT_MODEL = "nonsense";
+    process.env.TROY_EXPLAIN = "nonsense";
+    process.env.TROY_LOOKUP = "true";
+    assert.deepEqual([chatModel(), explainMode(), lookupOn()], ["smart", "detailed", false]);
+  } finally {
+    for (const [k, v] of [["TROY_CHAT_MODEL", saved.chat], ["TROY_EXPLAIN", saved.explain], ["TROY_LOOKUP", saved.lookup]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 });

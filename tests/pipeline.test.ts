@@ -1,11 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AdapterCapabilities, FlowHandler, IncomingEvent, Intent, MessagingAdapter } from "../src/types.ts";
+import type { AdapterCapabilities, Bubble, FlowHandler, IncomingEvent, Intent, MessagingAdapter, TapbackType } from "../src/types.ts";
 import { openDb, getUserByHandle, getOrCreateUser, updateUser, setSetting, setFlowState } from "../src/db/index.ts";
 import { chunkBubble, createPipeline, TIMING, typingMs } from "../src/pipeline.ts";
-import type { LocationStore } from "../src/pipeline.ts";
+import type { LocationStore, SafetyReader } from "../src/pipeline.ts";
+import { COMMAND_POOLS } from "../src/commands.ts";
+import { FALLBACK_POOLS } from "../src/flows/smalltalk.ts";
+import { getFlowState } from "../src/db/index.ts";
+import * as brain from "../src/brain.ts";
+import * as topics from "../src/topics.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { TEMPLATES } from "../src/commands.ts";
+import { REFERENCE_LINES } from "../src/onboarding.ts";
 
 const HANDLE = "+12135550111";
 const CHAT = "chat-p";
@@ -70,7 +76,11 @@ function fakeAdapter(caps: Partial<AdapterCapabilities> = {}, calls: Call[] = []
   return { adapter, calls, texts };
 }
 
-function setup(opts: { caps?: Partial<AdapterCapabilities>; intent?: Intent; verified?: boolean; pause?: (ms: number) => Promise<void>; random?: () => number } = {}) {
+type Detect = (input: { text: string }) => Intent;
+
+function setup(
+  opts: { caps?: Partial<AdapterCapabilities>; intent?: Intent; verified?: boolean; pause?: (ms: number) => Promise<void>; random?: () => number; detect?: Detect; readSafety?: SafetyReader | null } = {},
+) {
   const db = openDb(":memory:");
   const fake = fakeAdapter(opts.caps);
   const intent: Intent = opts.intent ?? { flow: "smalltalk", action: "chat", details: {}, source: "fallback" };
@@ -86,7 +96,7 @@ function setup(opts: { caps?: Partial<AdapterCapabilities>; intent?: Intent; ver
   };
   // Every wait is instant and recorded in the same list as the adapter calls, so order can be asserted.
   const pause = opts.pause ?? (async (ms: number) => void fake.calls.push({ method: "wait", chatId: CHAT, ms }));
-  const pipeline = createPipeline({ db, getAdapter: () => fake.adapter, pause, random: opts.random, location, ackAfterMs: 30, detectIntent: async () => intent });
+  const pipeline = createPipeline({ db, getAdapter: () => fake.adapter, pause, random: opts.random, location, ackAfterMs: 30, detectIntent: async (i) => (opts.detect ? opts.detect(i) : intent), readSafety: opts.readSafety });
   if (opts.verified) {
     const u = getOrCreateUser(db, HANDLE, CHAT);
     updateUser(db, u.id, { verifiedAt: Date.now(), verifiedVia: "judge_skip" });
@@ -109,7 +119,15 @@ function setup(opts: { caps?: Partial<AdapterCapabilities>; intent?: Intent; ver
     return fake.texts().slice(before);
   };
   const user = () => getUserByHandle(db, HANDLE)!;
-  return { db, fake, pipeline, event, text, user, saved, forgot };
+  /** A tapback on the bubble of Troy's with exactly this text (the latest one). */
+  const tap = async (onText: string, type: TapbackType) => {
+    const target = [...fake.calls].reverse().find((c) => c.method === "sendMessage" && c.text === onText);
+    assert.ok(target?.id, `no bubble "${onText}"`);
+    const before = fake.texts().length;
+    await pipeline.handleEvent(event({ reaction: { targetMessageId: target.id!, type, removed: false } }));
+    return fake.texts().slice(before);
+  };
+  return { db, fake, pipeline, event, text, tap, user, saved, forgot };
 }
 
 // Test flows live under names no real flow uses in this file's process.
@@ -287,13 +305,16 @@ test("STOP sent while Troy is mid-reply drops the rest of that reply", async () 
   const t = setup({ pause: async () => void (pauses++ === 3 && (await held)) });
   const first = t.pipeline.handleEvent(t.event({ text: "hey troy" }));
   await sleep(20);
-  assert.deepEqual(t.fake.texts(), [TEMPLATES.welcome[0]]);
+  // The opener is one of the welcome's versions (it rotates per person).
+  const opener = t.fake.texts()[0]!;
+  assert.ok(REFERENCE_LINES.welcome.some((v) => v[0] === opener), opener);
+  assert.equal(t.fake.texts().length, 1);
   const stop = t.pipeline.handleEvent(t.event({ text: "STOP" }));
   // Applied the moment it arrives, before its turn in the queue.
   assert.equal(t.user().stopped, true);
   release();
   await Promise.all([first, stop]);
-  assert.deepEqual(t.fake.texts(), [TEMPLATES.welcome[0], ...TEMPLATES.stop]);
+  assert.deepEqual(t.fake.texts(), [opener, ...TEMPLATES.stop]);
   assert.equal(t.fake.calls.filter((c) => c.method === "sendContactCard" || c.method === "sendPoll").length, 0);
   assert.equal(t.user().stopped, true);
   // A second STOP gets no second confirmation.
@@ -328,9 +349,9 @@ test("separate sends in one turn are paced: a gap, then typing, before each one 
   const t = setup();
   await t.text("hey troy");
   const order = t.fake.calls.map((c) => c.method);
-  // welcome (4) + save my contact + contact card + email ask + judge line + poll: 9 items.
-  // One read beat, one typing wait per item, one gap between items.
-  assert.equal(order.filter((m) => m === "wait").length, 1 + 9 + 8);
+  // welcome (4) + save my contact + contact card + the student-or-judge poll: 7 items.
+  // One read beat, one typing wait per item, one gap between items. (Onboarding's own beat after the card is 0 under test.)
+  assert.equal(order.filter((m) => m === "wait").length, 1 + 7 + 6);
   const card = order.indexOf("sendContactCard");
   assert.deepEqual(order.slice(card - 4, card + 1), ["sendMessage", "wait", "startTyping", "wait", "sendContactCard"]);
   assert.equal(t.fake.texts()[4], "save my contact if u haven't so u know it's me");
@@ -552,7 +573,7 @@ test("after STOP, START or any text that opens with hey troy brings Troy back", 
   assert.equal(t.fake.calls.filter((c) => c.method === "onAllowed").length, 1);
   await t.text("stop");
   assert.deepEqual(await t.text("Hey Troy, u there?"), TEMPLATES.start);
-  assert.match(TEMPLATES.stop.join(" "), /START or hey troy/);
+  assert.match(TEMPLATES.stop.join(" "), /"START" or "hey troy"/);
 });
 
 test("typing is turned off after a poll, so the judge poll at the end of the welcome doesn't leave it on", async () => {
@@ -565,4 +586,343 @@ test("typing is turned off after a poll, so the judge poll at the end of the wel
   s.fake.adapter.sendPoll = async (chatId, question, options) => (seen.push("poll"), sendPoll(chatId, question, options));
   await s.text("hey troy");
   assert.deepEqual(seen.slice(-3), ["on", "poll", "off"]);
+});
+
+// ---------- commands by meaning ----------
+
+const chat: Intent = { flow: "smalltalk", action: "chat", details: {}, source: "ai" };
+const meant = (name: NonNullable<Intent["command"]>["name"], certainty: "clear" | "unsure" = "clear", topic?: string): Detect => (i) =>
+  /^(?:yes|no)$/i.test(i.text.trim()) ? chat : { ...chat, command: topic ? { name, certainty, topic } : { name, certainty } };
+const everyChat = Object.values(FALLBACK_POOLS).flat().flatMap((l) => l.split("|").map((b) => b.trim()));
+const isChat = (bubbles: string[]) => bubbles.length > 0 && bubbles.every((b) => everyChat.includes(b));
+const inPool = (bubbles: string[], pool: readonly string[], values: Record<string, string> = {}) => {
+  const lines = pool.map((l) => Object.entries(values).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), l));
+  return lines.some((l) => l.split("|").map((b) => b.trim()).join("\n") === bubbles.join("\n"));
+};
+
+test("by meaning: a clear wish to be left alone is honored at once with the fixed STOP confirmation", async () => {
+  const t = setup({ verified: true, detect: meant("stop") });
+  assert.deepEqual(await t.text("pls just leave me alone"), TEMPLATES.stop);
+  assert.equal(t.user().stopped, true);
+  assert.deepEqual(await t.text("u there"), []);
+});
+
+test("by meaning: playful uses do nothing, even when the read comes back as a maybe", async () => {
+  for (const text of ["stop lol", "omg stop 😂", "stop ur so funny lmao"]) {
+    const t = setup({ verified: true, detect: meant("stop", "unsure") });
+    const reply = await t.text(text);
+    assert.equal(t.user().stopped, false, text);
+    assert.ok(isChat(reply), `a normal reply to "${text}": ${reply.join(" / ")}`);
+    assert.ok(!reply.some((b) => COMMAND_POOLS.askStop.includes(b as never)), "no question either");
+  }
+});
+
+test("by meaning: when he can't tell, he asks one short question, and a yes (typed or a thumbs up on it) does it", async () => {
+  const t = setup({ verified: true, detect: meant("stop", "unsure") });
+  const asked = await t.text("ok i think i'm done with this");
+  assert.equal(asked.length, 1);
+  assert.ok((COMMAND_POOLS.askStop as readonly string[]).includes(asked[0]), asked[0]);
+  assert.equal(t.user().stopped, false, "nothing happens before the answer");
+  assert.deepEqual(await t.text("yes"), TEMPLATES.stop);
+  assert.equal(t.user().stopped, true);
+
+  const b = setup({ verified: true, detect: meant("pause", "unsure") });
+  const q = await b.text("maybe quiet down a bit");
+  assert.ok((COMMAND_POOLS.askPause as readonly string[]).includes(q[0]), q[0]);
+  // A thumbs up on another bubble is only an acknowledgement.
+  assert.equal(b.user().paused, false);
+  assert.ok(inPool(await b.tap(q[0], "like"), COMMAND_POOLS.pause));
+  assert.equal(b.user().paused, true);
+
+  const c = setup({ verified: true, detect: meant("pause", "unsure") });
+  await c.text("maybe quiet down a bit");
+  assert.ok(inPool(await c.text("no"), COMMAND_POOLS.kept));
+  assert.equal(c.user().paused, false);
+});
+
+test("by meaning: deleting always asks once first and needs a typed yes, never a tapback", async () => {
+  const t = setup({ verified: true, detect: meant("delete_data") });
+  await t.text("help");
+  assert.deepEqual(await t.text("erase everything u have on me"), TEMPLATES.confirmDelete);
+  assert.ok(t.user().verifiedAt, "nothing deleted yet");
+  assert.ok((t.db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n > 0);
+
+  // A heart and a thumbs up on the question do nothing at all.
+  assert.deepEqual(await t.tap(TEMPLATES.confirmDelete[0], "love"), []);
+  assert.deepEqual(await t.tap(TEMPLATES.confirmDelete[0], "like"), []);
+  assert.ok(t.user().verifiedAt, "a tapback never deletes");
+
+  assert.deepEqual(await t.text("yes"), TEMPLATES.deleteData);
+  assert.equal(t.user().verifiedAt, null);
+  assert.equal((t.db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n, 0);
+});
+
+test("by meaning: a no to the delete question keeps everything, and anything else lets the question lapse", async () => {
+  const t = setup({ verified: true, detect: meant("delete_data") });
+  await t.text("delete my account");
+  assert.ok(inPool(await t.text("no"), COMMAND_POOLS.keptData));
+  assert.ok(t.user().verifiedAt);
+  // The question is closed: a later yes deletes nothing.
+  await t.text("yes");
+  assert.ok(t.user().verifiedAt);
+
+  const b = setup({ verified: true, detect: (i) => (/delete/.test(i.text) ? { ...chat, command: { name: "delete_data", certainty: "clear" } } : chat) });
+  await b.text("delete my account");
+  await b.text("wait what does that remove");
+  await b.text("yes");
+  assert.ok(b.user().verifiedAt, "a yes after something else is not a yes to deleting");
+});
+
+test("by meaning: pause, resume and forget my location act and confirm in varied words", async () => {
+  const p = setup({ verified: true, detect: meant("pause") });
+  assert.ok(inPool(await p.text("can u chill with the alerts for a while"), COMMAND_POOLS.pause));
+  assert.equal(p.user().paused, true);
+
+  const r = setup({ verified: true, detect: meant("resume") });
+  updateUser(r.db, r.user().id, { paused: 1 });
+  assert.ok(inPool(await r.text("ok u can send alerts again"), COMMAND_POOLS.resume));
+  assert.equal(r.user().paused, false);
+
+  const f = setup({ verified: true, detect: meant("forget_location") });
+  const first = await f.text("pls get rid of where i am");
+  assert.ok(inPool(first, COMMAND_POOLS.forgetLocation));
+  assert.deepEqual(f.forgot, [f.user().id]);
+  // Not the same wording twice in a row.
+  const second = await f.text("pls get rid of where i am");
+  assert.ok(inPool(second, COMMAND_POOLS.forgetLocation));
+  assert.notDeepEqual(second, first);
+});
+
+test("by meaning: 'stop the food texts' turns off that topic only, and says what will happen in plain words", async () => {
+  const t = setup({ verified: true, detect: meant("unsubscribe_topic", "clear", "food") });
+  const food = topics.findTopic(t.db, "food")!;
+  const pickup = topics.findTopic(t.db, "pickup games")!;
+  topics.subscribe(t.db, t.user().id, food.id);
+  topics.subscribe(t.db, t.user().id, pickup.id);
+  const reply = await t.text("stop the food texts");
+  assert.ok(inPool(reply, COMMAND_POOLS.unsubscribed, { what: food.plain }), reply.join(" / "));
+  assert.ok(!reply.join(" ").includes(food.label), "never the poll label");
+  assert.equal(t.user().stopped, false);
+  assert.equal(topics.isSubscribed(t.db, t.user().id, food), false);
+  assert.equal(topics.isSubscribed(t.db, t.user().id, pickup), true, "the other topic is untouched");
+
+  // Not following it: nothing changes, and he says so.
+  assert.ok(inPool(await t.text("stop the food texts"), COMMAND_POOLS.notSubscribed));
+
+  // No topic he can find: one short question.
+  const u = setup({ verified: true, detect: meant("unsubscribe_topic", "unsure") });
+  assert.ok(inPool(await u.text("stop those texts"), COMMAND_POOLS.whichTopic));
+});
+
+test("by meaning: asking how to stop is a question for the chat brain, not the canned help list", async () => {
+  const t = setup({ verified: true, detect: meant("help") });
+  const reply = await t.text("how do i make u stop if i need to");
+  assert.notDeepEqual(reply, TEMPLATES.help);
+  assert.ok(reply.length > 0);
+  // The exact word still gets the fixed list at once.
+  assert.deepEqual(await t.text("help"), TEMPLATES.help);
+});
+
+// ---------- jokes versus real distress ----------
+
+function reader(read: "none" | "joke" | "concern" | "crisis") {
+  const seen: { text: string; history: { from: string; text: string }[] }[] = [];
+  const fn: SafetyReader = async (input) => {
+    seen.push(input);
+    return read;
+  };
+  return { fn, seen };
+}
+const hasHotline = (bubbles: string[]) => bubbles.some((b) => /\b988\b|\b911\b/.test(b));
+const EMOJI_RE = /\p{Extended_Pictographic}/u;
+
+test("obvious slang never reaches the model's safety read and never gets the hotline", async () => {
+  for (const text of ["that exam killed me lol", "i'm dead 😂", "this class is killing me"]) {
+    const r = reader("crisis");
+    const t = setup({ verified: true, readSafety: r.fn });
+    const reply = await t.text(text);
+    assert.equal(r.seen.length, 0, text);
+    assert.ok(reply.length > 0 && !hasHotline(reply), `${text}: ${reply.join(" / ")}`);
+  }
+});
+
+test("safety read 'joke' and 'none': a normal reply, with the conversation passed to the read", async () => {
+  for (const read of ["joke", "none"] as const) {
+    const r = reader(read);
+    const t = setup({ verified: true, readSafety: r.fn });
+    await t.text("this pset is so long");
+    const reply = await t.text("kms lol");
+    assert.equal(r.seen.length, 1);
+    assert.equal(r.seen[0].text, "kms lol");
+    assert.ok(r.seen[0].history.some((h) => h.from === "student" && h.text === "this pset is so long"), "the last few texts go with it");
+    assert.ok(!r.seen[0].history.some((h) => h.text === "kms lol"), "not the message itself");
+    assert.ok(reply.length > 0 && !hasHotline(reply), reply.join(" / "));
+    assert.equal(brain.isHeavy(t.db, t.user().id), false);
+  }
+});
+
+test("safety read 'concern': he checks in like a person, one direct kind question, no hotline wall and no emoji", async () => {
+  const r = reader("concern");
+  const t = setup({ verified: true, readSafety: r.fn });
+  const reply = await t.text("i can't do this anymore");
+  assert.equal(reply.length, 1, reply.join(" / "));
+  assert.match(reply[0], /\?$/);
+  assert.match(reply[0], /hurting urself|are u ok/);
+  assert.ok(!hasHotline(reply) && !EMOJI_RE.test(reply[0]));
+  assert.equal(brain.isHeavy(t.db, t.user().id), true, "the conversation is heavy for the next hour");
+  assert.equal(t.user().stopped, false);
+});
+
+test("after the check-in: a yes gets the fixed crisis line, and so does a dodge", async () => {
+  const yes = setup({ verified: true, readSafety: reader("concern").fn });
+  await yes.text("i can't do this anymore");
+  assert.deepEqual(await yes.text("yeah"), TEMPLATES.crisis);
+
+  const dodge = setup({ verified: true, readSafety: reader("concern").fn });
+  await dodge.text("whats the point of anything");
+  assert.deepEqual(await dodge.text("idk whatever"), TEMPLATES.crisis);
+
+  // With no model to read the dodge, it still gets the fixed line.
+  let n = 0;
+  const once: SafetyReader = async () => (n++ === 0 ? "concern" : Promise.reject(new Error("down")));
+  const down = setup({ verified: true, readSafety: once });
+  await down.text("whats the point of anything");
+  assert.deepEqual(await down.text("doesn't matter"), TEMPLATES.crisis);
+});
+
+test("after the check-in: a clear 'no, i'm fine' goes back to normal chat, and replies stay gentle", async () => {
+  const t = setup({ verified: true, readSafety: reader("concern").fn });
+  await t.text("i can't do this anymore");
+  const reply = await t.text("no");
+  assert.ok(reply.length > 0, "he still answers");
+  assert.notDeepEqual(reply, TEMPLATES.crisis);
+  assert.equal(brain.isHeavy(t.db, t.user().id), true);
+  // The check-in is closed: a later yes is just a yes.
+  assert.notDeepEqual(await t.text("yeah"), TEMPLATES.crisis);
+});
+
+test("safety read 'crisis': the fixed crisis line", async () => {
+  const t = setup({ verified: true, readSafety: reader("crisis").fn });
+  assert.deepEqual(await t.text("kms"), TEMPLATES.crisis);
+  assert.equal(brain.isHeavy(t.db, t.user().id), true);
+});
+
+test("fail safe: with no model, an ambiguous message with self-harm words gets the fixed line, and a merely heavy one does not", async () => {
+  const t = setup({ verified: true, readSafety: null });
+  assert.deepEqual(await t.text("kms"), TEMPLATES.crisis);
+  assert.deepEqual(await t.text("gonna kill myself if i fail this lol"), TEMPLATES.crisis);
+  const heavy = await t.text("i can't do this anymore");
+  assert.ok(heavy.length > 0);
+  assert.notDeepEqual(heavy, TEMPLATES.crisis, "no fixed line on a heavy text with no self-harm words");
+  // A read that throws is the same as no model.
+  const broken = setup({ verified: true, readSafety: async () => Promise.reject(new Error("down")) });
+  assert.deepEqual(await broken.text("kms"), TEMPLATES.crisis);
+  // No reader passed at all and no key: the default is the same fail safe.
+  const plain = setup({ verified: true });
+  assert.deepEqual(await plain.text("kms"), TEMPLATES.crisis);
+});
+
+test("a stopped user's ambiguous text is never sent to the model: self-harm words get the fixed line, slang gets nothing", async () => {
+  const r = reader("joke");
+  const t = setup({ verified: true, readSafety: r.fn });
+  await t.text("STOP");
+  assert.deepEqual(await t.text("kms"), TEMPLATES.crisis);
+  assert.deepEqual(await t.text("that exam killed me lol"), []);
+  assert.equal(r.seen.length, 0);
+});
+
+// ---------- open questions, pacing, mid-flow chat ----------
+
+const taps: { yesNo: unknown; onOpenQuestion: unknown }[] = [];
+const quiet: FlowHandler = {
+  name: "topics",
+  async handle(ctx) {
+    if (ctx.event.reaction) {
+      taps.push({ yesNo: ctx.intent.details.yesNo, onOpenQuestion: ctx.intent.details.onOpenQuestion });
+      return;
+    }
+    if (ctx.event.text === "open") {
+      await ctx.say("first bubble", "is that ok?");
+      ctx.setState({ flow: "topics", step: "confirm", data: {} });
+    } else if (ctx.event.text === "open again") {
+      await ctx.say("ok one more", "and this one?");
+      ctx.setState({ flow: "topics", step: "second", data: {} });
+    } else if (ctx.event.text === "paced") {
+      await ctx.say({ text: "one", pauseAfterMs: 2000 } as Bubble, "two", { text: "three", pauseAfterMs: 5000 } as Bubble);
+    }
+    // Anything else at an open step: this flow stays silent.
+  },
+};
+registerFlow(quiet);
+const usgIntent: Detect = (i) => (/^(?:open|paced)/.test(i.text) ? { flow: "topics", action: "concern", details: {}, source: "ai" } : { flow: "topics", action: "answer", details: {}, source: "fallback" });
+
+test("a thumbs up on the open question reaches the flow as a yes, a thumbs down as a no, any other bubble as nothing", async () => {
+  taps.length = 0;
+  const t = setup({ verified: true, detect: usgIntent });
+  await t.text("open");
+  await t.tap("is that ok?", "like");
+  await t.tap("is that ok?", "love");
+  await t.tap("is that ok?", "dislike");
+  await t.tap("is that ok?", "laugh");
+  await t.tap("first bubble", "like");
+  assert.deepEqual(taps, [
+    { yesNo: "yes", onOpenQuestion: true },
+    { yesNo: "yes", onOpenQuestion: true },
+    { yesNo: "no", onOpenQuestion: true },
+    { yesNo: undefined, onOpenQuestion: true },
+    { yesNo: undefined, onOpenQuestion: false },
+  ]);
+
+  // The step moved on: the old question no longer takes a tapback, the new one does.
+  taps.length = 0;
+  await t.text("open again");
+  await t.tap("is that ok?", "like");
+  await t.tap("and this one?", "like");
+  assert.deepEqual(taps, [
+    { yesNo: undefined, onOpenQuestion: false },
+    { yesNo: "yes", onOpenQuestion: true },
+  ]);
+
+  // Answered (no step open): a late thumbs up means nothing. With no step open the tap goes to the food flow.
+  setFlowState(t.db, t.user().id, null);
+  taps.length = 0;
+  await t.tap("and this one?", "like");
+  assert.deepEqual(taps, []);
+});
+
+test("say() takes a longer beat after a bubble when asked (pauseAfterMs), but never after the last one", async () => {
+  const t = setup({ verified: true, detect: usgIntent });
+  assert.deepEqual(await t.text("paced"), ["one", "two", "three"]);
+  const order = t.fake.calls.filter((c) => c.method === "sendMessage" || c.method === "wait").map((c) => (c.method === "wait" ? c.ms : c.text));
+  const one = order.indexOf("one");
+  assert.equal(order[one + 1], 2000, "the asked-for beat comes right after the bubble");
+  assert.ok(!order.includes(5000), "nothing waits after the last bubble");
+});
+
+test("a question asked in the middle of a step reaches the chat brain when the open flow stays silent, and the step stays open", async () => {
+  const t = setup({ verified: true, detect: usgIntent });
+  await t.text("open");
+  const reply = await t.text("wait what can u do");
+  assert.ok(reply.length > 0, "nobody is left on read");
+  const whatHeDoes = FALLBACK_POOLS.what_he_does.map((l) => l.split("|").map((b) => b.trim()).join("\n"));
+  assert.ok(whatHeDoes.includes(reply.join("\n")), reply.join(" / "));
+  assert.deepEqual({ flow: getFlowState(t.db, t.user().id)?.flow, step: getFlowState(t.db, t.user().id)?.step }, { flow: "topics", step: "confirm" });
+});
+
+test("a vote on a poll that isn't open anywhere doesn't break anything", async () => {
+  const t = setup({ verified: true });
+  await t.pipeline.handleEvent(t.event({ pollVote: { pollMessageId: "no-such-poll", optionIndex: 0 } }));
+  assert.ok((await t.text("hi")).length > 0);
+});
+
+test("the pipeline can be built before the adapter exists (the server's boot order)", () => {
+  const db = openDb(":memory:");
+  assert.doesNotThrow(() =>
+    createPipeline({
+      db,
+      getAdapter: () => {
+        throw new Error("adapter not ready");
+      },
+    }),
+  );
 });

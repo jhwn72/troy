@@ -801,3 +801,28 @@ test("food: with other wording on every line, counts, walking times, hold time a
     setVariantPicker(null);
   }
 });
+
+// ---------- the alert engine shared with the topics flow ----------
+
+test("followers of the free topic get both food and stuff alerts, through the same engine the topics flow uses", async () => {
+  const { findSubscribers } = await import("../src/flows/food.ts");
+  const w = world();
+  updateUser(w.db, w.ids.g, { subscriptions: JSON.stringify(["free_nearby"]) });
+  const now = Date.now();
+  const at = { posterUserId: w.ids.poster, lat: LEAVEY.lat, lng: LEAVEY.lng };
+  const who = async (kind: "food" | "stuff") => (await findRecipients(w.db, w.adapter, at, kind, now)).map((r) => r.user.id);
+  // a and b follow free food only (the older key); g follows the topic.
+  assert.deepEqual(await who("food"), [w.ids.a, w.ids.b, w.ids.g]);
+  assert.deepEqual(await who("stuff"), [w.ids.g]);
+  // The engine itself takes any topic's keys, and keeps every rule: distance, pause, STOP, quiet hours, the poster.
+  updateUser(w.db, w.ids.a, { subscriptions: JSON.stringify(["pickup"]) });
+  updateUser(w.db, w.ids.c, { subscriptions: JSON.stringify(["pickup"]) }); // too far for their own limit
+  updateUser(w.db, w.ids.e, { subscriptions: JSON.stringify(["pickup"]) }); // paused
+  updateUser(w.db, w.ids.h, { subscriptions: JSON.stringify(["pickup"]) }); // quiet hours
+  updateUser(w.db, w.ids.poster, { subscriptions: JSON.stringify(["pickup"]) });
+  const pickup = await findSubscribers(w.db, w.adapter, at, ["pickup"], now);
+  assert.deepEqual(pickup.map((r) => r.user.id), [w.ids.a]);
+  assert.equal(pickup[0]!.minutes, walkingMinutes(TCC, LEAVEY));
+  assert.deepEqual(await findSubscribers(w.db, w.adapter, at, ["pickup"], now, { skip: (u) => u.id === w.ids.a }), []);
+  w.db.close();
+});

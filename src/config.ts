@@ -41,6 +41,21 @@ export const config = {
   models: { smart: "claude-sonnet-5-5", fast: "claude-haiku-5-5" },
 };
 
+/** Which model free chat uses. TROY_CHAT_MODEL = "smart" (default) or "fast". Read on every call so it can change without a restart. */
+export function chatModelSetting(): "fast" | "smart" {
+  return (process.env.TROY_CHAT_MODEL || "").trim().toLowerCase() === "fast" ? "fast" : "smart";
+}
+
+/** How Troy explains his own workings. TROY_EXPLAIN = "detailed" (default, the hackathon setting) or "generic" (a real campus launch). */
+export function explainMode(): "detailed" | "generic" {
+  return (process.env.TROY_EXPLAIN || "").trim().toLowerCase() === "generic" ? "generic" : "detailed";
+}
+
+/** Quick web lookup for campus facts the directory can't answer. Off unless TROY_LOOKUP is exactly "on". */
+export function lookupOn(): boolean {
+  return (process.env.TROY_LOOKUP || "").trim().toLowerCase() === "on";
+}
+
 const ON_WORDS = ["true", "1", "on", "yes"];
 
 /** Fail closed: a switch that is set to anything other than a clear "on" word counts as off. Unset means on. */

@@ -1,12 +1,25 @@
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { getOrCreateUser, openDb, saveMessage, updateUser } from "../src/db/index.ts";
+import type { Bubble, FlowContext, IncomingEvent, MessagingAdapter } from "../src/types.ts";
+import { getOrCreateUser, getSetting, openDb, saveMessage, setFlowState, updateUser } from "../src/db/index.ts";
 import { config } from "../src/config.ts";
+import { setModelCall } from "../src/ai.ts";
+import type { AskOpts } from "../src/ai.ts";
+import { DPS as DPS_NUMBERS } from "../src/commands.ts";
 import {
+  aboutFor,
+  clearHeavy,
+  getChatHealth,
+  isHeavy,
+  markHeavy,
+  missingPoint,
+  noteDoubleReject,
+  replyAtStep,
+  sayInHisWords,
   HISTORY_LIMIT,
   askedWhatHeDoes,
   askedWhoHeIs,
@@ -25,6 +38,10 @@ import { countEmoji } from "../src/voice.ts";
 
 // No test may reach the network.
 config.anthropicKey = "";
+afterEach(() => {
+  setModelCall(null);
+  delete process.env.TROY_EXPLAIN;
+});
 
 const CHAT = "chat-b";
 const DPS = {
@@ -99,6 +116,18 @@ test("the three brain files load as one stable block with the expected sections"
   assert.match(brain.about, /forget my location/);
   assert.match(brain.about, /delete my data/);
   assert.match(brain.playbook, /## Things to mention when they fit/);
+  for (const heading of ["## The rule above the rest", "## Ten things that hold", "## When someone vents", "## When it's heavy"]) assert.ok(brain.persona.includes(heading), heading);
+  for (const heading of ["## About John and USC", "## Example mode", "## What is saved and who can see it", "## The lost and found check: what he never explains"]) assert.ok(brain.about.includes(heading), heading);
+  for (const heading of ["### Topics", "### Rides", "## Moves for someone new", "## The campus directory"]) assert.ok(brain.playbook.includes(heading), heading);
+  // John's story is background he knows, never a script.
+  assert.deepEqual(brain.extras.map((e) => e.name), ["origin-story"]);
+  assert.match(brain.block, /<background name="origin-story">/);
+  assert.match(brain.extras[0]!.text, /never recites or quotes/i);
+  assert.match(brain.extras[0]!.text, /John Wang/);
+  // The old claim that nobody can ever see a chat is gone, and a complaint is no longer a concern by default.
+  assert.doesNotMatch(brain.about, /no person reading the chat/i);
+  assert.doesNotMatch(brain.playbook, /is a concern for usg\. hand off/);
+  assert.match(brain.playbook, /only becomes a concern when they say they want it sent/);
   // Same bytes on every call: this is what makes the system prompt cacheable.
   assert.equal(chatSystem(), chatSystem());
   assert.ok(chatSystem().startsWith(brain.block));
@@ -371,4 +400,331 @@ test("a reply that repeats one of the persona's example lines word for word is a
   assert.equal(checkReply(["doheny if u want quiet. the stacks are undefeated"], base).ok, false);
   assert.equal(checkReply(["doheny is the quiet one"], base).ok, true);
   assert.equal(checkReply(["bet"], base).ok, true);
+});
+
+// ---------- explain mode ----------
+
+test("TROY_EXPLAIN picks which explanation of his own workings reaches the model", () => {
+  const detailed = loadBrain(undefined, "detailed");
+  const generic = loadBrain(undefined, "generic");
+  assert.equal(detailed.mode, "detailed");
+  assert.match(detailed.about, /built on claude/);
+  assert.match(detailed.about, /bluebubbles/);
+  assert.match(detailed.about, /staff dashboard/);
+  assert.match(detailed.about, /example data/);
+  assert.doesNotMatch(generic.about, /claude|anthropic|bluebubbles/i);
+  assert.match(generic.about, /his brain runs on ai/);
+  for (const brain of [detailed, generic]) {
+    // One plain heading, never the mode label, and never both sections.
+    assert.equal(brain.about.split("## Explaining how he works").length, 2);
+    assert.doesNotMatch(brain.about, /\((?:detailed|generic) mode\)/);
+    // In both modes: no answer key, and the facts about john and usc.
+    assert.match(brain.about, /never gives the answer key/);
+    assert.match(brain.about, /free for students/);
+    assert.match(brain.about, /nobody at usc has been told/);
+    assert.deepEqual(contactTokens(brain.about), []);
+  }
+  assert.notEqual(chatSystem(detailed), chatSystem(generic));
+  // The environment decides, read on every call, detailed by default.
+  assert.equal(loadBrain().mode, "detailed");
+  process.env.TROY_EXPLAIN = "generic";
+  assert.equal(loadBrain().mode, "generic");
+  assert.equal(chatSystem(), chatSystem(generic));
+  process.env.TROY_EXPLAIN = "nonsense";
+  assert.equal(loadBrain().mode, "detailed");
+  assert.equal(aboutFor("a\n## Explaining how he works (detailed mode)\nd\n## Explaining how he works (generic mode)\ng\n## Next\nn", "generic"), "a\n## Explaining how he works\ng\n## Next\nn");
+});
+
+// ---------- a reply at an open step, and lines in his own words ----------
+
+let who = 0;
+function scene(text: string) {
+  const db = seeded();
+  const user = getOrCreateUser(db, `+1213555${String(2000 + ++who)}`, CHAT);
+  const event: IncomingEvent = { provider: "webchat", userHandle: user.handle, chatId: CHAT, isGroup: false, messageId: `in-${who}`, text, images: [], receivedAt: Date.now() };
+  saveMessage(db, { userId: user.id, chatId: CHAT, direction: "in", providerMessageId: event.messageId, text });
+  const said: string[] = [];
+  const flow: FlowContext = {
+    db,
+    user,
+    event,
+    intent: { flow: "onboarding", action: "answer", details: {}, source: "fallback" },
+    state: null,
+    adapter: {} as MessagingAdapter,
+    async say(...bubbles: (string | Bubble)[]) {
+      for (const b of bubbles) said.push(typeof b === "string" ? b : b.text);
+      return bubbles.map(() => null);
+    },
+    sayTo: async (_id, ...b) => b.map(() => null),
+    sayToOwed: async (_id, ...b) => b.map(() => null),
+    setState: (s) => setFlowState(db, user.id, s),
+    setStateFor: (id, s) => setFlowState(db, id, s),
+  };
+  return { db, user, flow, said };
+}
+
+function model(...replies: (string | Error)[]) {
+  const calls: AskOpts[] = [];
+  setModelCall(async (opts) => {
+    calls.push(opts);
+    const next = replies[Math.min(calls.length - 1, replies.length - 1)]!;
+    if (next instanceof Error) throw next;
+    return next;
+  });
+  return calls;
+}
+
+const EMAIL_STEP = {
+  flow: "onboarding",
+  waitingFor: "ur usc email",
+  canDo: [
+    { name: "start_over", when: "they want to start over" },
+    { name: "resend_code", when: "they ask for the code again" },
+  ],
+};
+
+test("replyAtStep answers what they said, knows the step, and only returns an action from canDo", async () => {
+  const s = scene("can we start over");
+  const calls = model(JSON.stringify({ bubbles: [], action: "start_over" }));
+  assert.deepEqual(await replyAtStep(s.flow, EMAIL_STEP), { bubbles: [], action: "start_over" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.system, chatSystem());
+  assert.match(calls[0]!.prompt, /troy is waiting for: ur usc email/);
+  assert.match(calls[0]!.prompt, /- start_over: they want to start over/);
+  assert.match(calls[0]!.prompt, /never tell them the format is wrong/);
+  assert.match(calls[0]!.prompt, /their new message: "can we start over"/);
+
+  // An action that isn't on the list is never returned, whatever the model says.
+  const t = scene("wait why do u need my email");
+  model(JSON.stringify({ bubbles: ["Just to check you're a Trojan, it's not saved for anything else", "what's the email?"], action: "delete_everything" }));
+  assert.deepEqual(await replyAtStep(t.flow, EMAIL_STEP), { bubbles: ["just to check ur a trojan, it's not saved for anything else", "what's the email?"], action: null });
+
+  // With nothing code can do, there is never an action.
+  const n = scene("lol what");
+  model(JSON.stringify({ bubbles: ["ha, fair"], action: "start_over" }));
+  assert.equal((await replyAtStep(n.flow, { ...EMAIL_STEP, canDo: [] })).action, null);
+
+  // A reply and an action together: both come back, and the reply went through the checks.
+  const u = scene("ugh i typed it wrong, send the code again? also are u a bot");
+  model(JSON.stringify({ bubbles: ["Yep, I'm an AI 🤖🤖"], action: "resend_code" }));
+  assert.deepEqual(await replyAtStep(u.flow, EMAIL_STEP), { bubbles: ["yep, i'm an ai 🤖"], action: "resend_code" });
+});
+
+test("replyAtStep uses the same checks as free chat and never throws", async () => {
+  // First try invents a link: rejected with the reason, second try is sent.
+  const s = scene("where do i add a class");
+  const calls = model(JSON.stringify({ bubbles: ["try https://classes.usc.edu"], action: null }), JSON.stringify({ bubbles: ["the registrar handles adds, i'd start there", "anyway, what's ur usc email?"], action: null }));
+  const out = await replyAtStep(s.flow, EMAIL_STEP);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1]!.prompt, /your last reply was not sent: .*not in the looked up rows/);
+  assert.deepEqual(out, { bubbles: ["the registrar handles adds, i'd start there", "anyway, what's ur usc email?"], action: null });
+
+  // Rejected twice: a varied hand-written line that names what he's waiting for, counted, and action null.
+  const t = scene("where do i add a class");
+  model(JSON.stringify({ bubbles: ["i emailed the registrar for u"], action: null }));
+  const before = getChatHealth(t.db).doubleRejectsToday;
+  const a = await replyAtStep(t.flow, EMAIL_STEP);
+  const b = await replyAtStep(t.flow, EMAIL_STEP);
+  assert.equal(a.action, null);
+  assert.match(a.bubbles[0]!, /ur usc email/);
+  assert.notEqual(a.bubbles[0], b.bubbles[0], "the fallback varies");
+  assert.equal(getChatHealth(t.db).doubleRejectsToday, before + 2);
+  // A picked action survives a wording problem: code does it and says so itself.
+  model(JSON.stringify({ bubbles: ["i emailed the registrar for u"], action: "start_over" }));
+  assert.deepEqual(await replyAtStep(t.flow, EMAIL_STEP), { bubbles: [], action: "start_over" });
+
+  // No model, a broken model, junk: always a line, never a throw.
+  for (const bad of [null, "not json at all", new Error("down")]) {
+    if (bad === null) setModelCall(null);
+    else model(bad);
+    const r = await replyAtStep(scene("huh").flow, EMAIL_STEP);
+    assert.equal(r.action, null);
+    assert.equal(r.bubbles.length, 1);
+    assert.match(r.bubbles[0]!, /ur usc email/);
+    assert.doesNotMatch(r.bubbles[0]!, /doesn't look like|invalid|format/);
+  }
+  // A lost and found step keeps its verdict lock.
+  const l = scene("lol whats ur fav dining hall");
+  model(JSON.stringify({ bubbles: ["that checks out, it's urs"], action: null }), JSON.stringify({ bubbles: ["parkside, easy", "so, how would u describe it?"], action: null }));
+  assert.deepEqual((await replyAtStep(l.flow, { flow: "lost_found", waitingFor: "a description of the item", canDo: [] })).bubbles, ["parkside, easy", "so, how would u describe it?"]);
+});
+
+const TOPIC_BRIEF = {
+  goal: "confirm the texts they just picked",
+  mustCover: ["he will text them when someone needs help with a class", "they can add more later"],
+  fallback: [["bet, i'll text u when someone needs help with a class", "u can add more whenever"], ["got it. when someone needs a hand with a class, i'll hit u up", "add more anytime"], ["done. i'll ping u when a trojan needs class help. more can be added later"]],
+};
+
+test("sayInHisWords needs every point covered and every fact verbatim, and goes through the checks", async () => {
+  const s = scene("1 and 3");
+  // First try drops the second point, second try covers both (and quotes the words that do).
+  const calls = model(
+    JSON.stringify({ bubbles: ["Bet, I'll text you when someone needs help with a class"], covers: ["text u when someone needs help with a class", ""] }),
+    JSON.stringify({ bubbles: ["bet, i'll hit u up when a trojan is stuck on a class", "want more? just tell me whenever"], covers: ["hit u up when a trojan is stuck on a class", "want more? just tell me whenever"] }),
+  );
+  assert.deepEqual(await sayInHisWords(s.flow, TOPIC_BRIEF), ["bet, i'll hit u up when a trojan is stuck on a class", "want more? just tell me whenever"]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]!.system, chatSystem());
+  assert.match(calls[0]!.prompt, /1\. he will text them when someone needs help with a class\n2\. they can add more later/);
+  assert.match(calls[0]!.prompt, /never read back like a list or a label/);
+  // Their last message is in the history, not posed as a question to answer.
+  assert.match(calls[0]!.prompt, /them: 1 and 3/);
+  assert.doesNotMatch(calls[0]!.prompt, /their new message/);
+  assert.match(calls[1]!.prompt, /doesn't get across this point: "they can add more later"/);
+
+  // A quote that isn't in the reply proves nothing.
+  assert.equal(missingPoint(["bet, i'll text u about classes"], TOPIC_BRIEF.mustCover, ["text u about classes", "u can add more later"]), "they can add more later");
+  assert.equal(missingPoint(["i'll text u when someone needs class help", "add more later if u want"], TOPIC_BRIEF.mustCover, []), null);
+
+  // Facts appear exactly as given, capitals and all, or the fallback is used.
+  const f = scene("where is it");
+  const brief = { goal: "tell them where the free pizza is", mustCover: ["where the food is"], facts: { place: "Leavey Library", count: "12" }, fallback: [["it's at Leavey Library, 12 left"], ["Leavey Library has it. 12 left"]] };
+  model(JSON.stringify({ bubbles: ["It's at Leavey Library, 12 left"], covers: ["at Leavey Library"] }));
+  assert.deepEqual(await sayInHisWords(f.flow, brief), ["it's at Leavey Library, 12 left"]);
+  model(JSON.stringify({ bubbles: ["it's at the library, a dozen left"], covers: ["at the library"] }));
+  const fell = (await sayInHisWords(f.flow, brief)).join("|");
+  assert.ok(brief.fallback.some((v) => v.join("|") === fell), fell);
+  // The free-chat checks apply: an invented link never gets out.
+  model(JSON.stringify({ bubbles: ["it's at Leavey Library, 12 left. map: bit.ly/leavey"], covers: ["at Leavey Library"] }));
+  assert.ok(!(await sayInHisWords(f.flow, brief)).join(" ").includes("bit.ly"));
+  // A true promise from code is his to make here.
+  model(JSON.stringify({ bubbles: ["i'll text the people who follow it", "12 left at Leavey Library"], covers: ["at Leavey Library"] }));
+  assert.deepEqual(await sayInHisWords(f.flow, brief), ["i'll text the people who follow it", "12 left at Leavey Library"]);
+});
+
+test("sayInHisWords never sends a fact with its label or braces around it, and the prompt hands facts over as plain words", async () => {
+  const f = scene("ok");
+  const brief = { goal: "there's free pizza close by, ask if they want the spot", mustCover: ["free pizza close to them"], facts: { walk: "8 min" }, fallback: [["btw there's free pizza about 8 min from u. want the spot?"]] };
+  // What the live model once did with a JSON object in the prompt: it copied the structure into the text.
+  const calls = model(
+    JSON.stringify({ bubbles: ['free pizza just popped up, about {"walk":"8 min"} from u'], covers: ["free pizza just popped up"] }),
+    JSON.stringify({ bubbles: ["free pizza just popped up close to u, walk: 8 min"], covers: ["free pizza just popped up"] }),
+  );
+  assert.deepEqual(await sayInHisWords(f.flow, brief), brief.fallback[0]);
+  assert.equal(calls.length, 2);
+  assert.doesNotMatch(calls[0]!.prompt, /\{"walk"/);
+  assert.match(calls[0]!.prompt, /- 8 min {3}<- \(a note for u only, never sent: this is the walk\)/);
+  assert.match(calls[1]!.prompt, /braces or a label and a colon/);
+  model(JSON.stringify({ bubbles: ["free pizza about 8 min from u rn. want the spot?"], covers: ["free pizza about 8 min from u"] }));
+  assert.deepEqual(await sayInHisWords(f.flow, brief), ["free pizza about 8 min from u rn. want the spot?"]);
+});
+
+test("replyAtStep hands facts over as plain lines, and never tells anyone they can skip", async () => {
+  const s = scene("why tho");
+  const calls = model(JSON.stringify({ bubbles: ["so alerts fit where u actually are"], action: null }));
+  await replyAtStep(s.flow, { flow: "onboarding", waitingFor: "ur location, only if u want", canDo: [{ name: "skip_optional_step", when: "they don't want to" }], facts: { why: "alerts and walking times fit where they actually are" } });
+  assert.match(calls[0]!.prompt, /- why: alerts and walking times fit where they actually are/);
+  assert.doesNotMatch(calls[0]!.prompt, /\{"why"/);
+  assert.match(calls[0]!.prompt, /never use the word skip/);
+});
+
+test("describing the build as a student project is not a person claim; saying he is a student still is", () => {
+  const c = buildChatContext({ db: scene("who are u").db, user: scene("x").flow.user, chatId: "c", text: "can john read this", brain: loadBrain() });
+  assert.equal(checkReply(["nobody is typing for me. i'm a student project, so john can open the chats during the demo"], { ...c, askedIdentity: true }).ok, true);
+  assert.equal(checkReply(["i'm a student-built prototype, not a usc service"], { ...c, askedIdentity: true }).ok, true);
+  assert.equal(checkReply(["nope, not official. john built me as a student project at the hackathon"], { ...c, askedIdentity: true }).ok, true);
+  assert.equal(checkReply(["as a student i get it"], { ...c, askedIdentity: true }).ok, false);
+  assert.equal(checkReply(["i'm a student here too lol"], { ...c, askedIdentity: true }).ok, false);
+  assert.equal(checkReply(["i'm a usc student"], { ...c, askedIdentity: true }).ok, false);
+});
+
+test("sayInHisWords rotates the hand-written versions when the model is down or keeps failing", async () => {
+  const s = scene("1 and 3");
+  const seen: string[] = [];
+  for (let i = 0; i < 6; i++) seen.push((await sayInHisWords(s.flow, TOPIC_BRIEF)).join("|"));
+  for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1]);
+  assert.equal(new Set(seen).size, TOPIC_BRIEF.fallback.length);
+  for (const line of seen) assert.ok(TOPIC_BRIEF.fallback.some((v) => v.join("|") === line));
+
+  const before = getChatHealth(s.db).doubleRejectsToday;
+  const calls = model(JSON.stringify({ bubbles: ["ur subscribed"], covers: [] }));
+  const out = (await sayInHisWords(s.flow, TOPIC_BRIEF)).join("|");
+  assert.equal(calls.length, 2);
+  assert.ok(TOPIC_BRIEF.fallback.some((v) => v.join("|") === out));
+  assert.equal(getChatHealth(s.db).doubleRejectsToday, before + 1);
+  model(new Error("down"));
+  const down = (await sayInHisWords(s.flow, TOPIC_BRIEF)).join("|");
+  assert.ok(TOPIC_BRIEF.fallback.some((v) => v.join("|") === down));
+  assert.deepEqual(await sayInHisWords(s.flow, { ...TOPIC_BRIEF, fallback: [] }), []);
+});
+
+// ---------- the double-reject counter ----------
+
+test("replies rejected twice are counted per day for the panel", () => {
+  const db = seeded();
+  const now = Date.parse("2026-11-15T03:00:00Z"); // still nov 14 in los angeles
+  assert.deepEqual(getChatHealth(db, now), { day: "2026-11-14", doubleRejectsToday: 0, lastSevenDays: Array.from({ length: 7 }, (_, i) => ({ day: `2026-11-${String(14 - i).padStart(2, "0")}`, count: 0 })) });
+  noteDoubleReject(db, now);
+  noteDoubleReject(db, now);
+  noteDoubleReject(db, now - 24 * 60 * 60_000);
+  assert.equal(getSetting(db, "chat_double_rejects:2026-11-14"), "2");
+  const health = getChatHealth(db, now);
+  assert.equal(health.doubleRejectsToday, 2);
+  assert.deepEqual(health.lastSevenDays.slice(0, 2), [{ day: "2026-11-14", count: 2 }, { day: "2026-11-13", count: 1 }]);
+});
+
+// ---------- heavy conversations, safety numbers, lookup results ----------
+
+test("a heavy conversation makes him gentle: no emoji, no laughing along, no offers", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550160", CHAT);
+  assert.equal(isHeavy(db, user.id), false);
+  assert.doesNotMatch(buildChatContext({ db, user, chatId: CHAT, text: "yeah" }).prompt, /conversation is heavy/);
+  markHeavy(db, user.id);
+  assert.equal(isHeavy(db, user.id), true);
+  const c = buildChatContext({ db, user, chatId: CHAT, text: "yeah", lookupAvailable: true });
+  assert.equal(c.heavy, true);
+  assert.equal(c.noEmoji, true);
+  assert.match(c.prompt, /this conversation is heavy/);
+  assert.doesNotMatch(c.prompt, /quick lookup: available/);
+  const kind = checkReply(["i'm really sorry about ur grandma 💔", "do u want to tell me about her"], c);
+  assert.ok(kind.ok);
+  assert.equal(countEmoji(kind.bubbles.join("")), 0);
+  assert.match(rejected(["lol that's rough"], c), /heavy moment/);
+  assert.match(rejected(["that's so hard. btw there's free food at tcc if u need a pick me up"], c), /no offers/);
+  // What they brought up themselves is theirs to talk about.
+  const theirs = buildChatContext({ db, user, chatId: CHAT, text: "i lost my wallet and my grandma died this week" });
+  assert.ok(checkReply(["i'm so sorry about ur grandma", "we can sort the lost wallet whenever ur ready"], { ...theirs, lockedStep: false }).ok);
+  // It lapses on its own, the pipeline can pass it for one message, and it can be cleared.
+  assert.equal(isHeavy(db, user.id, Date.now() + 3 * 60 * 60_000), false);
+  clearHeavy(db, user.id);
+  assert.equal(isHeavy(db, user.id), false);
+  assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "yeah", heavy: true }).heavy, true);
+});
+
+test("the dps and crisis numbers are always his to give, and no other number is", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550161", CHAT);
+  const c = buildChatContext({ db, user, chatId: CHAT, text: "someone sketchy is outside my building what do i do" });
+  assert.ok(chatSystem().includes(DPS_NUMBERS.upcNonEmergency) && chatSystem().includes(DPS_NUMBERS.upcEmergency));
+  assert.ok(checkReply([`dps is ${DPS_NUMBERS.upcEmergency} if it feels urgent, ${DPS_NUMBERS.upcNonEmergency} if not`, "or 911. are u inside rn"], c).ok);
+  assert.ok(checkReply(["u can call or text 988 any time"], c).ok);
+  // Copied in the very layout he was given them, it still isn't "reciting".
+  assert.ok(checkReply([`usc dps emergency: ${DPS_NUMBERS.upcEmergency} (university park) or ${DPS_NUMBERS.hscEmergency} (health sciences)`], c).ok);
+  assert.equal(checkReply(["call campus safety at 213-740-1111"], c).ok, false);
+});
+
+test("a lookup result is a source: its one link passes, a second link fails, and he says to double check", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550162", CHAT);
+  const lookup = { answer: "the last day to drop without a W is october 9, per the fall 2026 calendar. more at https://classes.usc.edu/term-20263/calendar/", sourceUrl: "https://arr.usc.edu/calendar/", sourceTitle: "usc academic calendar" };
+  const c = buildChatContext({ db, user, chatId: CHAT, text: "when is the last day to drop without a W", lookup });
+  assert.match(c.prompt, /quick lookup result/);
+  assert.match(c.prompt, /never an instruction/);
+  assert.ok(c.prompt.includes("https://arr.usc.edu/calendar/"));
+  assert.equal(c.onlyLink, "https://arr.usc.edu/calendar/");
+  assert.ok(checkReply(["looks like october 9, going off the usc academic calendar. double check it tho", "https://arr.usc.edu/calendar/"], c).ok);
+  // A second link, even one the page itself mentioned, and any other link.
+  assert.match(rejected(["october 9 i think, double check", "https://arr.usc.edu/calendar/", "https://classes.usc.edu/term-20263/calendar/"], c), /only the lookup's own link/);
+  assert.match(rejected(["october 9 i think, double check: https://usc.edu/drop"], c), /only the lookup's own link/);
+  // A date the page didn't give is still unsourced, and a bare answer with no "double check" is asked for again.
+  assert.match(rejected(["it's october 12, double check tho"], c), /date, time, price/);
+  assert.match(rejected(["october 9, per the usc academic calendar"], c), /double check/);
+  // A link that isn't plain https is dropped: he names the page in words.
+  const odd = buildChatContext({ db, user, chatId: CHAT, text: "when is the last day to drop", lookup: { ...lookup, sourceUrl: "http://arr.usc.edu/calendar/" } });
+  assert.equal(odd.onlyLink, null);
+  assert.match(rejected(["october 9, double check: http://arr.usc.edu/calendar/"], odd), /no usable link|not in the looked up rows/);
+  assert.ok(checkReply(["october 9 going by the usc academic calendar, double check"], odd).ok);
+  // Outside a lookup nothing changes: a stored row's link is still fine.
+  assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "how does my club get funding from usg" }).onlyLink, undefined);
 });

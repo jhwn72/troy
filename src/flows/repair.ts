@@ -15,6 +15,7 @@ import { findPlace } from "../places.ts";
 import type { Place } from "../places.ts";
 import { CANCEL, CANCELLED, CANCELLED_POOL, contentWords, directoryRows, follow, insertReport, isFresh, makeVoice, noEmoji, openReports, othersPhrase, passToOtherFlow, rowForTopic, similarText, userNotes } from "./reports-shared.ts";
 import type { Pools, ReportRow, Voice } from "./reports-shared.ts";
+import { handleStaffTurn, notifyStaffOfReport, restoreStaffPointer, tellerFor } from "../staff.ts";
 
 type RouteKey = "fms" | "housing";
 
@@ -30,6 +31,8 @@ const SAY = {
   alreadyReported: "u already reported that one and it's still open",
   whenItMoves: "i'll text u when it moves",
   notReported: "ok, i didn't report that one. text me the building whenever u want it sent",
+  /** Said right after a report when an example technician was texted: nobody on the other end is real staff yet. */
+  exampleTech: "(heads up: i texted a stand-in technician for the hackathon. no real facilities staff are on here yet)",
 };
 
 /** Lines with a value in them (the office, how many others). Code puts the value in; these only hold the words around it. */
@@ -71,6 +74,11 @@ export const REPAIR_POOLS: Pools = {
     "ok, that one's not reported. whenever u want it sent, text me the building",
   ],
   cancelled: CANCELLED_POOL,
+  exampleTech: [
+    SAY.exampleTech,
+    "(heads up: the technician i texted is a stand-in for the hackathon. no real facilities staff are on here yet)",
+    "(note: i texted an example technician for the hackathon, not real facilities staff yet)",
+  ],
 };
 
 export const REPAIR_VOICE: Voice = makeVoice("repair", REPAIR_POOLS);
@@ -251,7 +259,7 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
     return;
   }
 
-  insertReport(ctx.db, {
+  const reportId = insertReport(ctx.db, {
     userId: ctx.user.id,
     kind: "repair",
     category: draft.category,
@@ -261,7 +269,15 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
     routedTo: route.name,
   });
   const confirm = plain ? RT.reportedPlain(route.key) : RT.reported(route.key);
-  await ctx.say(...lead, confirm, mockNote(route.key));
+  // The assigned technician is texted (an example contact for now); with nobody assigned the dashboard shows the text.
+  // Never allowed to cost the student their confirmation.
+  let texted = false;
+  try {
+    texted = (await notifyStaffOfReport({ db: ctx.db, notify: tellerFor(ctx) }, reportId)).sentTo !== null;
+  } catch {
+    texted = false;
+  }
+  await ctx.say(...lead, confirm, mockNote(route.key), ...(texted ? [SAY.exampleTech] : []));
 }
 
 // ---------- the photo ----------
@@ -357,15 +373,22 @@ export const repair: FlowHandler = {
   async handle(plain) {
     // Everything this flow says goes out through REPAIR_VOICE: facts as written, wording from the pools.
     const ctx = REPAIR_VOICE.wrap(plain);
-    // Tapbacks and poll votes mean nothing here.
+    // A technician's "on it", "done" or "can't" (or a thumbs up on the job bubble) is theirs to answer first.
+    if (await handleStaffTurn(plain)) return;
+    // Any other tapback or poll vote means nothing here.
     if (ctx.event.reaction || ctx.event.pollVote) return;
-    const state = ctx.state?.flow === "repair" ? ctx.state : null;
-    if (state?.step === "ask_place" && isFresh(state)) {
-      await answer(ctx, state.data);
-      return;
+    try {
+      const state = ctx.state?.flow === "repair" ? ctx.state : null;
+      if (state?.step === "ask_place" && isFresh(state)) {
+        await answer(ctx, state.data);
+        return;
+      }
+      if (state) ctx.setState(null);
+      if (!ctx.event.text.trim() && !ctx.event.images.length) return;
+      await start(ctx);
+    } finally {
+      // A technician who reported something of their own still holds their job afterwards.
+      restoreStaffPointer(ctx.db, ctx.user.id);
     }
-    if (state) ctx.setState(null);
-    if (!ctx.event.text.trim() && !ctx.event.images.length) return;
-    await start(ctx);
   },
 };

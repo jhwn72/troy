@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findPlace } from "../places.ts";
 import { matchListing } from "../flows/lostfound/match.ts";
+import { assignStaff, ensureStaffTables } from "../staff.ts";
 
 const DATA_DIR = join(import.meta.dirname, "seed-data");
 const HOUR = 60 * 60 * 1000;
@@ -79,6 +80,7 @@ function count(db: DatabaseSync, table: string): number {
 
 /** Removes every example row (and the rows that hang off them), leaving real rows alone. Used by `scripts/seed.ts --reset`. */
 export function clearExamples(db: DatabaseSync): void {
+  ensureStaffTables(db);
   const exListings = "SELECT id FROM listings WHERE isExample = 1";
   const exMatches = `SELECT id FROM matches WHERE foundListingId IN (${exListings}) OR lostListingId IN (${exListings})`;
   const exUsers = "SELECT id FROM users WHERE isExample = 1";
@@ -92,6 +94,7 @@ export function clearExamples(db: DatabaseSync): void {
     UPDATE reports SET duplicateOf = NULL WHERE duplicateOf IN (SELECT id FROM reports WHERE isExample = 1);
     DELETE FROM reports WHERE isExample = 1;
     DELETE FROM flow_state WHERE userId IN (${exUsers});
+    DELETE FROM staff_contacts WHERE handle IN (SELECT handle FROM users WHERE isExample = 1);
     DELETE FROM user_notes WHERE userId IN (${exUsers});
     DELETE FROM verification_codes WHERE userId IN (${exUsers});
     DELETE FROM users WHERE isExample = 1
@@ -114,8 +117,9 @@ function seedDirectory(db: DatabaseSync): void {
   const upsert = db.prepare(
     "INSERT INTO directory (kind, name, topics, contactMethod, url, details, isExample) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET kind = excluded.kind, topics = excluded.topics, contactMethod = excluded.contactMethod, url = excluded.url, details = excluded.details, isExample = excluded.isExample",
   );
-  // offices.json is ours; directory.json (USG programs and committees) belongs to another builder and may not exist yet.
-  for (const file of ["offices.json", "directory.json"]) {
+  // offices.json is the three offices reports are routed to; campus-offices.json is twelve more verified campus offices
+  // students get pointed to; directory.json is USG's programs and committees. A missing file just adds nothing.
+  for (const file of ["offices.json", "campus-offices.json", "directory.json"]) {
     for (const d of load<DirectorySeed>(file)) {
       if (!d || typeof d.name !== "string" || !d.name || !["office", "usg_committee", "usg_program"].includes(d.kind)) continue;
       upsert.run(d.kind, d.name, JSON.stringify(d.topics ?? []), d.contactMethod ?? null, d.url ?? null, d.details ?? null, d.isExample ? 1 : 0);
@@ -231,12 +235,34 @@ function seedReports(db: DatabaseSync, users: Map<string, number>, now: number):
   }
 }
 
+/** The two stand-in staff phones. Both are example users from users.json (the reserved 555 range). */
+const EXAMPLE_STAFF: { role: string; handle: string; label: string }[] = [
+  { role: "fms", handle: "+12135550119", label: "omar" },
+  { role: "usg:USG Committee on Sustainability and Campus Infrastructure", handle: "+12135550118", label: "hannah" },
+];
+
+/**
+ * Example staff contacts, only for example handles and only on a role nobody holds yet (a phone John assigned from
+ * the dashboard is never replaced). No allow-list rows are added: example users only ever exist in the web chat.
+ */
+function seedExampleStaff(db: DatabaseSync): void {
+  ensureStaffTables(db);
+  for (const s of EXAMPLE_STAFF) {
+    const user = db.prepare("SELECT id, isExample FROM users WHERE handle = ?").get(s.handle) as { id: number; isExample: number } | undefined;
+    if (!user?.isExample) continue;
+    if (db.prepare("SELECT 1 FROM staff_contacts WHERE role = ?").get(s.role)) continue;
+    const res = assignStaff(db, s);
+    if (res.ok && res.addedToAllowList) db.prepare("DELETE FROM allow_list WHERE handle = ? AND reason = 'manual'").run(s.handle);
+  }
+}
+
 /**
  * Seeds campus places, the directory and the example data. Idempotent: a second run adds nothing.
  * Returns how many rows each seeded table holds afterwards.
+ * opts.exampleStaff adds the two stand-in staff contacts (default: only when SEED_EXAMPLES=true).
  * opts.now pins "seed time" (listing times are stored as offsets from it); opts.reset clears old example rows first so their times are fresh.
  */
-export function seed(db: DatabaseSync, opts: { now?: number; reset?: boolean } = {}): { [table: string]: number } {
+export function seed(db: DatabaseSync, opts: { now?: number; reset?: boolean; exampleStaff?: boolean } = {}): { [table: string]: number } {
   const now = opts.now ?? Date.now();
   db.exec("BEGIN");
   try {
@@ -247,6 +273,8 @@ export function seed(db: DatabaseSync, opts: { now?: number; reset?: boolean } =
     seedListings(db, users, now);
     seedFoodDrops(db, users, now);
     seedReports(db, users, now);
+    // Two stand-in staff contacts, only when example mode is on (SEED_EXAMPLES=true) or the caller asks.
+    if (opts.exampleStaff ?? process.env.SEED_EXAMPLES === "true") seedExampleStaff(db);
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");

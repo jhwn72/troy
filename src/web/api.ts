@@ -16,6 +16,9 @@ import type { Context } from "hono";
 import type { MessagingAdapter } from "../types.ts";
 import { config, isEnabled, normalizeHandle } from "../config.ts";
 import { getSetting, setSetting } from "../db/index.ts";
+import { reportReference } from "../flows/reports-shared.ts";
+import { assignStaff, closeJobsFor, exampleTextFor, listStaff, removeStaff, reportRole, roleLabel, staffFor, staffLogFor, staffRoles } from "../staff.ts";
+import { createTopic, openTopicRequests, removeTopic, subscribe } from "../topics.ts";
 
 export interface WebDeps {
   db: DatabaseSync;
@@ -108,19 +111,7 @@ function isSensitive(category: unknown, title: unknown, summary: unknown): boole
   return SENSITIVE_WORDS.test(`${str(title) ?? ""} ${str(summary) ?? ""}`);
 }
 
-/** One line a status text can use to say which report it is about. Built from stored fields, all lowercase. */
-export function reportReference(report: { kind: string; category: unknown; description: unknown; locationText: unknown }): string {
-  const clean = (v: unknown) => (str(v) ?? "").replace(/\s+/g, " ").replace(/—|–/g, "-").trim().toLowerCase();
-  let what = clean(report.description) || clean(report.category);
-  if (what.length > 60) what = `${what.slice(0, 57).trimEnd()}...`;
-  const where = clean(report.locationText);
-  if (report.kind === "repair") {
-    if (what && where) return `update on "${what}" at ${where}`;
-    if (what) return `update on "${what}"`;
-    return where ? `update on the repair report at ${where}` : "update on the repair report";
-  }
-  return what ? `update on the usg concern "${what}"` : "update on the usg concern";
-}
+export { reportReference };
 
 /** The local file for a stored photo path, or null when it is missing or outside the two allowed folders. */
 export function resolvePhoto(photoUrl: unknown, roots: string[] = PHOTO_ROOTS): { path: string; mime: string } | null {
@@ -163,6 +154,19 @@ async function loadLatestEval(): Promise<unknown> {
     // Summary only: the per-case list is long and the pages poll every few seconds.
     const { cases: _cases, ...summary } = result as Record<string, unknown>;
     return summary;
+  } catch {
+    return null;
+  }
+}
+
+/** The chat brain's health number for the panel header. Null until src/brain.ts exports getChatHealth. */
+async function loadChatHealth(db: DatabaseSync): Promise<unknown> {
+  try {
+    const path = "../brain.ts"; // a variable on purpose: the export is another builder's and may not be there yet
+    const mod = (await import(path)) as { getChatHealth?: (db: DatabaseSync) => unknown };
+    if (typeof mod.getChatHealth !== "function") return null;
+    const health: unknown = await mod.getChatHealth(db);
+    return health ?? null;
   } catch {
     return null;
   }
@@ -306,6 +310,7 @@ export function createWebRoutes(deps: WebDeps): Hono {
       handoffs,
       foodDrops,
       eval: await loadLatestEval(),
+      chatHealth: await loadChatHealth(db),
     };
 
     if (isStaff(c)) {
@@ -420,6 +425,25 @@ export function createWebRoutes(deps: WebDeps): Hono {
 
   // ----- reports (repairs and USG concerns) -----
 
+  /**
+   * Who a report's office or committee is assigned to, and what Troy texted them about it. Every assignment is an
+   * example for now. When nothing was sent, `exampleText` is the exact text Troy would have sent.
+   */
+  const staffView = (r: Row) => {
+    const role = reportRole({ kind: r.kind, routedTo: r.routedTo });
+    const contact = staffFor(db, role);
+    const log = staffLogFor(db, r.id as number);
+    const sent = log.some((l) => !l.example);
+    return {
+      role,
+      roleLabel: role ? roleLabel(role) : null,
+      assigned: contact ? { id: contact.id, label: contact.label, handle: maskHandle(contact.handle), isExample: true, reachable: !!contact.user && !contact.user.stopped } : null,
+      log: log.filter((l) => !l.example),
+      exampleText: sent ? null : exampleTextFor(db, r),
+      exampleNote: sent ? null : contact ? "example: nothing was texted for this one" : "example: no one is assigned yet",
+    };
+  };
+
   const reportView = (r: Row, users: Map<number, Row>) => {
     const followers = parseJson<unknown[]>(r.followers, []).filter((x): x is number => typeof x === "number");
     const kind = r.kind as ReportKind;
@@ -440,8 +464,16 @@ export function createWebRoutes(deps: WebDeps): Hono {
       hasPhoto: !!resolvePhoto(r.photoUrl),
       isExample: !!r.isExample,
       createdAt: r.createdAt as number,
+      staff: staffView(r),
     };
   };
+
+  app.get("/api/reports/:id/staff", (c) => {
+    const id = Number(c.req.param("id"));
+    const r = Number.isInteger(id) ? (db.prepare("SELECT * FROM reports WHERE id = ?").get(id) as Row | undefined) : undefined;
+    if (!r) return c.json({ ok: false, error: "not_found" }, 404);
+    return c.json({ ok: true, reportId: id, ...staffView(r) });
+  });
 
   app.get("/api/reports", (c) => {
     const kind = c.req.query("kind") ?? "";
@@ -475,6 +507,8 @@ export function createWebRoutes(deps: WebDeps): Hono {
     if (r.status === status) return c.json({ ok: true, changed: false, status, notified: 0 });
 
     db.prepare("UPDATE reports SET status = ? WHERE id = ?").run(status, id);
+    // Settled from the dashboard: whoever was texted about it holds nothing anymore.
+    if (["fixed", "acted_on", "closed"].includes(status)) closeJobsFor(db, id);
 
     // Every status change is a new text to the reporter and every follower. The copy is fixed, from code.
     let notified = 0;
@@ -516,7 +550,76 @@ export function createWebRoutes(deps: WebDeps): Hono {
         poster: { id: d.posterUserId as number, firstName: firstName(poster?.name), bannedFromPosting: !!poster?.bannedFromPosting, isExample: !!poster?.isExample },
       };
     });
-    return c.json({ ok: true, drops });
+    // Topics students created (staff can take one down) and requests Troy couldn't judge, waiting for a person.
+    let topics: Row[] = [];
+    let topicRequests: Row[] = [];
+    try {
+      topics = (db.prepare("SELECT id, key, label, plain, suggestedBy, createdAt FROM topics WHERE builtIn = 0 AND status = 'active' ORDER BY id").all() as Row[]).map((t) => ({
+        id: t.id as number,
+        key: t.key as string,
+        label: t.label as string,
+        plain: t.plain as string,
+        suggestedByFirstName: firstName(users.get(t.suggestedBy as number)?.name),
+        createdAt: t.createdAt as number,
+      }));
+      topicRequests = openTopicRequests(db).map((q) => ({ id: q.id, text: q.text, requesterFirstName: firstName(users.get(q.userId)?.name), createdAt: q.createdAt }));
+    } catch {
+      // The topic tables belong to another module; a database without them just has nothing to moderate.
+    }
+    return c.json({ ok: true, drops, topics, topicRequests });
+  });
+
+  app.post("/api/moderation/topics/:id/remove", (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ ok: false, error: "not_found" }, 404);
+    try {
+      const row = db.prepare("SELECT builtIn, status FROM topics WHERE id = ?").get(id) as Row | undefined;
+      if (!row) return c.json({ ok: false, error: "not_found" }, 404);
+      // The built-in topics are the poll itself and can't be taken down here.
+      if (row.builtIn) return c.json({ ok: false, error: "built_in" }, 400);
+      removeTopic(db, id);
+      return c.json({ ok: true, id, removed: row.status === "active" });
+    } catch {
+      return c.json({ ok: false, error: "not_found" }, 404);
+    }
+  });
+
+  const topicRequest = (idRaw: string): Row | null => {
+    const id = Number(idRaw);
+    if (!Number.isInteger(id)) return null;
+    try {
+      return (db.prepare("SELECT * FROM topic_requests WHERE id = ?").get(id) as Row | undefined) ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  app.post("/api/moderation/topic-requests/:id/approve", async (c) => {
+    const req = topicRequest(c.req.param("id"));
+    if (!req) return c.json({ ok: false, error: "not_found" }, 404);
+    if (req.status !== "open") return c.json({ ok: true, changed: false, status: req.status as string });
+    const b = await body(c);
+    // Staff may tidy the name; otherwise it is the student's own wording.
+    const name = str(b.name) ?? (req.text as string);
+    const topic = createTopic(db, name, req.userId as number);
+    db.prepare("UPDATE topic_requests SET status = 'created' WHERE id = ?").run(req.id as number);
+    subscribe(db, req.userId as number, topic.id);
+    // Troy told them he'd text when something came of it. Quiet hours hold it back (the outbox), STOP drops it.
+    let notified = false;
+    try {
+      notified = (await deps.notify(req.userId as number, [`good news, "${topic.label}" is a topic now and ur on it. i'll text u ${topic.plain}`])) !== false;
+    } catch {
+      notified = false;
+    }
+    return c.json({ ok: true, changed: true, status: "created", topic: { id: topic.id, key: topic.key, label: topic.label }, notified });
+  });
+
+  app.post("/api/moderation/topic-requests/:id/dismiss", (c) => {
+    const req = topicRequest(c.req.param("id"));
+    if (!req) return c.json({ ok: false, error: "not_found" }, 404);
+    if (req.status !== "open") return c.json({ ok: true, changed: false, status: req.status as string });
+    db.prepare("UPDATE topic_requests SET status = 'declined' WHERE id = ?").run(req.id as number);
+    return c.json({ ok: true, changed: true, status: "declined" });
   });
 
   app.post("/api/moderation/ban", async (c) => {
@@ -595,6 +698,46 @@ export function createWebRoutes(deps: WebDeps): Hono {
   };
   app.delete("/api/settings/allow-list", removeManual);
   app.delete("/api/settings/allow-list/:id", removeManual);
+
+  // ----- people: who a report's office or committee is assigned to (all examples for now) -----
+
+  const staffListView = () => {
+    const labels = new Map(staffRoles(db).map((r) => [r.role, r.label]));
+    return {
+      roles: staffRoles(db),
+      contacts: listStaff(db).map((s) => {
+        const live = staffFor(db, s.role);
+        return {
+          id: s.id,
+          role: s.role,
+          roleLabel: labels.get(s.role) ?? roleLabel(s.role),
+          kind: s.role.startsWith("usg:") ? "usg" : "repair",
+          handle: maskHandle(s.handle),
+          label: s.label,
+          isExample: true,
+          // False until this phone has texted troy: there is no chat to send to yet.
+          reachable: !!live?.user && !live.user.stopped,
+          createdAt: s.createdAt,
+        };
+      }),
+    };
+  };
+
+  app.get("/api/staff", (c) => c.json({ ok: true, ...staffListView() }));
+
+  app.post("/api/staff", async (c) => {
+    const b = await body(c);
+    const res = assignStaff(db, { role: b.role, handle: b.handle, label: b.label });
+    if (!res.ok) return c.json({ ok: false, error: res.error }, 400);
+    return c.json({ ok: true, assigned: { id: res.contact.id, role: res.contact.role, handle: maskHandle(res.contact.handle), label: res.contact.label, isExample: true }, addedToAllowList: res.addedToAllowList, ...staffListView() });
+  });
+
+  app.delete("/api/staff/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ ok: false, error: "bad_request" }, 400);
+    const removed = removeStaff(db, id);
+    return c.json({ ok: true, removed, ...staffListView() });
+  });
 
   // ----- directory -----
 

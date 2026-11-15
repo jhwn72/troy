@@ -36,7 +36,7 @@ const END_WORDS = /^(?:done|end|end chat|end relay|end it|stop relay|close chat|
 
 /** Fixed copy. The start lines are for the flow that opens a relay to send to both people. */
 export const RELAY_COPY = {
-  start: ["i'll pass messages between u two right here. no numbers shared", "just text me what u want them to know. text done when ur finished"],
+  start: ["i'll pass messages between u two right here. no numbers shared", 'just text me what u want them to know. text "done" when ur finished'],
   ended: "ok, closed that chat. they won't get ur texts anymore",
   endedOther: "the other person closed the chat. i've stopped passing messages",
   undelivered: "couldn't get that to them rn. try again in a bit",

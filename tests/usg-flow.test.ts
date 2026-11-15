@@ -6,7 +6,7 @@ import { seed } from "../src/db/seed.ts";
 import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
-import { usg, ASK_NAME, isConcern, parseChoice, topicFromWords, EXPLAIN_NAME, USG_POOLS, USG_VOICE } from "../src/flows/usg.ts";
+import { usg, ASK_NAME, ASK_JOIN_NAME, isConcern, parseChoice, topicFromWords, EXPLAIN_NAME, USG_POOLS, USG_VOICE } from "../src/flows/usg.ts";
 import { sentenceBubbles } from "../src/flows/reports-shared.ts";
 import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
 import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
@@ -222,7 +222,7 @@ test("topics pick the committee row by its stored topics", async () => {
   assert.equal(t.mine()[1].category, "other");
 });
 
-test("a similar open concern is joined as a follower: no new row and no question", async () => {
+test("a similar open concern is joined as a follower: no new row, and one optional question about their name", async () => {
   const t = setup();
   // Example rows are never joined, so treat the seeded concerns as real here.
   t.db.prepare("UPDATE reports SET isExample = 0").run();
@@ -232,10 +232,51 @@ test("a similar open concern is joined as a follower: no new row and no question
   const reply = await a.text("why does village dining close so early");
   assert.ok(!reply.includes(ASK_NAME));
   assert.match(reply[0], new RegExp(`^\\d+ others? (?:person )?already sent that to the ${DINING_COMMITTEE}`));
+  assert.equal(reply.at(-1), ASK_JOIN_NAME);
   assert.equal(t.reports().length, before);
   const after = t.reports().find((r) => r.id === seeded.id)!;
+  // Added right away, whatever they answer.
   assert.ok((JSON.parse(after.followers) as number[]).includes(a.id));
+  assert.equal(a.state()?.step, "ask_join_name");
+  const named = () => (t.db.prepare("SELECT named FROM report_people WHERE reportId = ? AND userId = ?").get(seeded.id, a.id) as { named: number }).named;
+  assert.equal(named(), 0);
+
+  // A question about it is answered and nothing is decided.
+  const explained = await a.text("who sees my name?");
+  assert.equal(explained.length, 2);
+  assert.equal(named(), 0);
+  assert.equal(a.state()?.step, "ask_join_name");
+
+  assert.deepEqual(await a.text("use my name"), ["bet, ur name's on it. if usg wants to talk i'll ask u first"]);
+  assert.equal(named(), 1);
   assert.equal(a.state(), null);
+});
+
+test("a joiner who says anonymous, or just moves on, stays a nameless count", async () => {
+  const t = setup();
+  t.db.prepare("UPDATE reports SET isExample = 0").run();
+  const seeded = t.reports().find((r) => r.category === "dining" && r.status === "received")!;
+  const named = (id: number) => (t.db.prepare("SELECT named FROM report_people WHERE reportId = ? AND userId = ?").get(seeded.id, id) as { named: number }).named;
+
+  const a = t.student("+13235550031");
+  await a.text("why does village dining close so early");
+  assert.deepEqual(await a.text("anonymous pls"), ["all good, ur counted without ur name"]);
+  assert.equal(named(a.id), 0);
+  assert.equal(a.state(), null);
+
+  // "yes" doesn't say which: the choice that shares less, said plainly.
+  const b = t.student("+13235550032");
+  await b.text("why does village dining close so early");
+  assert.deepEqual(await b.text("yes"), ["wasn't sure which u meant, so i left ur name off"]);
+  assert.equal(named(b.id), 0);
+
+  // Something for another flow goes there, with no complaint about the unanswered question.
+  const c = t.student("+13235550033");
+  await c.text("why does village dining close so early");
+  assert.deepEqual(await c.text("the elevator in leavey is broken"), ["repair reply"]);
+  assert.equal(named(c.id), 0);
+  assert.equal(c.state(), null);
+  assert.ok((JSON.parse(t.reports().find((r) => r.id === seeded.id)!.followers) as number[]).includes(c.id));
 });
 
 test("a concern a program fits gets the program's stored details first, then the question", async () => {
@@ -249,6 +290,18 @@ test("a concern a program fits gets the program's stored details first, then the
   await a.text("anonymous");
   assert.equal(t.mine()[0].routedTo, "USG Funding Department");
   assert.equal(t.mine()[0].anonymous, 1);
+});
+
+test("a plain complaint that only shares a word with a program is just the complaint: no program recited at them", async () => {
+  const t = setup();
+  const a = t.student("+13235550018");
+  const reply = await a.text("i have a complaint for usg: the late night village shuttles never show up on time");
+  assert.deepEqual(reply, [ASK_NAME]);
+  // More than a few words, and it still picks the name.
+  await a.text("put my name on it, im gabe");
+  assert.equal(t.mine()[0].anonymous, 0);
+  // The committee member reads the concern itself, without the "complaint for usg" in front.
+  assert.equal(t.mine()[0].description, "the late night village shuttles never show up on time");
 });
 
 test("a question nothing covers gets an honest guess in two bubbles, with a link only from the directory", async () => {

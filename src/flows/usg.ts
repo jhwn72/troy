@@ -13,11 +13,14 @@ import type { FlowContext, FlowHandler } from "../types.ts";
 import { askJson, composeReply } from "../ai.ts";
 import { CANCEL, CANCELLED, CANCELLED_POOL, directoryRows, follow, insertReport, isFresh, makeVoice, openReports, othersPhrase, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, userNotes } from "./reports-shared.ts";
 import type { DirectoryRow, Pools, Voice } from "./reports-shared.ts";
+import { handleStaffTurn, notifyStaffOfReport, queueStaffNotice, recordPerson, restoreStaffPointer, tellerFor } from "../staff.ts";
 
 export const TOPICS = ["dining", "safety", "housing", "academics", "transportation", "club funding", "other"] as const;
 export type Topic = (typeof TOPICS)[number];
 
 export const ASK_NAME = "want me to send it with ur name or anonymously?";
+/** Asked once after someone is added to a concern others already sent. No answer means they stay a nameless count. */
+export const ASK_JOIN_NAME = "want ur name on it too, or should i keep u anonymous?";
 const CHECK_WITH_USG = "i'd check with usg";
 /** Used only if the directory has no committee rows (an unseeded database). */
 const ROUTE_FALLBACK = "USG";
@@ -110,9 +113,17 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
   if (dup) {
     ctx.setState(null);
     const { result, others } = follow(ctx.db, dup, ctx.user.id);
-    if (result === "already") await ctx.say(...lead, SAY.alreadySent, SAY.whenPickedUp);
-    // Followers are never shown by name on the dashboard (only a count), so there is nothing to ask here.
-    else await ctx.say(...lead, UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp);
+    if (result === "already") {
+      await ctx.say(...lead, SAY.alreadySent, SAY.whenPickedUp);
+      return;
+    }
+    // They are in either way, as a count with no name. One optional question: a name only matters if the committee's
+    // member wants to talk to the students behind it (they are asked again before anyone is connected).
+    recordPerson(ctx.db, dup.id, ctx.user.id, false);
+    // The member's updated summary waits a little for this answer, and goes out anyway if it never comes.
+    queueStaffNotice(ctx.db, dup.id);
+    ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...p, reportId: dup.id } });
+    await ctx.say(...lead, UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp, ASK_JOIN_NAME);
     return;
   }
   ctx.setState({ flow: "usg", step: "ask_name", data: { ...p } });
@@ -121,11 +132,23 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
 
 async function send(ctx: FlowContext, p: Pending, anonymous: boolean, note?: string): Promise<void> {
   ctx.setState(null);
-  insertReport(ctx.db, { userId: ctx.user.id, kind: "usg_concern", anonymous, category: p.topic, description: p.description, routedTo: p.routedTo });
+  const reportId = insertReport(ctx.db, { userId: ctx.user.id, kind: "usg_concern", anonymous, category: p.topic, description: p.description, routedTo: p.routedTo });
+  recordPerson(ctx.db, reportId, ctx.user.id, !anonymous);
   const bubbles = [UT.sent(p.routedTo)];
   if (note) bubbles.push(note);
   else if (anonymous) bubbles.push(SAY.sentAnon);
+  // The committee's assigned member gets a summary: counts only, never who. Said plainly when that person is a stand-in.
+  if (await tellStaff(ctx, reportId)) bubbles.push(SAY.exampleMember);
   await ctx.say(...bubbles);
+}
+
+/** Texts the committee's assigned member (an example contact for now). Never allowed to cost the student their reply. */
+async function tellStaff(ctx: FlowContext, reportId: number): Promise<boolean> {
+  try {
+    return (await notifyStaffOfReport({ db: ctx.db, notify: tellerFor(ctx) }, reportId)).sentTo !== null;
+  } catch {
+    return false;
+  }
 }
 
 /** A question about the choice ("will they see my name?") is not the choice. */
@@ -140,7 +163,8 @@ export function parseChoice(text: string): "name" | "anonymous" | null {
   if (ASKS_ABOUT_IT.test(t)) return null;
   if (/\bnot anon|don'?t (?:need|have) to be anon|no need (?:to be|for) anon/.test(t)) return "name";
   if (/\banon|\bno name\b|without (?:my |a |the )?name|(?:don'?t|do not|dont) (?:use|include|share|put|add|want) (?:my )?name|\bnot (?:with )?my name\b|\bnameless\b|\bprivate(?:ly)?\b/.test(t)) return "anonymous";
-  if (/\bname\b/.test(t) && t.split(" ").length <= 6) return "name";
+  // Negations were caught above, so a short statement with "name" in it picks the name ("put my name on it, i'm gabe").
+  if (/\bname\b/.test(t) && t.split(" ").length <= 12) return "name";
   if (/^(?:me|mine|as me)$/.test(t)) return "name";
   return null;
 }
@@ -150,6 +174,9 @@ export function asksAboutName(text: string): boolean {
   const t = text.toLowerCase().replace(/[‘’]/g, "'").trim();
   return ASKS_ABOUT_IT.test(t) && /\bname|\banon|\bsee\b|\bknow\b|\bwho\b|\bprivate|\bidentif/.test(t);
 }
+
+/** The same question about the optional name on a concern they joined. */
+const EXPLAIN_JOIN_NAME = ["with ur name on it, usg can ask to talk to u about it, and i'd check with u first", "anonymous means ur just counted. which one?"];
 
 export const EXPLAIN_NAME = ["with ur name, the committee sees ur first name next to it", "anonymous means no name at all. which one?"];
 
@@ -164,6 +191,11 @@ const SAY = {
   doubleCheck: "i'd double check with usg",
   heldOff: "ok, i held off on sending that one. tell me again whenever u want it sent",
   allGood: "all good",
+  nameAdded: "bet, ur name's on it. if usg wants to talk i'll ask u first",
+  keptAnon: "all good, ur counted without ur name",
+  joinUnsure: "wasn't sure which u meant, so i left ur name off",
+  /** Said right after a concern when an example usg member was texted: nobody on the other end is a real member yet. */
+  exampleMember: "(heads up: the usg member i looped in is a stand-in for the hackathon. no real usg members are on here yet)",
 };
 
 /** Lines with a value in them (a committee, a link, how many others). Code puts the value in; these only hold the words around it. */
@@ -216,6 +248,20 @@ export const USG_POOLS: Pools = {
     "ok, holding off on that one. whenever u want it sent, tell me again",
   ],
   allGood: [SAY.allGood, "no worries", "all good, no worries"],
+  askJoinName: [ASK_JOIN_NAME, "do u want ur name on it too, or should i keep u anonymous?", "should i add ur name to it too, or keep u anonymous?"],
+  explainJoinName: [
+    EXPLAIN_JOIN_NAME,
+    ["if ur name's on it, usg can ask to talk to u about it, and i'd check with u first", "anonymous means ur only counted. which one?"],
+    ["with ur name on it, usg could ask to talk to u, and i'd ask u before connecting anyone", "anonymous means ur just a count. which do u want?"],
+  ],
+  nameAdded: [SAY.nameAdded, "got it, ur name's on it. if usg wants to talk, i'll ask u first", "ur name's on it now. i'll check with u first if usg wants to talk"],
+  keptAnon: [SAY.keptAnon, "no worries, ur counted with no name on it", "all good, i left ur name off. u still count"],
+  joinUnsure: [SAY.joinUnsure, "i wasn't sure which u meant, so i left ur name off", "couldn't tell which u meant, so ur name's not on it"],
+  exampleMember: [
+    SAY.exampleMember,
+    "(heads up: i looped in a stand-in usg member for the hackathon. no real usg members are on here yet)",
+    "(note: the usg member i texted is an example for the hackathon, not a real member yet)",
+  ],
   cancelled: CANCELLED_POOL,
   offerSend: [SAY.offerSend, "want me to send ur question to them?", "should i send them ur question?"],
   guessCommittee: (name) => [
@@ -246,6 +292,12 @@ export const USG_VOICE: Voice = makeVoice("usg", USG_POOLS);
 const YES = /^(?:yes|yea|yeah|yep|yup|ya|sure|ok|okay|k|pls|please|do it|send it|go ahead|go for it|bet|ye)\b/i;
 const NO = /^(?:no|nah|nope|i'?m good|im good|all good|not rn|no need)\b/i;
 
+/** The concern itself, without the "tell usg that" in front of it: this text is shown to a committee member. */
+function concernWords(text: string): string {
+  const cut = text.replace(/^(?:(?:hey|yo|ok|so)[ ,]+)?(?:i (?:have|got) a (?:complaint|concern|suggestion)(?: (?:for|about) (?:usg|student government))?|(?:(?:can|could) (?:u|you) )?(?:pls |please )?(?:tell|let) (?:usg|student government)(?: know)?(?: that)?|(?:complaint|concern|suggestion) for (?:usg|student government))\s*[:,.-]*\s*/i, "").trim();
+  return cut.length >= 12 ? cut : text;
+}
+
 // ---------- the first message ----------
 
 async function start(ctx: FlowContext): Promise<void> {
@@ -269,8 +321,14 @@ async function start(ctx: FlowContext): Promise<void> {
   const committee = committeeFor(ctx, topic);
 
   if (concern) {
-    // The program comes first when one fits, then the concern still goes to a committee.
-    await raise(ctx, { description: text.slice(0, 300), topic, routedTo: committee?.name ?? ROUTE_FALLBACK }, program ? programBubbles(program) : []);
+    // The program comes first only when they also asked something a program answers ("is there a shuttle to lax?
+    // ubers are insane"). A plain complaint that happens to share a word with a program (late village shuttles
+    // and the lax shuttle) is just the complaint: reciting the program at them would be ignoring what they said.
+    const asked = /\?|\b(?:is there|are there|does usg|do they|do u know|how do i|how can i|when is|when does|where (?:is|do|can))\b/i.test(text);
+    // Or when they named the program itself ("the rso funding deadlines are ridiculous"), not just one shared word.
+    const low = text.toLowerCase();
+    const named = !!program && [program.name.replace(/^usg\s+/i, ""), ...program.topics].some((p) => p.trim().includes(" ") && low.includes(p.trim().toLowerCase()));
+    await raise(ctx, { description: concernWords(text).slice(0, 300), topic, routedTo: committee?.name ?? ROUTE_FALLBACK }, program && (asked || named) ? programBubbles(program) : []);
     return;
   }
 
@@ -314,17 +372,54 @@ export const usg: FlowHandler = {
   async handle(plain) {
     // Everything this flow says goes out through USG_VOICE: facts as written, wording from the pools.
     const ctx = USG_VOICE.wrap(plain);
-    // Tapbacks and poll votes mean nothing here.
+    // A usg member's answer to a summary, or a student's answer about joining a group chat with them, comes first.
+    if (await handleStaffTurn(plain)) return;
+    // Any other tapback or poll vote means nothing here.
     if (ctx.event.reaction || ctx.event.pollVote) return;
+    try {
+      await converse(ctx);
+    } finally {
+      // A member who raised something of their own still holds their summary afterwards.
+      restoreStaffPointer(ctx.db, ctx.user.id);
+    }
+  },
+};
+
+async function converse(ctx: FlowContext): Promise<void> {
+  {
     const state = ctx.state?.flow === "usg" ? ctx.state : null;
     const pending = state ? pendingFrom(state.data) : null;
     const text = ctx.event.text.trim();
 
+    const joinId = state?.step === "ask_join_name" && typeof state.data.reportId === "number" ? state.data.reportId : null;
+
     if (!state || !pending || !isFresh(state)) {
       if (state) ctx.setState(null);
+      if (joinId !== null) await tellStaff(ctx, joinId);
       await start({ ...ctx, state: null });
       return;
     }
+
+    // The optional name on a concern they joined. They are already counted, so nothing here can lose their concern.
+    if (state.step === "ask_join_name" && joinId !== null) {
+      const choice = parseChoice(text);
+      if (!choice && asksAboutName(text)) {
+        ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...state.data } });
+        await ctx.say(...EXPLAIN_JOIN_NAME);
+        return;
+      }
+      ctx.setState(null);
+      if (choice === "name") recordPerson(ctx.db, joinId, ctx.user.id, true);
+      // Now the member's summary can go out with the right counts.
+      await tellStaff(ctx, joinId);
+      if (choice) await ctx.say(choice === "name" ? SAY.nameAdded : SAY.keptAnon);
+      else if (CANCEL.test(text) || NO.test(text)) await ctx.say(SAY.keptAnon);
+      else if (await passToOtherFlow(ctx, "usg")) return;
+      else if (YES.test(text)) await ctx.say(SAY.joinUnsure);
+      else if (looksLikeNewAsk(ctx, text)) await start({ ...ctx, state: null });
+      return;
+    }
+
     if (CANCEL.test(text)) {
       ctx.setState(null);
       await ctx.say(CANCELLED);
@@ -370,5 +465,5 @@ export const usg: FlowHandler = {
     }
 
     await start({ ...ctx, state: null });
-  },
-};
+  }
+}

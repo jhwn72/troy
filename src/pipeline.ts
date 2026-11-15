@@ -3,12 +3,19 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Bubble, FlowContext, FlowHandler, FlowName, FlowState, IncomingEvent, Intent, MessagingAdapter, User } from "./types.ts";
 import { isEnabled } from "./config.ts";
-import { getFlowState, getOrCreateUser, getUserById, saveMessage, setFlowState, updateUser } from "./db/index.ts";
-import { isHeyTroy, matchCommand, TEMPLATES } from "./commands.ts";
+import { getFlowState, getOrCreateUser, getSetting, getUserById, saveMessage, setFlowState, setSetting, updateUser } from "./db/index.ts";
+import { COMMAND_POOLS, endsPlayful, isHeyTroy, matchCommand, safetySignal, TEMPLATES } from "./commands.ts";
 import type { CommandKind } from "./commands.ts";
+import * as onboardingMod from "./onboarding.ts";
 import { handleOnboarding, needsOnboarding } from "./onboarding.ts";
 import { getFlow } from "./flows/index.ts";
-import { detectIntent as realDetectIntent } from "./ai.ts";
+import * as aiMod from "./ai.ts";
+import { detectIntent as realDetectIntent, modelReady } from "./ai.ts";
+import * as brainMod from "./brain.ts";
+import { pickVariant } from "./voice.ts";
+import { noteOpenQuestion, openQuestionId, readYesNo } from "./yes.ts";
+import { adjustIntent, cancelFirstTen, firstTenChat, firstTenIntercept, firstTenTap, inHisWords, noteStudentMessage, setFirstTenIo, sweepFirstTen } from "./firstten.ts";
+import * as topics from "./topics.ts";
 import { activeRelayFor, relayMessage } from "./relay.ts";
 import { inQuietHours } from "./quiet.ts";
 import type { SweepIo } from "./pending.ts";
@@ -32,6 +39,41 @@ export type PipelineDeps = {
   random?: () => number;
   /** Default: src/location.ts. */
   location?: LocationStore;
+  /**
+   * The model's read of an ambiguous message (a joke, real worry, a crisis). Default: readSafety in src/ai.ts when a
+   * model can be reached. Null means "no model": ambiguous messages with self-harm words then get the fixed line.
+   */
+  readSafety?: SafetyReader | null;
+};
+
+export type SafetyRead = "none" | "joke" | "concern" | "crisis";
+export type SafetyReader = (input: { text: string; history: { from: "student" | "troy"; text: string }[] }) => Promise<SafetyRead>;
+
+/** A bubble with a longer beat after it: `pauseAfterMs` is waited once it has landed, before the next one is typed. */
+export type PacedBubble = Bubble & { pauseAfterMs?: number };
+
+/** How long Troy's own short questions (a confirmation, a check-in) stay answerable. */
+export const ASK_TTL_MS = 10 * 60 * 1000;
+export const CHECKIN_TTL_MS = 30 * 60 * 1000;
+/** After a safety read of "concern" or a fixed safety line, replies stay gentle this long (minutes). */
+export const HEAVY_MINUTES = 60;
+
+/** Steps of the try-it tour where every text is the answer, whatever intent detection made of it. Mirrors TOUR_HOLDS in src/flows/tour.ts. */
+const TOUR_HOLD_STEPS = new Set(["describe", "repair_photo", "study_spot"]);
+
+type AskKind = "stop" | "start" | "pause" | "resume" | "forget_location" | "delete_data" | "unsubscribe_topic" | "checkin";
+/** One short question of Troy's own that is waiting for a yes or a no (kept in settings, so it survives a restart). */
+type OpenAsk = { kind: AskKind; topicId?: number; qid: string | null; at: number };
+
+const CHECK_IN = {
+  goal: "they said something that might be real distress. check in like a person who cares: one direct, kind question asking whether they are okay or thinking about hurting themselves. nothing else. no hotline, no advice, no emoji, no joke",
+  mustCover: ["one direct, kind question: are they okay, are they thinking about hurting themselves"],
+  fallback: [
+    ["hey, real question. are u ok? are u thinking about hurting urself?"],
+    ["wait, i wanna check on u for real. are u thinking about hurting urself?"],
+    ["that sounded heavy. are u ok, like actually? any thoughts of hurting urself?"],
+    ["hold on, i'm taking that seriously. are u thinking about hurting urself?"],
+  ],
 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -154,6 +196,20 @@ export function chunkBubble(text: string, max: number = TIMING.chunkChars): stri
   return out;
 }
 
+/** What one turn said: whether anything went out, and the id of the last bubble (the open question, if a step is left open). */
+type Track = { said: boolean; lastId: string | null; on: (ids?: (string | null)[]) => void };
+function newTrack(): Track {
+  const t: Track = {
+    said: false,
+    lastId: null,
+    on(ids) {
+      t.said = true;
+      for (const id of ids ?? []) if (id) t.lastId = id;
+    },
+  };
+  return t;
+}
+
 /** One incoming message's reply. `ready` resolves once "Read" has had its beat; nothing is typed or sent before it. */
 type Turn = { sent: boolean; ready: Promise<void>; done: boolean };
 const freeTurn = (): Turn => ({ sent: false, ready: Promise.resolve(), done: false });
@@ -228,7 +284,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
   async function send(
     to: User,
     chatId: string,
-    bubbles: (string | Bubble)[],
+    bubbles: (string | PacedBubble)[],
     opts: { force?: boolean; turn?: Turn; instant?: boolean; noSave?: boolean; notice?: boolean } = {},
   ): Promise<(string | null)[]> {
     const adapter = deps.getAdapter();
@@ -239,8 +295,9 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     let first = true;
     let continued = !!turn?.sent;
     if (turn) turn.sent = true;
-    for (const b of bubbles) {
-      const bubble: Bubble = typeof b === "string" ? { text: b } : b;
+    for (let n = 0; n < bubbles.length; n++) {
+      const b = bubbles[n]!;
+      const bubble: PacedBubble = typeof b === "string" ? { text: b } : b;
       const pieces = chunkBubble(bubble.text);
       let id: string | null = null;
       for (let k = 0; k < pieces.length; k++) {
@@ -266,6 +323,13 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         id = sent?.messageId ?? null;
       }
       ids.push(id);
+      // A longer beat the caller asked for (after the contact card line, before a change of subject). Only between
+      // bubbles: nothing waits after the last one.
+      const beat = Number(bubble.pauseAfterMs);
+      if (id && Number.isFinite(beat) && beat > 0 && n < bubbles.length - 1 && !stopped()) {
+        await quiet(adapter.stopTyping(chatId), undefined);
+        await pause(Math.min(beat, 15_000));
+      }
     }
     if (sentAny || !isStopped(to.id)) await quiet(adapter.stopTyping(chatId), undefined);
     return ids;
@@ -346,6 +410,25 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     };
   }
 
+  /**
+   * For what Troy starts on his own in the first ten minutes. Unlike sweepIo these are his own words (not a notice),
+   * so the chat brain reads them back as things he said. Held back by quiet hours like any unprompted text.
+   */
+  function firstTenIo(): SweepIo {
+    return {
+      db,
+      // Looked up when used, not when this is built: the server creates the pipeline before the adapter exists.
+      get adapter() {
+        return flowAdapter(freeTurn());
+      },
+      async sayTo(userId, ...bubbles) {
+        const other = getUserById(db, userId);
+        if (!other || other.stopped || inQuietHours(other)) return bubbles.map(() => null);
+        return send(other, other.chatId, bubbles);
+      },
+    };
+  }
+
   /** Parked questions go out to whoever is free now. */
   const deliver = (now?: number) => deliverPending(db, (to, bubbles) => send(to, to.chatId, bubbles, { notice: true }), now);
 
@@ -354,7 +437,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
    * another flow's protected question (a finder being asked how to hand an item off) is left alone when a
    * different flow says "done", and parked to be asked again when a different flow opens a step of its own.
    */
-  function makeContext(user: User, event: IncomingEvent, intent: Intent, state: FlowState | null, onSay: () => void, owner: FlowName | undefined, turn: Turn): FlowContext {
+  function makeContext(user: User, event: IncomingEvent, intent: Intent, state: FlowState | null, onSay: (ids?: (string | null)[]) => void, owner: FlowName | undefined, turn: Turn): FlowContext {
     return {
       db,
       user,
@@ -364,7 +447,9 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       adapter: flowAdapter(turn),
       async say(...bubbles) {
         onSay();
-        return send(user, event.chatId, bubbles, { turn });
+        const sent = await send(user, event.chatId, bubbles, { turn });
+        onSay(sent);
+        return sent;
       },
       async sayTo(userId, ...bubbles) {
         const other = getUserById(db, userId);
@@ -389,16 +474,124 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     };
   }
 
+  // ---------- Troy's own short questions (a confirmation, a check-in) ----------
+
+  const askSlot = (userId: number) => `ask:${userId}`;
+
+  /** The question of Troy's own this person has open, if it hasn't lapsed. */
+  function openAsk(userId: number, now = Date.now()): OpenAsk | null {
+    try {
+      const raw = getSetting(db, askSlot(userId));
+      if (!raw) return null;
+      const ask = JSON.parse(raw) as OpenAsk;
+      if (!ask || typeof ask.kind !== "string" || typeof ask.at !== "number") return null;
+      return now - ask.at < (ask.kind === "checkin" ? CHECKIN_TTL_MS : ASK_TTL_MS) ? ask : null;
+    } catch {
+      return null;
+    }
+  }
+  function setAsk(userId: number, ask: OpenAsk | null): void {
+    try {
+      setSetting(db, askSlot(userId), ask ? JSON.stringify(ask) : "");
+    } catch {
+      // A question that could not be remembered is simply not open.
+    }
+  }
+
+  /** One reply from a command pool, never the wording this person got last time. "|" splits it into bubbles. */
+  function vary(user: User, key: keyof typeof COMMAND_POOLS, values: Record<string, string> = {}): string[] {
+    let line = pickVariant(db, user.id, `cmd:${key}`, [...COMMAND_POOLS[key]]);
+    for (const [k, v] of Object.entries(values)) line = line.replaceAll(`{${k}}`, v);
+    return line.split("|").map((b) => b.trim()).filter(Boolean);
+  }
+
+  /** Replies stay gentle for the next hour (the chat brain reads this flag on every free reply). */
+  function markHeavy(userId: number): void {
+    const fn = (brainMod as Record<string, unknown>).markHeavy;
+    if (typeof fn !== "function") return;
+    try {
+      (fn as (d: DatabaseSync, u: number, minutes?: number) => void)(db, userId, HEAVY_MINUTES);
+    } catch {
+      // Never worth losing a reply over.
+    }
+  }
+
+  /** The model's read of an ambiguous message, or null when there is no model to ask. */
+  function safetyReader(): SafetyReader | null {
+    if (deps.readSafety !== undefined) return deps.readSafety;
+    const fn = (aiMod as Record<string, unknown>).readSafety;
+    return typeof fn === "function" && modelReady() ? (fn as SafetyReader) : null;
+  }
+
+  /** The last few texts of this chat, oldest first, without the one being read. */
+  function recentTexts(chatId: string, exceptMessageId: string): { from: "student" | "troy"; text: string }[] {
+    try {
+      const rows = db.prepare("SELECT direction, providerMessageId, text FROM messages WHERE chatId = ? ORDER BY id DESC LIMIT 9").all(chatId) as { direction: string; providerMessageId: string | null; text: string | null }[];
+      return rows
+        .filter((r) => !(r.direction === "in" && r.providerMessageId === exceptMessageId) && !!r.text?.trim())
+        .slice(0, 8)
+        .reverse()
+        .map((r) => ({ from: r.direction === "in" ? ("student" as const) : ("troy" as const), text: String(r.text).slice(0, 300) }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * A message code can't call either way ("kms", a dark line with a laugh in it, something heavy): the model reads
+   * it in its conversation. With no model, anything with self-harm words in it falls back to the fixed line.
+   */
+  async function readAmbiguous(event: IncomingEvent, selfHarmWords: boolean): Promise<SafetyRead> {
+    const reader = safetyReader();
+    const failSafe: SafetyRead = selfHarmWords ? "crisis" : "none";
+    if (!reader) return failSafe;
+    try {
+      const read = await reader({ text: event.text, history: recentTexts(event.chatId, event.messageId) });
+      return read === "joke" || read === "concern" || read === "crisis" || read === "none" ? read : failSafe;
+    } catch {
+      return failSafe;
+    }
+  }
+
+  /**
+   * Their answer to Troy's check-in question. A yes or a dodge gets the fixed crisis line; only a clear "no, i'm
+   * fine" goes back to normal chat (which stays gentle for the next hour).
+   */
+  async function readCheckInAnswer(event: IncomingEvent): Promise<"crisis" | "fine"> {
+    const signal = safetySignal(event.text);
+    const answer = readYesNo({ event, questionMessageId: null });
+    if (answer === "yes" || signal.level === "crisis") return "crisis";
+    if (answer === "no" && !signal.selfHarmWords) return "fine";
+    const reader = safetyReader();
+    if (reader) {
+      try {
+        const read = await reader({ text: event.text, history: recentTexts(event.chatId, event.messageId) });
+        return read === "joke" || read === "none" ? "fine" : "crisis";
+      } catch {
+        // Falls through to the rule below.
+      }
+    }
+    // No model: a plain denial with nothing dark in it is taken at its word. Anything else is a dodge.
+    const t = event.text.toLowerCase().replace(/[‘’]/g, "'").trim();
+    const denies = /^(?:no+|nah+|nope|i'?m (?:ok|okay|fine|good|alright)|im (?:ok|okay|fine|good|alright)|jk|just (?:kidding|joking)|not (?:at all|really|like that)|all good)\b/.test(t);
+    return denies && !signal.selfHarmWords ? "fine" : "crisis";
+  }
+
   async function runCommand(kind: CommandKind, user: User, event: IncomingEvent, turn: Turn): Promise<void> {
     const say = (bubbles: string[], force = false) => send(user, event.chatId, bubbles, { force, turn });
     const adapter = deps.getAdapter();
+    // Any exact command closes whatever question of Troy's own was open.
+    setAsk(user.id, null);
     switch (kind) {
       // Safety replies go out even to someone who texted STOP earlier: silence on a fire text is the worse failure.
       // The first bubble (call 911, text 988) goes out at once, with no read beat and no typing wait.
       case "emergency":
+        markHeavy(user.id);
         await send(user, event.chatId, TEMPLATES.emergency, { force: true, turn, instant: true });
         return;
       case "crisis":
+        markHeavy(user.id);
+        cancelFirstTen(db, user.id);
         await send(user, event.chatId, TEMPLATES.crisis, { force: true, turn, instant: true });
         return;
       case "stop":
@@ -406,6 +599,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         // in flight left behind, then send the one text a stopped user still gets: the confirmation.
         updateUser(db, user.id, { stopped: 1 });
         setFlowState(db, user.id, null);
+        cancelFirstTen(db, user.id);
         await say(TEMPLATES.stop, true);
         await forgetLocation(user.id);
         // After the confirmation, so the provider still lets that one text out.
@@ -431,6 +625,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         return;
       case "pause":
         updateUser(db, user.id, { paused: 1 });
+        cancelFirstTen(db, user.id);
         await say(TEMPLATES.pause);
         return;
       case "resume":
@@ -450,6 +645,7 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         db.prepare("DELETE FROM note_effects WHERE userId = ?").run(user.id);
         db.prepare("DELETE FROM verification_codes WHERE userId = ?").run(user.id);
         setFlowState(db, user.id, null);
+        cancelFirstTen(db, user.id);
         updateUser(db, user.id, {
           name: null,
           uscEmail: null,
@@ -470,6 +666,111 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     }
   }
 
+  // ---------- commands by meaning ----------
+
+  /**
+   * Do what a command means, once code is sure it was meant (a clear read, or a yes to Troy's question).
+   * STOP and delete go through the same code as the exact words and get the same fixed confirmation. The settings
+   * (pause, resume, forget my location, one topic) are confirmed in varied words.
+   */
+  async function performCommand(kind: Exclude<AskKind, "checkin">, user: User, event: IncomingEvent, turn: Turn, topicId?: number): Promise<void> {
+    const say = (bubbles: string[]) => send(user, event.chatId, bubbles, { turn });
+    switch (kind) {
+      case "stop":
+      case "start":
+      case "delete_data":
+        await runCommand(kind, user, event, turn);
+        return;
+      case "pause":
+        updateUser(db, user.id, { paused: 1 });
+        cancelFirstTen(db, user.id);
+        await say(vary(user, "pause"));
+        return;
+      case "resume":
+        updateUser(db, user.id, { paused: 0 });
+        await say(vary(user, "resume"));
+        return;
+      case "forget_location":
+        await forgetLocation(user.id);
+        await say(vary(user, "forgetLocation"));
+        return;
+      case "unsubscribe_topic": {
+        const topic = typeof topicId === "number" ? topics.getTopic(db, topicId) : null;
+        if (!topic) {
+          await say(vary(user, "whichTopic"));
+          return;
+        }
+        topics.unsubscribe(db, user.id, topic.id);
+        // What he says is what will actually happen, in plain words. Never the poll label.
+        await say(vary(user, "unsubscribed", { what: topic.plain }));
+        return;
+      }
+    }
+  }
+
+  const ASK_POOL: Record<"stop" | "start" | "pause" | "resume" | "forget_location", keyof typeof COMMAND_POOLS> = { stop: "askStop", start: "askStart", pause: "askPause", resume: "askResume", forget_location: "askForgetLocation" };
+
+  /**
+   * The model read this message as a command worded another way ("leave me alone", "stop the food texts").
+   * It only says which one was meant: code decides whether to act, ask first or do nothing, and code does it.
+   * Returns false when nothing was done, so the message is handled like any other.
+   */
+  async function handleMeantCommand(command: NonNullable<Intent["command"]>, user: User, event: IncomingEvent, turn: Turn): Promise<boolean> {
+    // "stop lol", "omg stop 😂": never acted on unless the read was certain.
+    if (command.certainty !== "clear" && endsPlayful(event.text)) return false;
+    // Asking how to control him is a question. The chat brain answers it; the exact word HELP still gets the fixed list.
+    if (command.name === "help") return false;
+    const ask = async (bubbles: string[], open: Omit<OpenAsk, "qid" | "at">, tapback = true): Promise<boolean> => {
+      const ids = await send(user, event.chatId, bubbles, { turn });
+      const last = [...ids].reverse().find((id) => !!id) ?? null;
+      // Deleting needs a typed yes, so its question keeps no bubble a thumbs up could land on.
+      setAsk(user.id, { ...open, qid: tapback ? last : null, at: Date.now() });
+      return true;
+    };
+    // Anything that destroys data asks once first, however sure the read was.
+    if (command.name === "delete_data") return ask(TEMPLATES.confirmDelete, { kind: "delete_data" }, false);
+    if (command.name === "unsubscribe_topic") {
+      const topic = command.topic ? topics.findTopic(db, command.topic) : null;
+      if (!topic) {
+        // One short question. Their answer ("the food ones") comes back through the same read.
+        await send(user, event.chatId, vary(user, "whichTopic"), { turn });
+        return true;
+      }
+      if (!topics.isSubscribed(db, user.id, topic)) {
+        await send(user, event.chatId, vary(user, "notSubscribed"), { turn });
+        return true;
+      }
+      if (command.certainty !== "clear") return ask(vary(user, "askUnsubscribe", { what: topic.plain }), { kind: "unsubscribe_topic", topicId: topic.id });
+      await performCommand("unsubscribe_topic", user, event, turn, topic.id);
+      return true;
+    }
+    if (command.name === "start" && !user.stopped) return false;
+    if (command.certainty !== "clear") return ask(vary(user, ASK_POOL[command.name]), { kind: command.name });
+    await performCommand(command.name, user, event, turn);
+    return true;
+  }
+
+  /**
+   * An answer to one of Troy's own yes/no questions. True when it was one (a yes performs, a no leaves things as
+   * they are). Anything else lets the question lapse and the message is handled normally. Deleting data only ever
+   * takes a typed yes.
+   */
+  async function answerAsk(ask: OpenAsk, user: User, event: IncomingEvent, turn: Turn): Promise<boolean> {
+    if (ask.kind === "checkin") return false;
+    const answer = readYesNo({ event, questionMessageId: ask.qid, allowTapback: ask.kind !== "delete_data" });
+    if (event.reaction && !answer) return false;
+    setAsk(user.id, null);
+    if (answer === "yes") {
+      await performCommand(ask.kind, user, event, turn, ask.topicId);
+      return true;
+    }
+    if (answer === "no") {
+      await send(user, event.chatId, vary(user, ask.kind === "delete_data" ? "keptData" : "kept"), { turn });
+      return true;
+    }
+    return false;
+  }
+
   /** Exactly one acknowledgement, and only if the handler is still quiet when the timer fires. */
   function startAckTimer(event: IncomingEvent, user: User, hasSaid: () => boolean): () => void {
     const timer = setTimeout(async () => {
@@ -488,15 +789,23 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     return () => clearTimeout(timer);
   }
 
+  const TOUR = "tour" as FlowName;
+
   function pickHandler(intent: Intent, state: FlowState | null): FlowHandler {
     const smalltalk = getFlow("smalltalk")!;
     const open = state ? getFlow(state.flow) : null;
     const wanted = getFlow(intent.flow);
+    // Mid-example, a description that says "lost" or "broken" is still the description: the tour keeps it and
+    // leaves by itself when they say it's for real. Nothing typed into the example may file a real report.
+    if (open && state?.flow === TOUR && TOUR_HOLD_STEPS.has(state.step)) return open;
     // The open flow keeps the conversation unless the model is sure this starts something else.
     const startsNew = intent.source === "ai" && intent.flow !== "smalltalk" && intent.flow !== state?.flow && !!wanted;
     if (open && !startsNew) return open;
     return wanted ?? smalltalk;
   }
+
+  /** Flows whose turn means the student asked for something real, which ends the first-ten-minutes plan. */
+  const isRealRequest = (flow: FlowName) => flow !== "smalltalk" && flow !== TOUR && flow !== "onboarding";
 
   async function handleTap(user: User, event: IncomingEvent, state: FlowState | null): Promise<void> {
     // A tap is not a text: no read receipt, so no read beat either.
@@ -507,16 +816,43 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         .prepare("SELECT id FROM messages WHERE providerMessageId = ? AND chatId = ? AND direction = 'out' LIMIT 1")
         .get(event.reaction.targetMessageId, event.chatId);
       if (!target) return;
+      // A thumbs up or down on one of Troy's own yes/no questions (never the delete question, never the check-in).
+      const ask = openAsk(user.id);
+      if (ask && (await answerAsk(ask, user, event, turn))) return;
     }
-    const intent: Intent = { flow: state?.flow ?? "food", action: event.reaction ? "reaction" : "poll_vote", details: {}, source: "fallback" };
+    // Which bubble is this person's open question, and whether this tap answers it: a heart or thumbs up on exactly
+    // that bubble is a yes, a thumbs down a no. A tap anywhere else is only an acknowledgement. Flows read it from
+    // intent.details.yesNo; a step that can't be answered by a tap (a description, a code, a name) ignores it.
+    const qid = openQuestionId(db, user.id, state);
+    const yesNo = readYesNo({ event, questionMessageId: qid });
+    const details: Record<string, unknown> = {};
+    if (yesNo) details.yesNo = yesNo;
+    if (event.reaction) details.onOpenQuestion = !!qid && event.reaction.targetMessageId === qid;
+    const intent: Intent = { flow: state?.flow ?? "food", action: event.reaction ? "reaction" : "poll_vote", details, source: "fallback" };
     if (needsOnboarding(user, state)) {
-      await handleOnboarding(makeContext(user, event, intent, state, () => {}, "onboarding", turn), { saveLocation });
+      const track = newTrack();
+      await handleOnboarding(makeContext(user, event, intent, state, track.on, "onboarding", turn), { saveLocation });
+      noteOpenQuestion(db, user.id, getFlowState(db, user.id), track.lastId);
       return;
     }
-    // A tapback on a food alert bubble is a claim, whatever else the person is in the middle of.
-    const onFoodAlert = !!event.reaction && !!db.prepare("SELECT 1 FROM food_alert_bubbles WHERE messageId = ? AND userId = ? LIMIT 1").get(event.reaction.targetMessageId, user.id);
-    const owner = (onFoodAlert && getFlow("food")) || (state && getFlow(state.flow)) || getFlow("food");
-    if (owner) await owner.handle(makeContext(user, event, { ...intent, flow: owner.name }, state, () => {}, owner.name, turn));
+    const track = newTrack();
+    const plain = makeContext(user, event, intent, state, track.on, undefined, turn);
+    try {
+      // The alerts poll stays live: a vote added or removed at any time is saved and acknowledged briefly.
+      const alertVote = (onboardingMod as Record<string, unknown>).handleAlertPollVote;
+      if (typeof alertVote === "function" && (await (alertVote as (c: FlowContext) => Promise<boolean>)(plain))) return;
+      // The "try me" poll and the "near u" bubbles.
+      if (await firstTenTap(plain)) return;
+      // A tapback on a food alert bubble is a claim, whatever else the person is in the middle of.
+      const onFoodAlert = !!event.reaction && !!db.prepare("SELECT 1 FROM food_alert_bubbles WHERE messageId = ? AND userId = ? LIMIT 1").get(event.reaction.targetMessageId, user.id);
+      const owner = (onFoodAlert && getFlow("food")) || (state && getFlow(state.flow)) || getFlow("food");
+      if (owner) {
+        if (isRealRequest(owner.name) && (onFoodAlert || state)) cancelFirstTen(db, user.id);
+        await owner.handle(makeContext(user, event, { ...intent, flow: owner.name }, state, track.on, owner.name, turn));
+      }
+    } finally {
+      noteOpenQuestion(db, user.id, getFlowState(db, user.id), track.lastId);
+    }
   }
 
   async function process(event: IncomingEvent): Promise<void> {
@@ -537,6 +873,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
 
     const command = matchCommand(event.text);
     const safety = command?.kind === "emergency" || command?.kind === "crisis";
+    // What code can't call either way. Read by the model below; never the fixed line on the pattern alone.
+    const signal = command ? null : safetySignal(event.text);
 
     // Opted out: nothing is saved, marked read or answered. Only START (or "hey troy"), the STOP confirmation and safety replies get through.
     if (user.stopped) {
@@ -545,6 +883,8 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         return;
       }
       if (safety) await runCommand(command.kind, user, event, freeTurn());
+      // Their texts are never sent anywhere after STOP, the model included: self-harm words alone get the fixed line.
+      else if (signal?.level === "ambiguous" && signal.selfHarmWords) await runCommand("crisis", user, event, freeTurn());
       else if (command?.kind === "start" || (!command && isHeyTroy(event.text))) {
         void quiet(adapter.markRead(event.chatId), undefined);
         await runCommand("start", user, event, newTurn());
@@ -559,11 +899,51 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
     // "Read" first. Nothing is typed or sent until the read beat is over (safety replies excepted).
     void quiet(adapter.markRead(event.chatId), undefined);
     const turn = newTurn();
+    noteStudentMessage(db, user.id);
 
     if (command) {
       await runCommand(command.kind, user, event, turn);
       await deliver();
       return;
+    }
+
+    // A question of Troy's own is open: his check-in, or "want me to ...? reply "yes"".
+    const ask = openAsk(user.id);
+    if (ask?.kind === "checkin") {
+      setAsk(user.id, null);
+      if ((await readCheckInAnswer(event)) === "crisis") {
+        await runCommand("crisis", user, event, turn);
+        await deliver();
+        return;
+      }
+      // A clear "no, i'm fine": the message goes on as usual, and replies stay gentle for the hour.
+    } else if (ask && (await answerAsk(ask, user, event, turn))) {
+      await deliver();
+      return;
+    }
+
+    // Jokes versus real distress: the model reads anything ambiguous in its conversation.
+    if (signal?.level === "ambiguous" && ask?.kind !== "checkin") {
+      const read = await readAmbiguous(event, signal.selfHarmWords);
+      if (read === "crisis") {
+        await runCommand("crisis", user, event, turn);
+        await deliver();
+        return;
+      }
+      if (read === "concern") {
+        // He checks in like a person: one direct, kind question. No hotline wall, no emoji. A yes or a dodge to it
+        // gets the fixed crisis line (see readCheckInAnswer).
+        markHeavy(user.id);
+        cancelFirstTen(db, user.id);
+        const idle: Intent = { flow: "smalltalk", action: "check_in", details: {}, source: "fallback" };
+        const ctx = makeContext(user, event, idle, getFlowState(db, user.id), () => {}, undefined, turn);
+        const bubbles = (await inHisWords(ctx, "safety:checkin", CHECK_IN)).map((b) => b.replace(/(?:\p{Extended_Pictographic}|\p{Regional_Indicator})[️‍\u{1F3FB}-\u{1F3FF}]*/gu, "").trim()).filter(Boolean);
+        const ids = await send(user, event.chatId, bubbles.length ? bubbles : CHECK_IN.fallback[0]!, { turn });
+        setAsk(user.id, { kind: "checkin", qid: [...ids].reverse().find((id) => !!id) ?? null, at: Date.now() });
+        await deliver();
+        return;
+      }
+      // "joke" or "none": a normal reply.
     }
 
     // Every share or pin replaces the saved fix. A share with no words gets one fixed line and nothing else.
@@ -578,13 +958,15 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
         await send(user, event.chatId, [TEMPLATES.locationSaved], { turn });
         return;
       }
-      const handled = await handleOnboarding(makeContext(user, event, idle, state, () => {}, "onboarding", turn), { saveLocation });
+      const onboardingTrack = newTrack();
+      const handled = await handleOnboarding(makeContext(user, event, idle, state, onboardingTrack.on, "onboarding", turn), { saveLocation });
+      noteOpenQuestion(db, user.id, getFlowState(db, user.id), onboardingTrack.lastId);
       if (handled) return;
       // Onboarding finished without using this text (a real request typed at the last step): handle it normally.
       state = getFlowState(db, user.id);
     }
 
-    if (bareShare) {
+    if (bareShare && state?.flow !== TOUR) {
       await send(user, event.chatId, [TEMPLATES.locationSaved], { turn });
       await deliver();
       return;
@@ -606,28 +988,65 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
       }
     }
 
-    let said = false;
-    const cancelAck = startAckTimer(event, user, () => said);
+    const track = newTrack();
+    const cancelAck = startAckTimer(event, user, () => track.said);
     try {
       // Typing shows while Troy works, but only once the read beat is over and only if nothing has gone out yet.
       void turn.ready.then(() => (turn.done || turn.sent ? undefined : quiet(adapter.startTyping(event.chatId), undefined)));
+
+      // A typed pick from the "try me" poll, or a yes / "where?" / "details?" about the "near u" bubbles.
+      const chatIntent: Intent = { flow: "smalltalk", action: "chat", details: {}, source: "fallback" };
+      if (!state && (await firstTenIntercept(makeContext(user, event, chatIntent, null, track.on, undefined, turn)))) {
+        await deliver();
+        return;
+      }
+
       const notes = getNotes(db, user.id);
-      const intent = await detectIntent({ text: event.text, hasImage: event.images.length > 0, state, notes });
+      let intent = await detectIntent({ text: event.text, hasImage: event.images.length > 0, state, notes });
+      // A command worded another way: the model says which, code decides and acts.
+      if (intent.command) {
+        const meant = intent.command;
+        if (await handleMeantCommand(meant, user, event, turn)) {
+          track.said = true;
+          await deliver();
+          return;
+        }
+        // Not acted on (playful, or a question about how to do it): he just answers like a person.
+        intent = { flow: state?.flow ?? "smalltalk", action: state ? "answer" : "chat", details: intent.details, source: intent.source };
+      }
+      // "stump me" and the one question send the next text somewhere specific.
+      intent = adjustIntent(db, user, event, intent, state);
+      // An example offer is on the table and this is plain chat: the brain answers knowing the numbers were examples.
+      if (!state && intent.flow === "smalltalk" && !intent.details.stump && modelReady() && event.text.trim().split(/\s+/).length <= 12) {
+        if (await firstTenChat(makeContext(user, event, intent, null, track.on, undefined, turn))) {
+          await deliver();
+          return;
+        }
+      }
       const handler = pickHandler(intent, state);
-      await handler.handle(makeContext(user, event, intent, state, () => (said = true), handler.name, turn));
-      // An open flow that stays silent on a message meant for a different flow lets it through.
-      // Its state is left alone, so its own question is still pending afterwards.
-      if (!said && state && handler.name === state.flow && intent.flow !== handler.name) {
-        const other = getFlow(intent.flow) ?? getFlow("smalltalk");
-        if (other && other !== handler) await other.handle(makeContext(user, event, intent, null, () => (said = true), other.name, turn));
+      // A real request ends the first-ten-minutes plan.
+      if (isRealRequest(handler.name)) cancelFirstTen(db, user.id);
+      await handler.handle(makeContext(user, event, intent, state, track.on, handler.name, turn));
+      // An open flow that stays silent lets the message through, and its state is left alone, so its own question
+      // is still pending afterwards. A message meant for a different flow goes to that flow. A message that is
+      // only chat (a question asked in the middle of a step) goes to the chat brain, so nobody is left on read.
+      if (!track.said && state && handler.name === state.flow && (event.text.trim() || event.images.length)) {
+        const elsewhere = intent.flow !== handler.name;
+        const other = (elsewhere ? getFlow(intent.flow) : null) ?? getFlow("smalltalk");
+        const passed: Intent = elsewhere ? intent : { flow: "smalltalk", action: "chat", details: { ...intent.details, midFlow: state.flow }, source: intent.source };
+        if (other && other !== handler) {
+          if (isRealRequest(other.name)) cancelFirstTen(db, user.id);
+          await other.handle(makeContext(user, event, passed, null, track.on, other.name, turn));
+        }
       }
       await deliver();
     } finally {
       cancelAck();
       turn.done = true;
+      noteOpenQuestion(db, user.id, getFlowState(db, user.id), track.lastId);
       // say() already turns typing off after its last bubble.
-      const spoke = said;
-      said = true;
+      const spoke = track.said;
+      track.said = true;
       if (!spoke) await quiet(adapter.stopTyping(event.chatId), undefined);
     }
   }
@@ -669,8 +1088,16 @@ export function createPipeline(deps: PipelineDeps): { handleEvent(e: IncomingEve
   async function sweep(now = Date.now()): Promise<void> {
     if (!isEnabled(db)) return;
     await runSweeps(sweepIo(), now);
+    // The first ten minutes: the "try me" poll, the one question or the follow-up, whichever is due.
+    try {
+      await sweepFirstTen(firstTenIo(), now);
+    } catch (err) {
+      console.error("pipeline error:", describe(err));
+    }
     await deliver(now);
   }
+
+  setFirstTenIo(db, firstTenIo());
 
   return { handleEvent, sweep };
 }

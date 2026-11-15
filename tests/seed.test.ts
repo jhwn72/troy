@@ -31,7 +31,57 @@ test("seeding twice gives the same counts", () => {
   assert.equal(counts.food_drops, 2);
   assert.equal(counts.reports, 9);
   assert.ok(counts.campus_places >= 45);
-  assert.ok(counts.directory >= 3);
+  assert.equal(counts.directory, file<unknown>("offices.json").length + file<unknown>("campus-offices.json").length + file<unknown>("directory.json").length);
+});
+
+test("the twelve campus offices load into the directory as real rows, once", () => {
+  const { db } = seeded();
+  const wanted = file<{ kind: string; name: string; url: string; contactMethod: string; details: string; isExample: boolean }>("campus-offices.json");
+  assert.equal(wanted.length, 12);
+  seed(db, { now: NOW });
+  for (const w of wanted) {
+    const rows = db.prepare("SELECT * FROM directory WHERE name = ?").all(w.name) as Row[];
+    assert.equal(rows.length, 1, w.name);
+    assert.equal(rows[0].kind, "office");
+    assert.equal(rows[0].isExample, 0);
+    assert.equal(rows[0].url, w.url);
+    assert.equal(rows[0].contactMethod, w.contactMethod);
+    assert.equal(rows[0].details, w.details);
+    assert.ok((JSON.parse(rows[0].topics as string) as string[]).length > 0);
+  }
+  // Repairs still route to the same two offices.
+  const repairOffices = (db.prepare("SELECT name FROM directory WHERE kind = 'office' AND (name LIKE '%FMS%' OR name LIKE '%Housing%')").all() as Row[]).map((r) => r.name);
+  assert.deepEqual(repairOffices.sort(), ["Facilities Management Services (FMS)", "USC Housing maintenance"]);
+});
+
+test("example staff contacts are added only when asked, only for example handles, and never widen the allow-list", () => {
+  const { db } = seeded();
+  const has = () => !!db.prepare("SELECT name FROM sqlite_master WHERE name = 'staff_contacts'").get();
+  // The default (SEED_EXAMPLES is not set in tests): none.
+  assert.equal(has() ? (db.prepare("SELECT COUNT(*) AS n FROM staff_contacts").get() as Row).n : 0, 0);
+
+  seed(db, { now: NOW, exampleStaff: true });
+  seed(db, { now: NOW, exampleStaff: true });
+  const staff = db.prepare("SELECT s.role, s.handle, s.isExample, u.isExample AS userExample FROM staff_contacts s JOIN users u ON u.id = s.userId ORDER BY s.role").all() as Row[];
+  assert.equal(staff.length, 2);
+  assert.deepEqual(staff.map((s) => s.role), ["fms", "usg:USG Committee on Sustainability and Campus Infrastructure"]);
+  for (const s of staff) {
+    assert.equal(s.isExample, 1);
+    assert.equal(s.userExample, 1);
+    assert.match(s.handle as string, /^\+121355501[1-4]\d$/);
+  }
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM allow_list").get() as Row).n, 0);
+
+  // A phone John assigned himself is never replaced by the example one.
+  db.prepare("UPDATE staff_contacts SET handle = '+13105550123', userId = NULL WHERE role = 'fms'").run();
+  seed(db, { now: NOW, exampleStaff: true });
+  assert.equal((db.prepare("SELECT handle FROM staff_contacts WHERE role = 'fms'").get() as Row).handle, "+13105550123");
+
+  // A handle that belongs to a real person is never made a staff contact by the seed.
+  const fresh = openDb(":memory:");
+  fresh.prepare("INSERT INTO users (handle, chatId, name, createdAt) VALUES ('+12135550119', 'c1', 'real person', 1)").run();
+  seed(fresh, { now: NOW, exampleStaff: true });
+  assert.equal((fresh.prepare("SELECT COUNT(*) AS n FROM staff_contacts WHERE role = 'fms'").get() as Row).n, 0);
 });
 
 test("every example row is labeled, and example handles are the reserved 555 range", () => {
@@ -150,7 +200,8 @@ test("food drops and reports are consistent", () => {
 test("offices are in the directory with confirmed contact details", () => {
   const { db } = seeded();
   const offices = db.prepare("SELECT * FROM directory WHERE kind = 'office'").all() as Row[];
-  assert.equal(offices.length, 3);
+  // The three offices reports are routed to, plus the twelve verified campus offices.
+  assert.equal(offices.length, 15);
   for (const o of offices) {
     assert.match(o.url as string, /^https:\/\/[a-z]+\.usc\.edu\//);
     assert.ok(o.contactMethod);

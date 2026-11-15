@@ -8,8 +8,8 @@ import { setModelCall } from "../src/ai.ts";
 import type { AskOpts } from "../src/ai.ts";
 import { createPipeline } from "../src/pipeline.ts";
 import { getFlow, registerFlow } from "../src/flows/index.ts";
-import { FALLBACK_POOLS, chatReply, fallbackReply, readHandoff, situationOf, smalltalk } from "../src/flows/smalltalk.ts";
-import { chatSystem, isCapabilityList } from "../src/brain.ts";
+import { FALLBACK_POOLS, LOOKUP_ACKS, STUMP_INVITES, chatReply, fallbackReply, readHandoff, readLookup, setQuickLookup, situationOf, smalltalk, stumpInvite } from "../src/flows/smalltalk.ts";
+import { chatSystem, getChatHealth, isCapabilityList, markHeavy, moveUsed, stumpOpen } from "../src/brain.ts";
 import { countEmoji } from "../src/voice.ts";
 
 // No test may reach the network.
@@ -17,8 +17,10 @@ config.anthropicKey = "";
 const realRepair = getFlow("repair")!;
 afterEach(() => {
   setModelCall(null);
+  setQuickLookup(null);
   registerFlow(realRepair);
   delete process.env.TROY_CHAT_MODEL;
+  delete process.env.TROY_LOOKUP;
 });
 
 const CHAT = "chat-s";
@@ -67,6 +69,7 @@ const reply = (bubbles: string[], handoff: unknown = null) => JSON.stringify({ b
 // ---------- the model path ----------
 
 test("a free message gets one model call: the stable brain as a cached system prompt, the context in the user turn", async () => {
+  process.env.TROY_CHAT_MODEL = "fast";
   const s = setup("whats the best dining hall");
   const calls = model(reply(["Parkside gets my vote", "Village looks the coolest tho 👀"]));
   await smalltalk.handle(s.ctx);
@@ -85,13 +88,13 @@ test("a free message gets one model call: the stable brain as a cached system pr
   assert.equal(more[0]!.system, calls[0]!.system);
 });
 
-test("TROY_CHAT_MODEL picks the model, fast by default", async () => {
+test("TROY_CHAT_MODEL picks the model", async () => {
   process.env.TROY_CHAT_MODEL = "smart";
   const s = setup("hey");
   const calls = model(reply(["hey. what's going on"]));
   await smalltalk.handle(s.ctx);
   assert.equal(calls[0]!.model, "smart");
-  process.env.TROY_CHAT_MODEL = "nonsense";
+  process.env.TROY_CHAT_MODEL = "fast";
   const t = setup("hey");
   const again = model(reply(["hey"]));
   await smalltalk.handle(t.ctx);
@@ -159,13 +162,27 @@ test("two rejected replies fall back to a hand-written line, never the capabilit
 });
 
 test("no answer from the model means one call and the fallback", async () => {
-  for (const bad of ["lol not json", new Error("down")]) {
-    const s = setup("thanks troy");
-    const calls = model(bad);
-    await smalltalk.handle(s.ctx);
-    assert.equal(calls.length, 1);
-    assert.ok(FALLBACK_POOLS.thanks.includes(s.said.join("|")));
-  }
+  const s = setup("thanks troy");
+  const calls = model(new Error("down"));
+  await smalltalk.handle(s.ctx);
+  assert.equal(calls.length, 1);
+  assert.ok(FALLBACK_POOLS.thanks.includes(s.said.join("|")));
+});
+
+test("a fast answer that isn't the JSON asked for gets one more try, then the fallback", async () => {
+  const s = setup("thanks troy");
+  const calls = model("lol not json");
+  await smalltalk.handle(s.ctx);
+  assert.equal(calls.length, 2);
+  assert.ok(FALLBACK_POOLS.thanks.includes(s.said.join("|")));
+});
+
+test("bubbles sent back as a bare list are still his reply", async () => {
+  const s = setup("thanks troy");
+  const calls = model('["anytime", "that\'s what i\'m here for"]');
+  await smalltalk.handle(s.ctx);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(s.said, ["anytime", "that's what i'm here for"]);
 });
 
 // ---------- handoff ----------
@@ -300,6 +317,9 @@ test("with no model the reply fits the situation and is never the capability lis
     ["", "unclear"],
     ["what can u do", "what_he_does"],
     ["are you a real person", "who_he_is"],
+    ["what data do u keep on me", "about_troy"],
+    ["can john read my texts", "about_troy"],
+    ["u suck", "insult"],
   ];
   for (const [text, want] of cases) {
     assert.equal(situationOf(text), want, text);
@@ -327,8 +347,23 @@ test("the fallback pools are hand-written in troy's voice", () => {
       if (name !== "who_he_is") assert.doesNotMatch(line, /\bi'm troy\b|\btroy here\b/, line);
     }
   }
-  // Vent lines carry no emoji and no jokes.
-  for (const line of FALLBACK_POOLS.vent) assert.equal(countEmoji(line), 0);
+  // Vent lines carry no emoji, no jokes and no counselor words.
+  for (const line of FALLBACK_POOLS.vent) {
+    assert.equal(countEmoji(line), 0);
+    assert.doesNotMatch(line, /\b(?:carry|carrying|burden|weight|heavy|valid|navigate|process|journey|space)\b/, line);
+  }
+  // A question about himself or their privacy never gets an "idk": it points to the commands that answer without the model, in quotes.
+  for (const line of FALLBACK_POOLS.about_troy) {
+    assert.doesNotMatch(line, /\bidk\b|not sure|no real person/, line);
+    assert.match(line, /"(?:what do u know about me|settings|delete my data)"/, line);
+  }
+  // The heavy line always carries a way to reach a real person, and never a joke.
+  for (const line of FALLBACK_POOLS.heavy) {
+    assert.match(line, /988/, line);
+    assert.equal(countEmoji(line), 0);
+    assert.doesNotMatch(line, /\blol\b|\bha\b/, line);
+  }
+  assert.ok(!FALLBACK_POOLS.who_he_is.some((l) => /no real person is reading/.test(l)));
 });
 
 test("fallback lines rotate per person and never repeat twice in a row", () => {
@@ -355,4 +390,188 @@ test("chatReply reports where the reply came from", async () => {
   model(reply([], { flow: "usg", action: "concern" }));
   assert.deepEqual(await chatReply({ db: s.db, ctx: s.ctx }), { bubbles: [], handoff: { flow: "usg", action: "concern" }, source: "model" });
   assert.equal((await chatReply({ db: s.db, ctx: s.ctx, allowHandoff: false })).source, "fallback");
+});
+
+// ---------- quick lookup ----------
+
+const FOUND = { answer: "guests sign in at the front desk with a photo id. up to 2 overnight guests.", sourceUrl: "https://housing.usc.edu/guests/", sourceTitle: "usc housing guest policy" };
+const LOOKUP = JSON.stringify({ bubbles: [], handoff: null, lookup: "usc housing overnight guest policy" });
+
+test("a factual campus question with no directory row gets one lookup, and he answers from it with its one link", async () => {
+  const s = setup("whats the guest policy for the dorms");
+  const asked: { question: string; userId: number }[] = [];
+  setQuickLookup(async (q) => (asked.push({ question: q.question, userId: q.userId }), FOUND));
+  const calls = model(LOOKUP, reply(["Looks like guests sign in at the front desk with a photo ID, going by the USC housing guest policy. double check tho", "https://housing.usc.edu/guests/"]));
+  await smalltalk.handle(s.ctx);
+  assert.match(calls[0]!.prompt, /quick lookup: available/);
+  // The search is the model's short generic topic, never the student's own string.
+  assert.deepEqual(asked, [{ question: "usc housing overnight guest policy", userId: s.user.id }]);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1]!.prompt, /quick lookup result/);
+  assert.ok(calls[1]!.prompt.includes(FOUND.sourceUrl));
+  assert.doesNotMatch(calls[1]!.prompt, /quick lookup: available/);
+  assert.equal(calls[1]!.system, calls[0]!.system);
+  // It came back fast, so no "lemme check" went out.
+  assert.deepEqual(s.said, ["looks like guests sign in at the front desk with a photo id, going by the usc housing guest policy. double check tho", "https://housing.usc.edu/guests/"]);
+});
+
+test("a slow lookup gets a short lemme check first, and the reply still stays short", async () => {
+  const s = setup("whats the guest policy for the dorms");
+  setQuickLookup(async () => (await new Promise((r) => setTimeout(r, 60)), FOUND), 10);
+  model(LOOKUP, reply(["one", "two", "https://housing.usc.edu/guests/"]), reply(["front desk sign in with a photo id, per usc housing. double check", "https://housing.usc.edu/guests/"]));
+  await smalltalk.handle(s.ctx);
+  assert.ok(LOOKUP_ACKS.includes(s.said[0]!), s.said[0]);
+  assert.deepEqual(s.said.slice(1), ["front desk sign in with a photo id, per usc housing. double check", "https://housing.usc.edu/guests/"]);
+  for (const line of LOOKUP_ACKS) {
+    assert.equal(line, line.toLowerCase());
+    assert.doesNotMatch(line, /\b(?:you|your)\b/);
+  }
+});
+
+test("a second link, or a link that isn't the lookup's, never gets out", async () => {
+  const s = setup("whats the guest policy for the dorms");
+  setQuickLookup(async () => FOUND);
+  const calls = model(LOOKUP, reply(["sign in at the front desk, double check", "https://housing.usc.edu/guests/ or https://usc.edu/guests"]), reply(["sign in at the front desk, double check", "https://bit.ly/usc-guests"]));
+  await smalltalk.handle(s.ctx);
+  assert.equal(calls.length, 3);
+  assert.match(calls[2]!.prompt, /only the lookup's own link/);
+  assert.ok(!s.said.join(" ").includes("http"));
+});
+
+test("an empty lookup means an honest idk, and the lookup is never offered when it shouldn't be", async () => {
+  // Nothing found: he is told so and answers without a number or a link.
+  const s = setup("whats the guest policy for the dorms");
+  let runs = 0;
+  setQuickLookup(async () => (runs++, null));
+  const calls = model(LOOKUP, reply(["not sure on that one tbh. housing would know"]));
+  await smalltalk.handle(s.ctx);
+  assert.equal(runs, 1);
+  assert.match(calls[1]!.prompt, /found nothing usable/);
+  assert.deepEqual(s.said, ["not sure on that one tbh. housing would know"]);
+
+  // Switched off (the default): the model is never told a lookup exists, and a request for one runs nothing.
+  setQuickLookup(null);
+  const off = setup("whats the guest policy for the dorms");
+  const quiet = model(LOOKUP, reply(["not sure, housing would know"]));
+  await smalltalk.handle(off.ctx);
+  assert.doesNotMatch(quiet[0]!.prompt, /quick lookup: available/);
+  assert.deepEqual(off.said, ["not sure, housing would know"]);
+
+  // A directory row matched: the lookup is only offered for when that row doesn't answer it, and answering from
+  // the row runs nothing. A heavy conversation, a frightened message: no lookup at all.
+  setQuickLookup(async () => (runs++, FOUND));
+  runs = 0;
+  const row = setup("my club needs funding so bad");
+  const r = model(reply(["usg funds student orgs"]));
+  await smalltalk.handle(row.ctx);
+  assert.match(r[0]!.prompt, /quick lookup: available, but only if none of the looked up rows above answers/);
+  assert.equal(runs, 0);
+  const heavy = setup("whats the guest policy for the dorms");
+  markHeavy(heavy.db, heavy.user.id);
+  const h = model(LOOKUP, reply(["not sure on that one. how are u holding up"]));
+  await smalltalk.handle(heavy.ctx);
+  assert.doesNotMatch(h[0]!.prompt, /quick lookup: available/);
+  const scared = setup("im so scared rn where is the counseling office");
+  const sc = model(reply(["that sounds scary. are u somewhere safe right now"]));
+  await smalltalk.handle(scared.ctx);
+  assert.doesNotMatch(sc[0]!.prompt, /quick lookup: available/);
+  assert.equal(runs, 0);
+
+  // What a lookup is never for, whatever the model asks.
+  for (const bad of ["how many tylenol is too many", "is tyler from sig ep cheating rumor", "troy verification how many tries", "jtrojan@usc.edu password", "12345678 student id", "x", null, 7]) assert.equal(readLookup(bad), null, String(bad));
+  assert.equal(readLookup("  USC  parking permit price "), "usc parking permit price");
+});
+
+// ---------- heavy, and the counter ----------
+
+test("with no model a heavy conversation gets the gentle line with a way to reach a person, whatever the words", async () => {
+  for (const text of ["yeah", "lol", "what can u do", "thanks"]) {
+    const s = setup(text);
+    markHeavy(s.db, s.user.id);
+    await smalltalk.handle(s.ctx);
+    assert.ok(FALLBACK_POOLS.heavy.includes(s.said.join("|")), `${text} -> ${s.said.join("|")}`);
+  }
+  // The pipeline can also flag the one message; that sticks.
+  const s = setup("idk", { intent: { flow: "smalltalk", action: "chat", details: { heavy: true }, source: "ai" } });
+  const calls = model(reply(["i'm here. what's going on 💛"]));
+  await smalltalk.handle(s.ctx);
+  assert.match(calls[0]!.prompt, /this conversation is heavy/);
+  assert.deepEqual(s.said, ["i'm here. what's going on"]);
+  setModelCall(null);
+  assert.ok(FALLBACK_POOLS.heavy.includes(fallbackReply(s.db, s.user.id, "ok", { heavy: true }).join("|")));
+});
+
+test("a reply rejected twice is counted", async () => {
+  const s = setup("im so stressed about my econ midterm tmrw");
+  assert.equal(getChatHealth(s.db).doubleRejectsToday, 0);
+  model(reply(["hey, i'm troy, an ai that connects usc students to the right people, offices and items."]));
+  await smalltalk.handle(s.ctx);
+  assert.equal(getChatHealth(s.db).doubleRejectsToday, 1);
+  // A model that is simply down is not a rejection.
+  model(new Error("down"));
+  await smalltalk.handle(s.ctx);
+  assert.equal(getChatHealth(s.db).doubleRejectsToday, 1);
+});
+
+// ---------- stump me ----------
+
+test("stump me: the dare goes out in his words, counts as used, and the next message is their attempt", async () => {
+  // No model: a rotated hand-written dare.
+  const s = setup("stump me");
+  await smalltalk.handle(s.ctx);
+  assert.ok(STUMP_INVITES.some((v) => v.join("|") === s.said.join("|")), s.said.join("|"));
+  assert.equal(moveUsed(s.db, s.user.id, "stump"), true);
+  assert.equal(stumpOpen(s.db, s.user.id), true);
+  for (const v of STUMP_INVITES) for (const b of v) assert.equal(b, b.toLowerCase());
+
+  // From the try-me poll (the pipeline hands it over as an action), with the model writing it.
+  const t = setup("", { intent: { flow: "smalltalk", action: "stump", details: {}, source: "fallback" } });
+  const calls = model(JSON.stringify({ bubbles: ["ok try me. name any campus problem and i'll tell u who handles it"], covers: ["name any campus problem", "i'll tell u who handles it"] }));
+  await smalltalk.handle(t.ctx);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(t.said, ["ok try me. name any campus problem and i'll tell u who handles it"]);
+
+  // What they name next reaches the model with the dare marked open and the matching row looked up.
+  const u = setup("ok try this one: club funding");
+  await stumpInvite(u.ctx);
+  const next = model(reply(["too easy. usg funds student orgs", "https://usg.usc.edu/branches/funding/"]));
+  u.said.length = 0;
+  await smalltalk.handle(u.ctx);
+  assert.match(next[0]!.prompt, /troy just dared them to stump him/);
+  assert.match(next[0]!.prompt, /moves this person has already seen \(never make one again\): stump me/);
+  assert.deepEqual(u.said, ["too easy. usg funds student orgs", "https://usg.usc.edu/branches/funding/"]);
+
+  // When he makes the dare himself in a casual chat, it counts as used too.
+  const v = setup("what can u do");
+  model(reply(["easier to show u. name any campus problem and i'll say who handles it"]));
+  await smalltalk.handle(v.ctx);
+  assert.equal(moveUsed(v.db, v.user.id, "stump"), true);
+  // An ordinary reply uses nothing up.
+  const w = setup("hey");
+  model(reply(["hey. what's going on"]));
+  await smalltalk.handle(w.ctx);
+  assert.equal(moveUsed(w.db, w.user.id, "stump"), false);
+});
+
+test("handoffs to topics, rides and the tour are understood", () => {
+  assert.deepEqual(readHandoff({ flow: "topics", action: "post" }), { flow: "topics", action: "post" });
+  assert.deepEqual(readHandoff({ flow: "topics", action: "nope" }), { flow: "topics", action: "follow" });
+  assert.deepEqual(readHandoff({ flow: "rides" }), { flow: "rides", action: "find" });
+  assert.deepEqual(readHandoff({ flow: "tour", action: "start" }), { flow: "tour", action: "start" });
+});
+
+test("a topics handoff on the model's word alone carries no action of its own", async () => {
+  const s = setup("everyone on my floor is so loud at night");
+  const seen: Intent[] = [];
+  const real = getFlow("topics");
+  registerFlow({ name: "topics", handle: async (ctx) => void (seen.push(ctx.intent), await ctx.say("ok")) });
+  try {
+    model(reply([], { flow: "topics", action: "post" }));
+    await smalltalk.handle(s.ctx);
+  } finally {
+    if (real) registerFlow(real);
+  }
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.action, "from_chat");
+  assert.equal(seen[0]!.details.unconfirmed, true);
 });

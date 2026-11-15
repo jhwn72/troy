@@ -118,7 +118,18 @@ export interface User {
   createdAt: number;
 }
 
-export type FlowName = "onboarding" | "lost_found" | "food" | "repair" | "usg" | "rides" | "notes" | "smalltalk";
+export type FlowName = "onboarding" | "lost_found" | "food" | "repair" | "usg" | "rides" | "notes" | "smalltalk" | "topics" | "tour";
+
+/** A command the student meant without typing the exact word ("leave me alone", "stop the food texts"). */
+export type CommandName = "stop" | "start" | "pause" | "resume" | "delete_data" | "forget_location" | "help" | "unsubscribe_topic";
+
+export interface IntentCommand {
+  name: CommandName;
+  /** Only for unsubscribe_topic: the topic in the student's own words ("food", "pickup games"). Match it with findTopic. */
+  topic?: string;
+  /** "clear": act on it (code still confirms anything that destroys data). "unsure": ask one short question first. */
+  certainty: "clear" | "unsure";
+}
 
 /** A user's open conversation state. One row per user at most; null means idle. */
 export interface FlowState {
@@ -136,6 +147,11 @@ export interface Intent {
   details: Record<string, unknown>;
   /** "ai" or "fallback" (keyword rules, used when the API call fails or there is no key). */
   source: "ai" | "fallback";
+  /**
+   * Set when the message means a command without using the exact word. The exact words never get here (src/commands.ts
+   * handles them first). Code performs the action and sends the fixed confirmation; this only says which one was meant.
+   */
+  command?: IntentCommand;
 }
 
 /** One outgoing bubble. Code inserts every exact value before this point. */

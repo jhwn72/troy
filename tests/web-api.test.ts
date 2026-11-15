@@ -4,6 +4,8 @@ import { openDb, getSetting } from "../src/db/index.ts";
 import { isEnabled } from "../src/config.ts";
 import { createWebRoutes, maskHandle, reportReference, resolvePhoto } from "../src/web/api.ts";
 import type { MessagingAdapter } from "../src/types.ts";
+import { createTopic, listTopics, saveTopicRequest } from "../src/topics.ts";
+import { notifyStaffOfReport, staffLogFor } from "../src/staff.ts";
 
 type Json = Record<string, any>;
 
@@ -72,7 +74,7 @@ function seedLostFound(t: ReturnType<typeof setup>, opts: { heldBy?: "dps" | "fi
 
 test("every list endpoint answers on an empty database", async () => {
   const t = setup();
-  for (const path of ["/api/panel", "/api/panel?staff=1", "/api/dps", "/api/reports?kind=repair", "/api/reports?kind=usg_concern", "/api/moderation", "/api/settings", "/api/settings/allow-list", "/api/directory", "/api/eval"]) {
+  for (const path of ["/api/panel", "/api/panel?staff=1", "/api/dps", "/api/reports?kind=repair", "/api/reports?kind=usg_concern", "/api/moderation", "/api/settings", "/api/settings/allow-list", "/api/directory", "/api/eval", "/api/staff"]) {
     const res = await t.call("GET", path);
     assert.equal(res.status, 200, path);
     assert.equal(res.json.ok, true, path);
@@ -403,6 +405,176 @@ test("handles are masked", () => {
   assert.equal(maskHandle(null), null);
 });
 
+// ---------- people (example staff), staff logs, topics ----------
+
+const COMMITTEE = "USG Committee on Example Affairs";
+
+function seedCommittee(t: ReturnType<typeof setup>) {
+  t.db.prepare("INSERT INTO directory (kind, name, topics, isExample) VALUES ('usg_committee', ?, '[\"dining\"]', 1)").run(COMMITTEE);
+}
+
+test("people: assign with normalization, masked handles, bad input rejected, remove", async () => {
+  const t = setup();
+  seedCommittee(t);
+  const empty = (await t.call("GET", "/api/staff")).json;
+  assert.deepEqual(empty.contacts, []);
+  assert.deepEqual(empty.roles.map((r: Json) => r.role), ["fms", "housing", `usg:${COMMITTEE}`]);
+
+  const res = await t.call("POST", "/api/staff", { role: "fms", handle: "(213) 555-0142", label: "Sam" });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.assigned.handle, "•••• 0142");
+  assert.equal(res.json.assigned.isExample, true);
+  assert.equal(res.json.assigned.label, "sam");
+  assert.equal(res.json.addedToAllowList, true);
+  assert.ok(!JSON.stringify(res.json).includes("2135550142"), "the full number never comes back");
+  assert.equal(t.db.prepare("SELECT handle FROM staff_contacts WHERE role = 'fms'").get()!.handle, "+12135550142");
+  assert.equal(t.db.prepare("SELECT COUNT(*) AS n FROM allow_list WHERE handle = '+12135550142' AND reason = 'manual'").get()!.n, 1);
+  // No chat with this phone yet, so the page says so.
+  assert.equal(res.json.contacts[0].reachable, false);
+
+  // Already allowed: assigned without a second allow-list row.
+  await t.call("POST", "/api/settings/allow-list", { handle: "213-555-0143" });
+  const usg = await t.call("POST", "/api/staff", { role: `usg:${COMMITTEE.toLowerCase()}`, handle: "2135550143" });
+  assert.equal(usg.json.addedToAllowList, false);
+  assert.equal(usg.json.assigned.role, `usg:${COMMITTEE}`);
+  assert.equal(t.db.prepare("SELECT COUNT(*) AS n FROM allow_list WHERE handle = '+12135550143'").get()!.n, 1);
+
+  for (const [bad, error] of [[{ role: "fms", handle: "nope" }, "bad_handle"], [{ role: "dps", handle: "2135550144" }, "bad_role"], [{ role: "usg:made up committee", handle: "2135550144" }, "bad_role"], [{}, "bad_handle"]] as const) {
+    const r = await t.call("POST", "/api/staff", bad);
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error, error);
+  }
+
+  // Once the phone has texted troy there is a user row, and the contact is reachable.
+  t.user("+12135550142", "Sam Tech");
+  const list = (await t.call("GET", "/api/staff")).json;
+  assert.equal(list.contacts.length, 2);
+  const fms = list.contacts.find((s: Json) => s.role === "fms");
+  assert.equal(fms.reachable, true);
+  assert.equal(fms.roleLabel, "FMS");
+  assert.equal(fms.kind, "repair");
+  assert.ok(list.contacts.every((s: Json) => s.isExample === true));
+
+  const gone = await t.call("DELETE", `/api/staff/${fms.id}`);
+  assert.equal(gone.json.removed, true);
+  assert.equal(gone.json.contacts.length, 1);
+  assert.equal((await t.call("DELETE", "/api/staff/999")).json.removed, false);
+});
+
+test("reports carry the staff log: the example text when nobody is assigned, what was texted when someone is", async () => {
+  const t = setup();
+  const reporter = t.user("+12135550101", "Rae Reporter");
+  const repairId = Number(
+    t.db.prepare("INSERT INTO reports (userId, kind, category, description, locationText, routedTo, createdAt) VALUES (?, 'repair', 'broken light', 'the light is out', 'Taper Hall, 2nd floor', 'FMS', ?)").run(reporter, Date.now()).lastInsertRowid,
+  );
+  const view = async () => (await t.call("GET", "/api/reports?kind=repair")).json.groups[0].reports[0].staff as Json;
+
+  let staff = await view();
+  assert.equal(staff.assigned, null);
+  assert.deepEqual(staff.log, []);
+  assert.equal(staff.exampleText, 'someone reported a broken light at taper hall, 2nd floor. can u take it?\ntext "on it" if u got it, or "can\'t" and i\'ll hand it back');
+  assert.equal(staff.exampleNote, "example: no one is assigned yet");
+  assert.equal(staff.roleLabel, "FMS");
+  // Reading it sends nothing.
+  assert.equal(t.sent.length, 0);
+
+  const tech = t.user("+12135550142", "Sam Tech");
+  await t.call("POST", "/api/staff", { role: "fms", handle: "2135550142", label: "sam" });
+  const out = await notifyStaffOfReport({ db: t.db, notify: async (userId, bubbles) => void t.sent.push({ userId, bubbles }) }, repairId);
+  assert.equal(out.sentTo, tech);
+
+  staff = await view();
+  assert.equal(staff.assigned.label, "sam");
+  assert.equal(staff.assigned.handle, "•••• 0142");
+  assert.equal(staff.assigned.isExample, true);
+  assert.equal(staff.exampleText, null);
+  assert.equal(staff.log.length, 1);
+  assert.equal(staff.log[0].kind, "ask");
+  assert.equal(staff.log[0].text, t.sent[0].bubbles.join("\n"));
+  assert.ok(typeof staff.log[0].createdAt === "number");
+
+  const one = (await t.call("GET", `/api/reports/${repairId}/staff`)).json;
+  assert.equal(one.log.length, 1);
+  assert.equal((await t.call("GET", "/api/reports/999/staff")).status, 404);
+
+  // The status buttons keep working, and closing it from the dashboard takes the job off the technician.
+  const res = await t.call("POST", `/api/reports/${repairId}/status`, { status: "fixed" });
+  assert.equal(res.json.changed, true);
+  assert.equal(t.db.prepare("SELECT state FROM staff_jobs WHERE reportId = ?").get(repairId)!.state, "done");
+  assert.equal(staffLogFor(t.db, repairId).length, 1);
+});
+
+test("a usg report's example text has counts and never the reporter's name", async () => {
+  const t = setup();
+  const reporter = t.user("+12135550101", "Rae Reporter");
+  const follower = t.user("+12135550102", "Fay Follower");
+  t.db
+    .prepare("INSERT INTO reports (userId, kind, anonymous, description, routedTo, followers, createdAt) VALUES (?, 'usg_concern', 0, 'the village shuttle is always late', ?, ?, ?)")
+    .run(reporter, COMMITTEE, JSON.stringify([follower]), Date.now());
+  const body = (await t.call("GET", "/api/reports?kind=usg_concern")).json;
+  const staff = body.groups[0].reports[0].staff as Json;
+  assert.match(staff.exampleText, /^2 trojans raised "the village shuttle is always late" this week\. 1 wants to talk\. want a group chat with them\?/);
+  assert.ok(!/rae|fay|reporter|follower/i.test(staff.exampleText));
+  assert.equal(staff.roleLabel, COMMITTEE);
+});
+
+test("moderation: student-created topics can be removed, and topic requests approved or dismissed", async () => {
+  const t = setup();
+  const asker = t.user("+12135550101", "Rae Reporter");
+  const maker = t.user("+12135550102", "Tia Topic");
+  const made = createTopic(t.db, "language tutors", maker);
+  saveTopicRequest(t.db, "late night study buddies", asker);
+  saveTopicRequest(t.db, "something unclear", asker);
+
+  let mod = (await t.call("GET", "/api/moderation")).json;
+  // Only topics students created are listed; the built-in poll options are not.
+  assert.deepEqual(mod.topics.map((x: Json) => x.id), [made.id]);
+  assert.equal(mod.topics[0].suggestedByFirstName, "Tia");
+  assert.equal(mod.topicRequests.length, 2);
+  assert.equal(mod.topicRequests[0].text, "late night study buddies");
+  assert.equal(mod.topicRequests[0].requesterFirstName, "Rae");
+  assert.ok(!JSON.stringify(mod).includes("2135550101"));
+
+  const approve = await t.call("POST", `/api/moderation/topic-requests/${mod.topicRequests[0].id}/approve`, {});
+  assert.equal(approve.json.changed, true);
+  assert.equal(approve.json.status, "created");
+  assert.equal(approve.json.notified, true);
+  const created = listTopics(t.db).find((x) => x.id === approve.json.topic.id)!;
+  assert.equal(created.builtIn, false);
+  // The student who asked follows it, and is told.
+  assert.ok((JSON.parse(t.db.prepare("SELECT subscriptions FROM users WHERE id = ?").get(asker)!.subscriptions as string) as string[]).includes(created.key));
+  assert.equal(t.sent.length, 1);
+  assert.equal(t.sent[0].userId, asker);
+  assert.ok(t.sent[0].bubbles[0].includes(`"${created.label}"`));
+  assert.equal(t.sent[0].bubbles[0], t.sent[0].bubbles[0].toLowerCase());
+  // A second click changes nothing and texts nobody.
+  assert.equal((await t.call("POST", `/api/moderation/topic-requests/${mod.topicRequests[0].id}/approve`, {})).json.changed, false);
+  assert.equal(t.sent.length, 1);
+
+  const dismiss = await t.call("POST", `/api/moderation/topic-requests/${mod.topicRequests[1].id}/dismiss`, {});
+  assert.equal(dismiss.json.status, "declined");
+  assert.equal(t.sent.length, 1);
+
+  const removed = await t.call("POST", `/api/moderation/topics/${made.id}/remove`, {});
+  assert.equal(removed.json.removed, true);
+  const builtIn = listTopics(t.db).find((x) => x.builtIn)!;
+  assert.equal((await t.call("POST", `/api/moderation/topics/${builtIn.id}/remove`, {})).status, 400);
+  assert.equal((await t.call("POST", "/api/moderation/topics/9999/remove", {})).status, 404);
+  assert.equal((await t.call("POST", "/api/moderation/topic-requests/9999/approve", {})).status, 404);
+
+  mod = (await t.call("GET", "/api/moderation")).json;
+  assert.deepEqual(mod.topicRequests, []);
+  assert.deepEqual(mod.topics.map((x: Json) => x.id), [created.id]);
+  assert.ok(listTopics(t.db).some((x) => x.id === builtIn.id), "built-in topics stay");
+});
+
+test("the panel payload carries the chat health number, or null until the brain has one", async () => {
+  const t = setup();
+  const panel = (await t.call("GET", "/api/panel")).json;
+  assert.ok("chatHealth" in panel);
+  assert.ok(panel.chatHealth === null || ["number", "object"].includes(typeof panel.chatHealth));
+});
+
 // ---------- saved locations never leave through the web API ----------
 
 test("no endpoint returns a student's saved location, with or without staff view", async () => {
@@ -438,7 +610,7 @@ test("no endpoint returns a student's saved location, with or without staff view
     for (const leak of leaks) assert.equal(text.includes(leak), false, `${path} leaked ${leak}`);
   };
 
-  const gets = ["/api/panel", "/api/panel?staff=1", "/api/dps", "/api/reports?kind=repair", "/api/reports?kind=usg_concern", "/api/moderation", "/api/settings", "/api/settings/allow-list", "/api/directory", "/api/eval"];
+  const gets = ["/api/panel", "/api/panel?staff=1", "/api/dps", "/api/reports?kind=repair", "/api/reports?kind=usg_concern", "/api/moderation", "/api/settings", "/api/settings/allow-list", "/api/directory", "/api/eval", "/api/staff"];
   for (const path of gets) {
     const res = await t.call("GET", path);
     assert.equal(res.status, 200, path);

@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { FlowState, User } from "../types.ts";
+import { migrateTopics } from "../topics.ts";
 
 let db: DatabaseSync | null = null;
 
@@ -27,6 +28,9 @@ function migrate(d: DatabaseSync): void {
   if (!has("users", "lastLocationSource")) d.exec("ALTER TABLE users ADD COLUMN lastLocationSource TEXT");
   // Outgoing texts sent outside the recipient's own turn (relayed words, alerts). See schema.sql.
   if (!has("messages", "notice")) d.exec("ALTER TABLE messages ADD COLUMN notice INTEGER NOT NULL DEFAULT 0");
+  // Alert topics: the built-in rows, and subscriptions saved before topics existed ("free_food", "free_stuff"
+  // become the first topic; "events" and "class_help" never sent anything and are dropped). See src/topics.ts.
+  migrateTopics(d);
 }
 
 export function getDb(): DatabaseSync {

@@ -14,6 +14,9 @@ how you text:
 - at most one usc touch per conversation (fight on, tommy trojan, etc). most replies have none.
 - you are an ai and you say so when asked. never claim or imply you are a person.
 - no em dashes. no hashtags. no markdown. no exclamation spam.
+- you never swear.
+- when you tell someone the exact words to text, put those words in double quotes: text "forget my location", reply "STOP". no quotes when you are only describing what to do.
+- never read a poll option or a topic name back as a label. say what will actually happen ("i'll text u when someone needs a ride").
 - catchphrases, used sparingly and only when they fit: "i know a guy", "on it 👀", "pretty sure i found them", "quick check first", "handing u off", "that's a win. fight on".
 
 hard rules:
@@ -137,12 +140,25 @@ function splitLong(text: string, max: number): string[] | null {
   return out.every((b) => b.length <= max) ? out : null;
 }
 
+/**
+ * Quotes the model put around a whole bubble come off. Quotes that belong to the text stay: a bubble that opens or
+ * ends with an exact phrase to type ('"forget my location" erases it', 'text "on it" or "can't"') keeps both marks.
+ */
+function unwrapQuotes(p: string): string {
+  const t = p.trim();
+  const marks = t.match(/["“”]/g)?.length ?? 0;
+  if (marks === 2 && /^["“]/.test(t) && /["”]$/.test(t)) return t.slice(1, -1);
+  // One stray mark at either end, with no partner anywhere: the model's wrapping, half cut off.
+  if (marks === 1) return t.replace(/^["“]|["”]$/g, "");
+  return t;
+}
+
 /** Turn model output (a string with line breaks, or a list) into bubbles. */
 export function splitBubbles(raw: string | string[]): string[] {
   const parts = Array.isArray(raw) ? raw : raw.split(/\n+/);
   return parts
     .flatMap((p) => String(p).split(/\n+/))
-    .map((p) => p.replace(/\*\*|__|`/g, "").replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").replace(/^["“]+|["”]+$/g, "").trim())
+    .map((p) => unwrapQuotes(p.replace(/\*\*|__|`/g, "").replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")).trim())
     .filter(Boolean);
 }
 

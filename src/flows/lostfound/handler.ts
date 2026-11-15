@@ -1058,11 +1058,41 @@ async function startClaim(io: LostFoundIo, pair: Pair, why: "found_later" | "jus
   }
 }
 
+const DESCRIBES = /\b(?:stickers?|scratch\w*|crack\w*|dent\w*|logo|engrav\w*|initials?|keychain|key ring|charm|strap|lanyard|label|tag|cover|sleeve|case|written|writing|drawn|drawing|says|stain\w*|chip(?:ped)?|missing|zipper|pocket|pattern|strip(?:e|es|ed)|plain|inside|front|back|bottom|lid|corner|side)\b/;
+const ASKS = /\?\s*$|^(?:(?:wait|hold on|um+|uh+|so|but|ok|okay|lol|bro|yo|hey)[ ,]+)*(?:do|does|did|is|are|am|can|could|will|would|should|how|what|whats|why|who|where|when|which)\b/;
+const STALLS = /\b(?:idk|i (?:don'?t|dont) know|not sure|one sec|hold on|gimme a (?:sec|min)|give me a (?:sec|min)|lemme|let me|panic\w*|freaking out|can'?t (?:think|remember)|cant (?:think|remember)|brb)\b/;
+
+/**
+ * Is this message an attempt at describing the item? A question or a stall is not: it gets an answer, the step
+ * stays open and no try is counted. Anything that names a color, a brand or a mark is an attempt whatever its
+ * punctuation, so a guess phrased as a question ("is it the one with the sticker?") is never free.
+ */
+export function isDescriptionAttempt(text: string): boolean {
+  const t = text.toLowerCase().replace(/[‘’]/g, "'").trim();
+  const d = pullDetails(t);
+  if (d.color || d.brand || DESCRIBES.test(t) || t.split(/\s+/).some((w) => isColorWord(w.replace(/[^a-z]/g, "")))) return true;
+  return !(ASKS.test(t) || STALLS.test(t));
+}
+
 async function handleDescribe(ctx: FlowContext, io: LostFoundIo, pair: Pair, text: string): Promise<void> {
   const me = ctx.user.id;
   const { db } = io;
   if (!text) {
     await io.say(me, COPY.describeWords);
+    return;
+  }
+  if (!isDescriptionAttempt(text)) {
+    // He answers what they said (never anything about the item: the step's facts stay locked) and the question
+    // stays open. Nothing is scored, stored or shown to the finder.
+    let bubbles: string[] = [];
+    try {
+      const { replyAtStep } = await import("../../brain.ts");
+      bubbles = (await replyAtStep(ctx, { flow: "lost_found", waitingFor: "ur description of it, in ur own words", canDo: [] })).bubbles;
+    } catch {
+      bubbles = [];
+    }
+    await io.say(me, ...(bubbles.length ? bubbles : [COPY.describeWords]));
+    touch(db, pair.match.id);
     return;
   }
   const answer = text.slice(0, 1200);

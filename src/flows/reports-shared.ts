@@ -187,6 +187,20 @@ export function follow(db: DatabaseSync, report: ReportRow, userId: number): { r
   return { result: "added", others };
 }
 
+/** One line a status text can use to say which report it is about. Built from stored fields, all lowercase. */
+export function reportReference(report: { kind: string; category: unknown; description: unknown; locationText: unknown }): string {
+  const clean = (v: unknown) => (text(v) ?? "").replace(/\s+/g, " ").replace(/—|–/g, "-").trim().toLowerCase();
+  let what = clean(report.description) || clean(report.category);
+  if (what.length > 60) what = `${what.slice(0, 57).trimEnd()}...`;
+  const where = clean(report.locationText);
+  if (report.kind === "repair") {
+    if (what && where) return `update on "${what}" at ${where}`;
+    if (what) return `update on "${what}"`;
+    return where ? `update on the repair report at ${where}` : "update on the repair report";
+  }
+  return what ? `update on the usg concern "${what}"` : "update on the usg concern";
+}
+
 /** "1 other person" / "3 others". The count comes from the row, never from the model. */
 export function othersPhrase(n: number): string {
   return n === 1 ? "1 other person" : `${n} others`;

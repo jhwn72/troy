@@ -12,6 +12,7 @@ import { getUserById, updateUser } from "../db/index.ts";
 import { askJson } from "../ai.ts";
 import { SUBSCRIPTION_LABELS } from "../commands.ts";
 import { findPlace } from "../places.ts";
+import { BUILT_IN_TOPICS } from "../topics.ts";
 import { describeSavedLocation, forgetUserLocation, saveUserLocation } from "../location.ts";
 import type { Pools, Voice } from "./reports-shared.ts";
 import { makeVoice, unvoiced } from "./reports-shared.ts";
@@ -849,7 +850,14 @@ export const NOTES_POOLS: Pools = {
 
 export const NOTES_VOICE: Voice = makeVoice("notes", NOTES_POOLS);
 
-const topicList = (subs: string[]) => subs.map((s) => SUBSCRIPTION_LABELS[s] ?? s).join(", ");
+/** A followed topic in plain words: the poll text without its emoji for the built-in ones, a created topic's own name otherwise. Never a raw key. */
+function topicWords(key: string): string {
+  if (SUBSCRIPTION_LABELS[key]) return SUBSCRIPTION_LABELS[key]!;
+  const builtIn = BUILT_IN_TOPICS.find((t) => t.key === key);
+  const text = builtIn ? builtIn.label.replace(/[^\p{L}\p{N}\s'-]/gu, "") : key.replace(/[_-]+/g, " ");
+  return text.replace(/\s+/g, " ").trim();
+}
+const topicList = (subs: string[]) => subs.map(topicWords).join(", ");
 const quietLine = (u: User) => (u.quietHours ? `${formatClock(u.quietHours.start)} to ${formatClock(u.quietHours.end)}` : "off");
 
 function settingsBubbles(u: User): string[] {
