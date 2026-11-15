@@ -8,9 +8,9 @@ import { seed } from "../src/db/seed.ts";
 import { createPipeline } from "../src/pipeline.ts";
 import { registerFlow } from "../src/flows/index.ts";
 import { fallbackIntent, setModelCall } from "../src/ai.ts";
-import { usg, ASK_NAME, ASK_JOIN_NAME, isConcern, parseChoice, topicFromWords, EXPLAIN_NAME, USG_POOLS, USG_VOICE } from "../src/flows/usg.ts";
+import { usg, ASK_NAME, ASK_JOIN_NAME, isConcern, isHousingLife, parseChoice, topicFromWords, EXPLAIN_NAME, USG_POOLS, USG_VOICE } from "../src/flows/usg.ts";
 import { sentenceBubbles } from "../src/flows/reports-shared.ts";
-import { poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
+import { DEMO_NOTE, poolProblems, setVariantPicker } from "../src/flows/reports-shared.ts";
 import type { VariantPicker, Voice } from "../src/flows/reports-shared.ts";
 
 
@@ -76,9 +76,18 @@ setModelCall(async () => {
 
 // The keyword rules in src/ai.ts don't catch the spec's two example texts, so these stand in for the model's intent.
 const asModel = (action: string): Intent => ({ flow: "usg", action, details: {}, source: "ai" });
+const LOUD = "my roommates are so loud at night and my ra won't do anything";
+const AT_MY_LIMIT = "i'm at my limit with my roommate, i need to move out";
+const GUEST_POLICY = "the guest policy in the dorms is unfair, housing should change it";
+const WISH = "it's hard to find a quiet place to study";
 const MODEL_INTENTS: Record<string, Intent> = {
   "how does my club get funding": asModel("question"),
   "why does village dining close so early": asModel("concern"),
+  [LOUD]: asModel("concern"),
+  [AT_MY_LIMIT]: asModel("concern"),
+  [GUEST_POLICY]: asModel("concern"),
+  // The answer to "what's one thing u wish was easier at usc?" arrives marked by the first-ten-minutes code.
+  [WISH]: { flow: "usg", action: "concern", details: { fromFirstTen: true }, source: "ai" },
 };
 
 const repairSeen: string[] = [];
@@ -241,7 +250,8 @@ test("a dining concern asks name or anonymous once, routes to the right committe
   const b = t.student("+13235550005");
   assert.deepEqual(await b.text("dining halls should be open later during finals"), [ASK_NAME]);
   const named = await b.text("with my name");
-  assert.deepEqual(named, [`sent to the ${DINING_COMMITTEE}. i'll text u when they pick it up.`]);
+  // Their first concern: the one-line demo note rides along, once.
+  assert.deepEqual(named, [`sent to the ${DINING_COMMITTEE}. i'll text u when they pick it up.`, DEMO_NOTE]);
   const mine = t.mine().find((r) => r.userId === b.id)!;
   assert.equal(mine.anonymous, 0);
   assert.equal(mine.routedTo, DINING_COMMITTEE);
@@ -572,4 +582,104 @@ test("simulation: with no usg member assigned, a judge is offered the member's s
   await only.text("usc should have more vegetarian options at evk");
   await only.text("anonymously pls");
   assert.deepEqual(demo.offers.map((o) => [o.kind, o.context.anonymous]), [["usg", "yes"]]);
+});
+
+// ---------- concerns about people and housing life, and offers ----------
+
+const HOUSING_ROW = "USC Housing maintenance";
+const CSI_ROW = "Campus Support & Intervention (CSI)";
+const first: VariantPicker = (_db, _userId, _key, variants) => variants[0]!;
+/** With no model the offer is a hand-written line: who it would go to, name or anonymous, a question, and nothing else asked. */
+const offers = (reply: string[], to: string): boolean => reply.length === 1 && reply[0]!.includes(to) && /\bname\b.*\banonym/.test(reply[0]!) && reply[0]!.includes("?");
+
+test("housing life routes to the directory's own rows: usc housing, campus support when someone is at their limit, a usg committee for the policy itself", async () => {
+  setVariantPicker(first);
+  try {
+    const t = setup();
+    const repairsBefore = repairSeen.length;
+    const names = new Set((t.db.prepare("SELECT name FROM directory").all() as { name: string }[]).map((r) => r.name));
+    assert.ok(names.has(HOUSING_ROW) && names.has(CSI_ROW), "both rows are real directory rows");
+
+    // Noise, roommates and an ra who won't act: usc housing. Offered first, because they never asked for it to be sent.
+    const a = t.student("+13235550101");
+    assert.ok(offers(await a.text(LOUD), "usc housing"));
+    assert.equal(a.state()?.step, "offer");
+    assert.equal(t.mine().length, 0);
+    assert.deepEqual(await a.text("yes"), [ASK_NAME]);
+    assert.deepEqual(await a.text("with my name"), ["passed it to usc housing. i'll text u when they pick it up.", DEMO_NOTE]);
+
+    // At their limit and needing out: campus support & intervention.
+    const b = t.student("+13235550102");
+    assert.ok(offers(await b.text(AT_MY_LIMIT), "campus support & intervention"));
+    assert.deepEqual(await b.text("anonymously"), ["passed it to campus support & intervention. i'll text u when they pick it up.", "sent anonymously, ur name isn't on it", DEMO_NOTE]);
+
+    // The policy itself: student government's committee, by the stored topic, asked the usual way.
+    const c = t.student("+13235550103");
+    assert.deepEqual(await c.text(GUEST_POLICY), [ASK_NAME]);
+    await c.text("anonymously");
+
+    const rows = t.mine();
+    assert.deepEqual(rows.map((r) => r.routedTo), [HOUSING_ROW, CSI_ROW, "USG Committee on Affordability and Basic Needs"]);
+    for (const r of rows) assert.ok(names.has(r.routedTo), `never an invented office: ${r.routedTo}`);
+    assert.equal(rows[0]!.description, LOUD);
+    assert.equal(rows[0]!.category, "housing");
+    assert.equal(repairSeen.length, repairsBefore, "none of it went near the repair flow");
+  } finally {
+    setVariantPicker(null);
+  }
+});
+
+test("asking for it to be reported goes straight to the name question, and he says where it goes", async () => {
+  setVariantPicker(first);
+  try {
+    const t = setup();
+    const a = t.student("+13235550111");
+    assert.deepEqual(await a.text("can u report my ra, he lets people party all night on my floor"), ["that one goes to usc housing", ASK_NAME]);
+    assert.equal(a.state()?.step, "ask_name");
+    const reply = await a.text("anonymously");
+    assert.equal(reply[0], "passed it to usc housing. i'll text u when they pick it up.");
+    assert.equal(t.mine()[0]!.routedTo, HOUSING_ROW);
+  } finally {
+    setVariantPicker(null);
+  }
+});
+
+test("two students with loud roommates are two concerns, unless they named the same hall", async () => {
+  setVariantPicker(first);
+  try {
+    const t = setup();
+    for (const [handle, text] of [["+13235550121", LOUD], ["+13235550122", LOUD]] as const) {
+      const s = t.student(handle);
+      await s.text(text);
+      await s.text("anonymously");
+    }
+    assert.equal(t.mine().length, 2);
+  } finally {
+    setVariantPicker(null);
+  }
+});
+
+test("the answer to the one question is offered, never sent on its own, and a no leaves it", async () => {
+  const t = setup();
+  const a = t.student("+13235550131");
+  assert.ok(offers(await a.text(WISH), "the USG general contact"));
+  assert.equal(a.state()?.step, "offer");
+  assert.equal(t.mine().length, 0);
+  assert.deepEqual(await a.text("nah"), ["all good, i'll leave it"]);
+  assert.equal(a.state(), null);
+  assert.equal(t.mine().length, 0);
+
+  // A question about the choice keeps the offer open; "with my name" then sends it.
+  const b = t.student("+13235550132");
+  await b.text(WISH);
+  assert.deepEqual(await b.text("will they see my name?"), EXPLAIN_NAME);
+  assert.equal(b.state()?.step, "offer");
+  assert.equal((await b.text("with my name"))[0], "sent to the USG general contact. i'll text u when they pick it up.");
+  assert.equal(t.mine().length, 1);
+  assert.equal(t.mine()[0]!.description, WISH);
+});
+
+test("what counts as life in a residence hall", () => {
+  for (const text of [LOUD, "dorm mates are annoying", "my ra doesn't enforce it", "people blast music next door at night", "nobody enforces quiet hours"]) assert.equal(isHousingLife(text), true, text);
+  for (const text of ["the library is too loud", "dining halls close too early", "my door lock is broken", "the shuttle is always late"]) assert.equal(isHousingLife(text), false, text);
 });

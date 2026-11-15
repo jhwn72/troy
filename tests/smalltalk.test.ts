@@ -9,7 +9,7 @@ import type { AskOpts } from "../src/ai.ts";
 import { createPipeline } from "../src/pipeline.ts";
 import { getFlow, registerFlow } from "../src/flows/index.ts";
 import { FALLBACK_POOLS, LOOKUP_ACKS, STUMP_INVITES, chatReply, fallbackReply, readHandoff, readLookup, setQuickLookup, situationOf, smalltalk, stumpInvite } from "../src/flows/smalltalk.ts";
-import { chatSystem, getChatHealth, isCapabilityList, markHeavy, moveUsed, stumpOpen } from "../src/brain.ts";
+import { asksSomething, chatSystem, getChatHealth, isCapabilityList, markHeavy, moveUsed, stumpOpen } from "../src/brain.ts";
 import { countEmoji } from "../src/voice.ts";
 
 // No test may reach the network.
@@ -622,4 +622,65 @@ test("new and untried: 'ok' gets his next move with no model call, and a move th
   } finally {
     setFirstTenDeps(null);
   }
+});
+
+// ---------- a chat never files anything on its own ----------
+
+test("a usg handoff from a chat is marked so the flow only offers, unless the student asked for it to be sent", async () => {
+  const realUsg = getFlow("usg")!;
+  const seen: Intent[] = [];
+  registerFlow({ name: "usg", handle: async (c) => void (seen.push(c.intent), await c.say("ok")) });
+  try {
+    // Only the model read it as a concern.
+    let s = setup("i told them but they didn't do anything");
+    model(reply([], { flow: "usg", action: "concern", reason: "an ra who won't act" }));
+    await smalltalk.handle(s.ctx);
+    // The keyword rules agree it is about dining, but nobody asked for it to go anywhere.
+    s = setup("the dining halls close way too early its so annoying");
+    model(reply([], { flow: "usg", action: "concern" }));
+    await smalltalk.handle(s.ctx);
+    // They asked.
+    s = setup("can u tell usg the dining halls close too early");
+    model(reply([], { flow: "usg", action: "concern" }));
+    await smalltalk.handle(s.ctx);
+  } finally {
+    registerFlow(realUsg);
+  }
+  assert.deepEqual(seen.map((i) => [i.details.fromChat === true, i.details.meant]), [[true, "concern"], [true, "concern"], [false, undefined]]);
+  // The keyword rules' own read goes through untouched, and the flow's rules decide it is a concern ("too early").
+  assert.equal(seen[2]!.flow, "usg");
+});
+
+test("a yes to an offer troy made in his own words starts the flow without a second offer", async () => {
+  const seen: Intent[] = [];
+  registerFlow({ name: "repair", handle: async (c) => void (seen.push(c.intent), await c.say("ok")) });
+  let s = setup("yes pls");
+  saveMessage(s.db, { userId: s.user.id, chatId: CHAT, direction: "out", providerMessageId: null, text: "want me to report that to facilities for u?" });
+  model(reply([], { flow: "repair", action: "report" }));
+  await smalltalk.handle(s.ctx);
+  // A yes after anything else is just a yes.
+  s = setup("yes pls");
+  saveMessage(s.db, { userId: s.user.id, chatId: CHAT, direction: "out", providerMessageId: null, text: "is the elevator still stuck?" });
+  model(reply([], { flow: "repair", action: "report" }));
+  await smalltalk.handle(s.ctx);
+  assert.deepEqual(seen.map((i) => [i.details.unconfirmed, i.details.accepted]), [[true, true], [true, undefined]]);
+});
+
+test("after two questions in a row, the hand-written line is never a third", async () => {
+  // No model: this is where "hm, say a little more?" came from.
+  for (let i = 0; i < 8; i++) {
+    const s = setup("Getting up");
+    s.db.prepare("DELETE FROM messages").run();
+    for (const [direction, text] of [["out", "what's one thing u wish was easier at usc?"], ["in", "Probably class"], ["out", "what about it?"], ["in", "Getting up"]] as const) {
+      saveMessage(s.db, { userId: s.user.id, chatId: CHAT, direction, providerMessageId: direction === "in" && text === "Getting up" ? s.event.messageId : null, text });
+    }
+    await smalltalk.handle(s.ctx);
+    assert.equal(s.said.length, 1);
+    assert.ok(FALLBACK_POOLS.heard.includes(s.said[0]!), s.said[0]);
+    assert.ok(!asksSomething(s.said[0]!), s.said[0]);
+  }
+  // With no streak the same text still gets the usual "say more" line.
+  const fresh = setup("Getting up");
+  await smalltalk.handle(fresh.ctx);
+  assert.ok(FALLBACK_POOLS.unclear.includes(fresh.said[0]!));
 });

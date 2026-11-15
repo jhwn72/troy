@@ -62,6 +62,10 @@ const CASES: Case[] = [
   ["only alert me for food within 5 min", "notes", "set_alert_distance"],
   ["dont text me after 10pm", "notes", "set_quiet_hours"],
   ["from now on keep it short", "notes", "add_note"],
+  // people and policy are never repair
+  ["my ra won't do anything about the noise", "smalltalk", "chat"],
+  ["my roommate doesn't work with me on anything", "smalltalk", "chat"],
+  ["my door lock is broken", "repair", "report"],
   // smalltalk
   ["hey whats up", "smalltalk", "chat"],
   ["are you a real person", "smalltalk", "chat"],

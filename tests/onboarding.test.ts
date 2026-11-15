@@ -12,9 +12,11 @@ import {
   STUDENT_LINE,
   guessName,
   handleAlertPollVote,
+  localPart,
   readEmail,
   setOnboardingDeps,
   settleAlertVotes,
+  suggestEmail,
 } from "../src/onboarding.ts";
 import type { Brief, OnboardingDeps, StepSpec } from "../src/onboarding.ts";
 import type { EmailSendResult } from "../src/email.ts";
@@ -320,7 +322,13 @@ test("readEmail: noise is fixed silently, likely typos are suggested, other thin
   assert.deepEqual(readEmail("tommy@gmail.com"), { kind: "not_usc", email: "tommy@gmail.com" });
   assert.deepEqual(readEmail("tommy@usc.edu.evil.com"), { kind: "not_usc", email: "tommy@usc.edu.evil.com" });
   assert.deepEqual(readEmail("tommy@ucsd.edu"), { kind: "not_usc", email: "tommy@ucsd.edu" });
-  for (const attempt of ["@usc.edu", "tommy@", "ttrojan usc.edu", "ttrojan at usc dot edu"]) assert.deepEqual(readEmail(attempt), { kind: "attempt" }, attempt);
+  for (const attempt of ["@usc.edu", "tommy@"]) assert.deepEqual(readEmail(attempt), { kind: "attempt" }, attempt);
+  // Typed out without the "@": the address is built in code and confirmed, never bounced with a format hint.
+  for (const near of ["johnwang usc edu", "Johnwang usc edu", "johnwang at usc dot edu", "johnwang@usc", "johnwang@usc,edu", "johnwang @ usc.edu", "johnwang usc.edu", "my email is johnwang usc edu"]) {
+    assert.deepEqual(readEmail(near), { kind: "typo", email: "johnwang@usc.edu" }, near);
+  }
+  assert.deepEqual(readEmail("john wang usc edu"), { kind: "typo", email: "johnwang@usc.edu" });
+  for (const not of ["is it usc edu", "what is usc edu?", "usc edu"]) assert.notEqual(readEmail(not)?.kind, "typo", not);
   for (const not of ["can we start over", "what can u do", "idk", "why do u need my usc email?", "", "i'm a judge"]) assert.equal(readEmail(not), null, not);
 });
 
@@ -456,26 +464,285 @@ test('"can we start over" at the email step restarts instead of a format error',
 });
 
 test("the format hint is only for something that looks like an attempted email", async () => {
-  const t = setup();
-  await t.text("hey troy");
   for (const attempt of ["tommy@gmail.com", "tommy@usc.edu.evil.com", "ttrojan usc.edu", "@usc.edu"]) {
+    const t = setup();
+    await t.text("hey troy");
     const reply = await t.text(attempt);
     assert.match(reply.join(" "), /@usc\.edu/, attempt);
     assert.equal(codeCount(t.db), 0, attempt);
+    assert.equal(brain.email.sent.length, 0, attempt);
   }
   assert.equal(brain.asked.length, 0);
-  // Never the same line twice in a row.
-  const a = await t.text("tommy@gmail.com");
-  const b = await t.text("tommy@gmail.com");
-  assert.notDeepEqual(a, b);
 
   // Anything else is answered like a person and the step stays open.
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
   for (const other of ["idk", "what can u do", "lol"]) {
     const reply = await t.text(other);
     assert.ok(!reply.join(" ").includes("@usc.edu"), other);
   }
   assert.equal(brain.asked.length, 3);
   assert.equal(t.step(), "email");
+});
+
+// ---------- near-miss emails (John's live conversation, Nov 14 7pm) ----------
+
+const DID_U_MEAN = 'did u mean "johnwang@usc.edu"? if so i\'ll send the code now';
+
+test("john's exchange: switching the email, a gmail, then a bare johnwang resolves in one did-u-mean", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("jwang@usc.edu");
+  assert.equal(t.step(), "code");
+  assert.deepEqual(await t.text("can i switch to a different email"), ["sure, which one should i use?"]);
+  assert.equal(t.step(), "email");
+
+  // The gmail: one line that it has to be the usc one, with the usc address it most likely stands for.
+  const gmail = await t.text("John.Cheng.wang@gmail.com");
+  assert.equal(gmail.length, 2);
+  assert.match(gmail[0]!, /usc/);
+  assert.equal(gmail[1], 'did u mean "john.cheng.wang@usc.edu"? if so i\'ll send the code now');
+  assert.equal(brain.email.sent.length, 1, "nothing goes to a suggestion");
+
+  // "Johnwang" is not a yes to that. It is the front half of the address he means.
+  assert.deepEqual(await t.text("Johnwang"), [DID_U_MEAN]);
+  assert.equal(t.step(), "email_confirm");
+  assert.equal(brain.email.sent.length, 1);
+  assert.equal(brain.asked.length, 1, "only the switch went to the chat brain");
+
+  const sent = await t.text("yes");
+  assert.match(sent.join(" "), /johnwang@usc\.edu/);
+  assert.equal(brain.email.sent.at(-1)!.to, "johnwang@usc.edu");
+  assert.equal(t.step(), "code");
+  await t.text(codeFor(t.db));
+  assert.equal(t.user().uscEmail, "johnwang@usc.edu");
+});
+
+test("every near miss john typed gets the did-u-mean, and a thumbs up on that bubble sends the code", async () => {
+  for (const typed of ["Johnwang", "Johnwang usc edu", "johnwang at usc dot edu", "johnwang@usc", "johnwang@usc,edu", "johnwang @ usc.edu", "johnwang usc.edu"]) {
+    const t = setup();
+    await t.text("hey troy");
+    await t.text("student");
+    const ask = await t.text(typed);
+    assert.deepEqual(ask, [DID_U_MEAN], typed);
+    assert.equal(t.step(), "email_confirm", typed);
+    // Never a code to a suggested address before they confirm it.
+    assert.equal(codeCount(t.db), 0, typed);
+    assert.equal(brain.email.sent.length, 0, typed);
+    assert.deepEqual(await t.tap("out-1"), [], typed);
+    assert.equal(brain.email.sent.length, 0, typed);
+    await t.tap(t.idOf(ask[0]!));
+    assert.deepEqual(brain.email.sent.map((e) => e.to), ["johnwang@usc.edu"], typed);
+    assert.equal(t.step(), "code", typed);
+    brain.email.sent.length = 0;
+  }
+  assert.equal(brain.asked.length, 0);
+});
+
+test("a suggestion they turn down sends nothing, and the next thing they type is read fresh", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
+  await t.text("jwang23");
+  assert.equal(t.step(), "email_confirm");
+  const again = await t.text("no");
+  assert.match(again.join(" "), /usc email/);
+  assert.equal(t.step(), "email");
+  assert.equal(codeCount(t.db), 0);
+  await t.text("john.wang@usc.edu");
+  assert.deepEqual(brain.email.sent.map((e) => e.to), ["john.wang@usc.edu"]);
+});
+
+test("a piece of the usc address they gave before offers that same address", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  await t.text("i put the wrong email");
+  assert.equal(t.step(), "email");
+  for (const piece of ["john", "wang", "Johnwang", "john wang"]) {
+    assert.deepEqual(await t.text(piece), [DID_U_MEAN], piece);
+    assert.equal(brain.email.sent.length, 1, piece);
+  }
+  // A word that isn't part of it stands for itself.
+  assert.deepEqual(await t.text("jcwang"), ['did u mean "jcwang@usc.edu"? if so i\'ll send the code now']);
+
+  assert.equal(suggestEmail("john", "johnwang@usc.edu"), "johnwang@usc.edu");
+  assert.equal(suggestEmail("john", null), "john@usc.edu");
+  assert.equal(suggestEmail("john wang", null), null);
+  assert.equal(suggestEmail("help", "helpdesk@usc.edu"), null);
+});
+
+test("common chat words and plain sentences are never treated as the front of an email", async () => {
+  for (const word of ["ok", "yes", "no", "idk", "what", "help", "skip", "judge", "student", "lol", "hey", "thanks", "resend", "why", "wait", "nvm", "usc", "email", "hm", "jo", "123456", "what?", "a".repeat(31), "john wang", "john@wang", "j..w"]) {
+    assert.equal(localPart(word), null, word);
+  }
+  for (const [typed, local] of [["Johnwang", "johnwang"], ["jwang23", "jwang23"], ["john.wang", "john.wang"], ["j_wang-2", "j_wang-2"], ["ttrojan.", "ttrojan"]] as const) assert.equal(localPart(typed), local, typed);
+
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
+  for (const word of ["idk", "what", "lol", "hmm", "wait", "i lost my wallet"]) {
+    const reply = await t.text(word);
+    assert.ok(!reply.join(" ").includes("did u mean"), word);
+    assert.equal(t.step(), "email", word);
+  }
+  assert.equal(codeCount(t.db), 0);
+  // "judge" and "student" still mean what they say.
+  await t.text("judge");
+  assert.equal(t.user().verifiedVia, "judge_skip");
+
+  // A bare word is only read this way while he is waiting for the email.
+  const c = setup();
+  await c.text("hey troy");
+  const who = await c.text("johnwang");
+  assert.ok(!who.join(" ").includes("did u mean"));
+  assert.equal(c.step(), "who");
+  await c.text("ttrojan@usc.edu");
+  const atCode = await c.text("johnwang");
+  assert.ok(!atCode.join(" ").includes("did u mean"));
+  assert.equal(c.step(), "code");
+});
+
+test("two failed tries at an email in a row: no third format lesson, the two real ways forward instead", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
+  const first = await t.text("tommy@");
+  assert.match(first.join(" "), /@usc\.edu/);
+  const said = brain.said.length;
+  const second = await t.text("@usc.edu");
+  assert.equal(brain.said.length, said + 1, "worded through the composer, not a canned line");
+  const brief = brain.said.at(-1)!;
+  assert.match(brief.goal, /do not explain the email format again/);
+  assert.ok(brief.mustCover.some((m) => /one more time/.test(m)));
+  assert.ok(brief.mustCover.some((m) => /judge/.test(m)));
+  assert.ok(!second.join(" ").includes("@usc.edu"), second.join(" "));
+  assert.match(second.join(" "), /"judge"/);
+  assert.equal(t.step(), "email");
+  for (const version of brief.fallback) {
+    const all = version.join(" ");
+    assert.match(all, /usc email/);
+    assert.match(all, /text "judge"/);
+    assert.equal(all, all.toLowerCase());
+    assert.ok(!/[—–]/.test(all) && !/\b(?:you|your)\b/.test(all), all);
+  }
+  // Both ways forward are real.
+  await t.text("ttrojan@usc.edu");
+  assert.equal(t.step(), "code");
+
+  const j = setup();
+  await j.text("hey troy");
+  await j.text("tommy@gmail.com");
+  await j.text("nah");
+  const stuck = await j.text("tommy@yahoo.com");
+  assert.match(stuck.join(" "), /"judge"/);
+  assert.ok(!stuck.join(" ").includes("did u mean"));
+  await j.text("judge");
+  assert.equal(j.user().verifiedVia, "judge_skip");
+});
+
+// ---------- codes: any unexpired one for the same address ----------
+
+test("the code from the first of two emails verifies", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  await t.text("resend");
+  assert.equal(brain.email.sent.length, 2);
+  assert.deepEqual(brain.email.sent.map((e) => e.to), ["johnwang@usc.edu", "johnwang@usc.edu"]);
+  const reply = await t.text(first);
+  assert.ok(!reply.join(" ").includes("left"), reply.join(" "));
+  assert.equal(t.user().verifiedVia, "usc_email");
+  assert.equal(t.user().uscEmail, "johnwang@usc.edu");
+  assert.equal(codeCount(t.db), 0);
+});
+
+test("the same address typed again keeps the first code working too", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  await t.text("i put the wrong email");
+  await t.text("johnwang@usc.edu");
+  await t.text(first);
+  assert.equal(t.user().uscEmail, "johnwang@usc.edu");
+});
+
+test("a code sent to a previous, different address does not verify the new one", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("old.address@usc.edu");
+  const old = codeFor(t.db);
+  await t.text("i put the wrong email");
+  await t.text("johnwang@usc.edu");
+  let fresh = codeFor(t.db);
+  if (fresh === old) {
+    // One in a million: give the new address a different code so the check below means something.
+    fresh = old === "000000" ? "111111" : "000000";
+    t.db.prepare("UPDATE verification_codes SET code = ? WHERE email = ?").run(fresh, "johnwang@usc.edu");
+  }
+  const reply = await t.text(old);
+  assert.match(reply.join(" "), /4 tries left/);
+  assert.equal(t.user().verifiedAt, null);
+  const dropped = t.db.prepare("SELECT expiresAt FROM verification_codes WHERE email = ?").get("old.address@usc.edu") as { expiresAt: number };
+  assert.equal(dropped.expiresAt, 0);
+  await t.text(fresh);
+  assert.equal(t.user().uscEmail, "johnwang@usc.edu");
+});
+
+test("a wrong code never says how many emails went out, and the try limit holds across both codes", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  await t.text("resend");
+  const second = codeFor(t.db);
+  const wrong = ["000000", "111111", "222222"].find((c) => c !== first && c !== second)!;
+  const said: string[] = [];
+  for (let i = 1; i <= 5; i++) {
+    const r = await t.text(wrong);
+    said.push(r.join(" "));
+    if (i < 5) {
+      assert.ok(r[0]!.includes(`${5 - i} ${5 - i === 1 ? "try" : "tries"} left`), r[0]);
+      assert.match(r[0]!, /most recent email|newest email/);
+    }
+  }
+  for (const line of said) assert.ok(!/\b(?:two|2|both|second|first|couple|emails)\b/.test(line.replace(/\d (?:try|tries) left/, "")), line);
+  // Locked: neither code works until a new one is asked for.
+  for (const code of [first, second]) {
+    const locked = await t.text(code);
+    assert.match(locked[0]!, /"resend"/);
+  }
+  assert.equal(t.user().verifiedAt, null);
+
+  // With only one code out, the line doesn't bring up other emails at all.
+  const one = setup();
+  await one.text("hey troy");
+  await one.text("johnwang@usc.edu");
+  const only = codeFor(one.db);
+  const miss = await one.text(only === "000000" ? "111111" : "000000");
+  assert.ok(!/recent|newest/.test(miss.join(" ")), miss.join(" "));
+});
+
+test("a second send that fails leaves the first code usable once they are back at the code step", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  brain.email.result = "error";
+  await t.text("resend");
+  assert.equal(t.step(), "email");
+  const rows = t.db.prepare("SELECT code, expiresAt FROM verification_codes ORDER BY id").all() as { code: string; expiresAt: number }[];
+  assert.equal(rows.length, 2);
+  assert.ok(rows[0]!.expiresAt > Date.now(), "the one that arrived still works");
+  assert.equal(rows[1]!.expiresAt, 0, "the one nobody received never does");
+  brain.email.result = "sent";
+  await t.text("try again");
+  assert.equal(t.step(), "code");
+  await t.text(first);
+  assert.equal(t.user().uscEmail, "johnwang@usc.edu");
 });
 
 test("code step: the brain can resend, change the email or go back, and code still does every check", async () => {
@@ -489,8 +756,9 @@ test("code step: the brain can resend, change the email or go back, and code sti
   assert.match(resent.join(" "), /ttrojan@usc\.edu/);
   assert.equal(brain.email.sent.length, 2);
   assert.equal(t.step(), "code");
-  // The old code stopped working the moment the new one went out.
-  if (first !== codeFor(t.db)) await t.text(first);
+  // Both codes went to the same address, so both are live until they expire.
+  const live = t.db.prepare("SELECT COUNT(*) AS n FROM verification_codes WHERE code IN (?, ?) AND expiresAt > ?").get(first, codeFor(t.db), Date.now()) as { n: number };
+  assert.equal(live.n, 2);
   assert.equal(t.user().verifiedAt, null);
 
   assert.deepEqual(await t.text("i put the wrong email"), ["sure, which one should i use?"]);
@@ -1258,4 +1526,113 @@ test("a student never sees the judge disclaimer or the tone tap", async () => {
   // And the words that switch a judge's tone do nothing for a student.
   await t.text("formal");
   assert.equal(plainTone(t.db, t.user().id), false);
+});
+
+// ---------- break attempts on the email and code fixes (checker pass, Nov 14) ----------
+
+test("a code that used up its tries stays dead: asking for a new code never brings it back", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  const wrong = ["000000", "111111"].find((c) => c !== first)!;
+  for (let i = 0; i < 5; i++) await t.text(wrong);
+  assert.match((await t.text(first))[0]!, /"resend"/, "locked");
+  await t.text("resend");
+  let second = codeFor(t.db);
+  if (second === first) {
+    second = first === "333333" ? "444444" : "333333";
+    t.db.prepare("UPDATE verification_codes SET code = ? WHERE id = (SELECT MAX(id) FROM verification_codes)").run(second);
+  }
+  // The first code had its five wrong guesses. A fresh email does not give it more.
+  await t.text(first);
+  assert.equal(t.user().verifiedAt, null, "a locked-out code never verifies");
+  await t.text(second);
+  assert.equal(t.user().verifiedVia, "usc_email");
+});
+
+test("wrong guesses count against every code that is out, so no code ever gets more than five", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  const wrong = ["000000", "111111", "222222"].find((c) => c !== first)!;
+  for (let i = 0; i < 3; i++) await t.text(wrong);
+  await t.text("resend");
+  const rows = () => t.db.prepare("SELECT attempts FROM verification_codes ORDER BY id").all() as { attempts: number }[];
+  assert.deepEqual(rows().map((r) => r.attempts), [3, 0]);
+  const second = codeFor(t.db);
+  const miss = ["555555", "666666", "777777"].find((c) => c !== first && c !== second)!;
+  await t.text(miss);
+  await t.text(miss);
+  assert.deepEqual(rows().map((r) => r.attempts), [5, 2]);
+  // The first code is used up now; the newer one still has tries.
+  await t.text(first);
+  assert.equal(t.user().verifiedAt, null);
+  await t.text(second);
+  assert.equal(t.user().verifiedVia, "usc_email");
+});
+
+test("an older code past its own expiry is refused even while a newer one is live", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("johnwang@usc.edu");
+  const first = codeFor(t.db);
+  await t.text("resend");
+  let second = codeFor(t.db);
+  if (second === first) {
+    second = first === "333333" ? "444444" : "333333";
+    t.db.prepare("UPDATE verification_codes SET code = ? WHERE id = (SELECT MAX(id) FROM verification_codes)").run(second);
+  }
+  // The second email did not push the first code's expiry out.
+  const exp = t.db.prepare("SELECT expiresAt FROM verification_codes ORDER BY id").all() as { expiresAt: number }[];
+  assert.ok(exp[0]!.expiresAt <= exp[1]!.expiresAt);
+  t.db.prepare("UPDATE verification_codes SET expiresAt = ? WHERE id = (SELECT MIN(id) FROM verification_codes)").run(Date.now() - 1000);
+  const reply = await t.text(first);
+  assert.equal(t.user().verifiedAt, null);
+  assert.match(reply.join(" "), /4 tries left/);
+  // And once every code has expired, none of them works.
+  t.db.prepare("UPDATE verification_codes SET expiresAt = ?").run(Date.now() - 1000);
+  assert.match((await t.text(second))[0]!, /"resend"/);
+  assert.equal(t.user().verifiedAt, null);
+});
+
+test("did-u-mean: no code goes anywhere until the yes is to that question", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
+  const ask = await t.text("johnwang usc edu");
+  assert.deepEqual(ask, ['did u mean "johnwang@usc.edu"? if so i\'ll send the code now']);
+  assert.equal(brain.email.sent.length, 0);
+  // They ask something else and he answers. A "yes" after that answers his last bubble, not the address.
+  await t.text("what can u do");
+  const again = await t.text("yes");
+  assert.equal(brain.email.sent.length, 0, "no code on a yes that came after something else he said");
+  assert.deepEqual(again, ['did u mean "johnwang@usc.edu"? if so i\'ll send the code now']);
+  assert.equal(t.step(), "email_confirm");
+  // Now it is the open question again, and yes sends it there and nowhere else.
+  await t.text("yes");
+  assert.deepEqual(brain.email.sent.map((e) => e.to), ["johnwang@usc.edu"]);
+});
+
+test("did-u-mean: a second suggestion replaces the first, and a thumbs up on the old bubble sends nothing", async () => {
+  const t = setup();
+  await t.text("hey troy");
+  await t.text("student");
+  await t.text("johnwang usc edu");
+  const oldBubble = t.idOf('did u mean "johnwang@usc.edu"? if so i\'ll send the code now');
+  assert.deepEqual(await t.text("jcwang"), ['did u mean "jcwang@usc.edu"? if so i\'ll send the code now']);
+  await t.tap(oldBubble);
+  assert.equal(brain.email.sent.length, 0, "the old suggestion is gone");
+  // A thumbs down on the open one sends nothing either.
+  await t.tap(t.idOf('did u mean "jcwang@usc.edu"? if so i\'ll send the code now'), "dislike");
+  assert.equal(brain.email.sent.length, 0);
+  assert.equal(t.step(), "email");
+  // A gmail address is never mailed, and neither is the usc guess built from it until they say yes.
+  await t.text("John.Cheng.wang@gmail.com");
+  assert.equal(brain.email.sent.length, 0);
+  assert.equal(t.step(), "email_confirm");
+  await t.text("no");
+  assert.equal(brain.email.sent.length, 0);
+  assert.equal(codeCount(t.db), 0);
 });

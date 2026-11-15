@@ -24,6 +24,10 @@ import {
   HISTORY_LIMIT,
   askedWhatHeDoes,
   askedWhoHeIs,
+  QUESTION_LIMIT,
+  asksOpenQuestion,
+  asksSomething,
+  questionStreak,
   buildChatContext,
   chatSystem,
   checkReply,
@@ -133,7 +137,11 @@ test("the three brain files load as one stable block with the expected sections"
   // The old claim that nobody can ever see a chat is gone, and a complaint is no longer a concern by default.
   assert.doesNotMatch(brain.about, /no person reading the chat/i);
   assert.doesNotMatch(brain.playbook, /is a concern for usg\. hand off/);
-  assert.match(brain.playbook, /only becomes a concern when they say they want it sent/);
+  // Handing a concern off from a chat only makes the offer: nothing is sent without a yes.
+  assert.match(brain.playbook, /Only their yes sends it/);
+  assert.match(brain.playbook, /never sends anything/);
+  assert.match(brain.persona, /## He doesn't interrogate/);
+  assert.match(brain.persona, /## He never files anything on his own/);
   // Same bytes on every call: this is what makes the system prompt cacheable.
   assert.equal(chatSystem(), chatSystem());
   assert.ok(chatSystem().startsWith(brain.block));
@@ -853,4 +861,115 @@ test("plain tone reaches the hand-written lines too, and exact phrases to type a
   } finally {
     setJudgeHooks(null);
   }
+});
+
+// ---------- he doesn't interrogate ----------
+
+test("the question streak is counted from the messages table: his turns in a row that ended on a question", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550180", CHAT);
+  const t0 = Date.now() - 10 * 60_000;
+  assert.equal(questionStreak(db, CHAT), 0);
+  put(db, user.id, "in", "class is rough", t0);
+  put(db, user.id, "out", "oof", t0 + 1000);
+  put(db, user.id, "out", "what about it?", t0 + 2000);
+  put(db, user.id, "in", "getting up", t0 + 3000);
+  assert.equal(questionStreak(db, CHAT), 1, "a turn with a question in it counts");
+  // A question with no question mark is still a question.
+  put(db, user.id, "out", "is it homework keeping u up or just ur brain not shutting off", t0 + 4000);
+  put(db, user.id, "in", "dorm mates are annoying", t0 + 5000);
+  assert.equal(questionStreak(db, CHAT), 2);
+  // Something passed along (an alert, another person's words) is not his turn.
+  saveMessage(db, { userId: user.id, chatId: CHAT, direction: "out", providerMessageId: null, text: "free pizza at tcc, want one?", notice: true });
+  assert.equal(questionStreak(db, CHAT), 2);
+  // A turn that gives something resets it.
+  put(db, user.id, "out", "ugh, a loud floor is the worst", Date.now());
+  put(db, user.id, "in", "yeah", Date.now());
+  assert.equal(questionStreak(db, CHAT), 0);
+  // A question tucked in before a closing line still leaves them a question to answer (from the live replay:
+  // "ah so that's the sleep thief. loud ones?" / "that'll wreck anyone's mornings").
+  const db3 = seeded();
+  const u3 = getOrCreateUser(db3, "+12135550182", CHAT);
+  put(db3, u3.id, "in", "i hardly get sleep", t0);
+  put(db3, u3.id, "out", "what's keeping u up, late nights or ur brain not shutting off", t0 + 1000);
+  put(db3, u3.id, "in", "dorm mates are annoying", t0 + 2000);
+  put(db3, u3.id, "out", "ah so that's the sleep thief. loud ones?", t0 + 3000);
+  put(db3, u3.id, "out", "that'll wreck anyone's mornings", t0 + 4000);
+  put(db3, u3.id, "in", "yeah and my ra doesn't enforce it", t0 + 5000);
+  assert.equal(questionStreak(db3, CHAT), 2);
+  // And a long pause starts a new thread.
+  const db2 = seeded();
+  const u2 = getOrCreateUser(db2, "+12135550181", CHAT);
+  put(db2, u2.id, "out", "what happened?", t0 - 3 * 60 * 60_000);
+  put(db2, u2.id, "in", "nvm", t0 - 3 * 60 * 60_000 + 1000);
+  put(db2, u2.id, "out", "u sure?", t0 - 3 * 60 * 60_000 + 2000);
+  put(db2, u2.id, "in", "hey so about my floor", t0);
+  assert.equal(questionStreak(db2, CHAT), 0);
+});
+
+test("what counts as a question, and which ones take more than a tap to answer", () => {
+  // From the live replay: no question mark, and not one of the usual openers.
+  assert.ok(asksSomething("what's keeping u up, late nights or ur brain not shutting off"));
+  assert.ok(asksOpenQuestion("what's keeping u up, late nights or ur brain not shutting off"));
+  assert.ok(asksSomething("who's making the noise"));
+  assert.ok(asksOpenQuestion("lol rough. saturday morning class energy or just getting out of bed"));
+  assert.ok(!asksSomething("call or text 988 any time"));
+  for (const not of ["how annoying", "what a morning", "why not", "where things stand is up to u"]) assert.ok(!asksSomething(not), not);
+  for (const q of ["what about it?", "hm, say a little more?", "is it homework keeping u up or just ur brain not shutting off", "what are they doing, loud at night?", "did u ever tell ur ra straight up or is it more of a vibe thing", "which building and floor?"]) {
+    assert.ok(asksSomething(q), q);
+    assert.ok(asksOpenQuestion(q), q);
+  }
+  // A yes/no, a reaction with a question mark, and an offer can all be answered with a tap.
+  for (const q of ["want me to pass this to usc housing? i can send it with ur name or anonymously", "want me to send it with ur name or anonymously?", "wait the laptop too?? is it alive", "u good?", "should i report it?"]) {
+    assert.ok(asksSomething(q), q);
+    assert.ok(!asksOpenQuestion(q), q);
+  }
+  for (const line of ["ugh that's rough. how annoying", "what a mess", "that's on the ra to handle, not u", "ok that's actually brutal"]) assert.ok(!asksSomething(line), line);
+});
+
+test("at two questions in a row the model is told, and a third question is rejected; an offer of something he would do is not", () => {
+  const db = seeded();
+  const user = getOrCreateUser(db, "+12135550182", CHAT);
+  const t0 = Date.now() - 60_000;
+  put(db, user.id, "out", "what about it?", t0);
+  put(db, user.id, "in", "getting up", t0 + 1000);
+  const one = buildChatContext({ db, user, chatId: CHAT, text: "getting up", pull: true });
+  assert.equal(one.questionStreak, 1);
+  assert.match(one.prompt, /1 in a row/);
+  assert.ok(checkReply(["mornings huh. what time is ur first class?"], one).ok, "a second follow-up is fine");
+
+  put(db, user.id, "out", "hm, say a little more?", t0 + 2000);
+  put(db, user.id, "in", "my dorm mates are loud and my ra does nothing", t0 + 3000, "in-now");
+  assert.equal(QUESTION_LIMIT, 2);
+  const two = buildChatContext({ db, user, chatId: CHAT, text: "my dorm mates are loud and my ra does nothing", messageId: "in-now", pull: true });
+  assert.equal(two.questionStreak, 2);
+  assert.match(two.prompt, /troy has asked 2 questions in a row/);
+  assert.match(two.prompt, /gives something instead of asking/);
+  // The last two are from the live replay: a yes/no about their situation is still a third follow-up.
+  for (const third of ["what are they doing, loud at night?", "did u ever tell ur ra straight up or is it more of a vibe thing", "which building and floor?", "ugh. say a little more?", "that's rough\nwhat floor are u on?", "that's not ok. is it still going on rn?", "ugh, an ra who lets it slide is the worst part\nok so is that stuff like loud hours and nobody does anything about it?"]) {
+    assert.match(rejected(third.split("\n"), two), /asked 2 questions in a row/, third);
+  }
+  // Giving something passes, and so does an offer of something he would do.
+  assert.ok(checkReply(["ugh, an ra who shrugs is the worst", "that's one for housing, not something u should have to police"], two).ok);
+  for (const offer of ["that's not ok. want me to get this in front of someone who can actually do something about it?", "ugh that's rough\ni could flag it for housing, want that?", "should i pass it on?"]) {
+    const res = checkReply(offer.split("\n"), two);
+    assert.ok(res.ok || !/asked 2 questions in a row/.test(res.reason), offer);
+  }
+  // The count is only for a free reply: a line he starts himself, a heavy conversation and a step are left alone.
+  assert.equal(buildChatContext({ db, user, chatId: CHAT, text: "" }).questionStreak, 0);
+  const heavy = buildChatContext({ db, user, chatId: CHAT, text: "i can't do this anymore", pull: true, heavy: true });
+  assert.equal(heavy.questionStreak, 0);
+  assert.ok(checkReply(["that sounds really hard. what happened?"], heavy).ok);
+});
+
+test("the persona says why he doesn't interrogate, and the chat rules send people problems to concerns and offers to code", () => {
+  const brain = loadBrain();
+  assert.match(brain.persona, /Five questions in a row feels like filling out a form/);
+  assert.match(brain.persona, /at most two follow-up questions in a row/);
+  assert.match(brain.playbook, /never ask which building and floor/);
+  const system = chatSystem();
+  assert.match(system, /repair: report \(only a physical thing/);
+  assert.match(system, /nothing is sent unless they say yes/);
+  assert.match(system, /Never offer in ur own bubbles to send, report or pass something on/);
+  assert.match(system, /At most two follow-up questions in a row/);
 });

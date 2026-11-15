@@ -1099,7 +1099,13 @@ function onFoodAlert(db: DatabaseSync, userId: number, messageId: string): boole
   }
 }
 
-const ABOUT_OFFER = /\b(?:pizza|food|slice|spot|where|wheres|addy|address|location|building|lost|details?|items?|which|send|show|tell|yes|yeah|yea|sure|ok|okay|please|pls|hungry|starving|omw|eat)\b/;
+const ABOUT_OFFER = /\b(?:pizza|food|slice|spot|where|wheres|addy|address|location|building|lost|details?|items?|which|send|show|tell|hungry|starving|omw|eat)\b/;
+/** A yes-like word is only about the offer in a short message. "yeah and my ra doesn't enforce it" is about their ra. */
+const YES_LIKE = /\b(?:yes|yeah|yea|sure|ok|okay|please|pls)\b/;
+const aboutOffer = (text: string): boolean => {
+  const t = words(text);
+  return ABOUT_OFFER.test(t) || (YES_LIKE.test(t) && t.split(" ").length <= 4);
+};
 
 /**
  * While an example offer is open and the message is plain chat, the chat brain answers knowing what is on the table
@@ -1112,7 +1118,7 @@ export async function firstTenChat(ctx: FlowContext): Promise<boolean> {
   const near = row.near;
   if (near.food !== "example" && near.lost !== "example") return false;
   // Only when the text could be about the offer. Everything else is ordinary chat and goes the ordinary way.
-  if (!ABOUT_OFFER.test(words(ctx.event.text))) return false;
+  if (!aboutOffer(ctx.event.text)) return false;
   const out = await atStep(ctx, {
     flow: "first ten minutes",
     waitingFor: "to know if u want that pizza spot or the details on the lost stuff",
@@ -1130,6 +1136,9 @@ export async function firstTenChat(ctx: FlowContext): Promise<boolean> {
     return true;
   }
   if (!out.bubbles.length) return false;
+  // He has asked two questions in a row already, and this reply is a third (the message only brushed the offer:
+  // "yeah and my ra doesn't enforce it"). It is not sent. The ordinary chat path answers, held to the same limit.
+  if (brainMod.questionStreak(db, ctx.event.chatId) >= brainMod.QUESTION_LIMIT && out.bubbles.some(brainMod.asksBeyondAnOffer)) return false;
   await ctx.say(...out.bubbles);
   return true;
 }

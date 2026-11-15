@@ -9,9 +9,11 @@
 // and link (copied from the row exactly as stored), anonymous or named, merging and follower counts.
 // The model only picks a topic, and writes the one "best guess" bubble for questions nothing covers.
 
-import type { FlowContext, FlowHandler } from "../types.ts";
-import { askJson, composeReply } from "../ai.ts";
-import { CANCEL, CANCELLED, CANCELLED_POOL, directoryRows, follow, insertReport, isFresh, makeVoice, openReports, othersPhrase, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, userNotes } from "./reports-shared.ts";
+import type { FlowContext, FlowHandler, FlowState } from "../types.ts";
+import { askJson, asksToPassOn, composeReply, fallbackIntent } from "../ai.ts";
+import { findPlace } from "../places.ts";
+import { openQuestionId, readYesNo } from "../yes.ts";
+import { CANCEL, CANCELLED, CANCELLED_POOL, DEMO_NOTE, DEMO_NOTE_POOL, OFFER_STEP, claimsDone, directoryRows, firstFiling, follow, insertReport, isFresh, joinWords, makeVoice, newestOutId, offerLive, openReports, othersPhrase, ownWords, passToOtherFlow, rowForTopic, rowMentioned, sentenceBubbles, similarText, unvoiced, userNotes } from "./reports-shared.ts";
 import type { DirectoryRow, Pools, Voice } from "./reports-shared.ts";
 import { DECISION, STAFF_STEP, TALK_STEP, aside, handleStaffTurn, notifyStaffOfReport, queueStaffNotice, recordPerson, restoreStaffPointer, simulateIfAlone, simulationTurn, tellerFor } from "../staff.ts";
 
@@ -25,7 +27,7 @@ const CHECK_WITH_USG = "i'd check with usg";
 /** Used only if the directory has no committee rows (an unseeded database). */
 const ROUTE_FALLBACK = "USG";
 /** Every step this flow (or a usg member's summary) opens. Any other open step under this flow is a simulation's. */
-const OWN_STEPS: ReadonlySet<string> = new Set(["ask_name", "ask_join_name", "offer_send", STAFF_STEP, TALK_STEP]);
+const OWN_STEPS: ReadonlySet<string> = new Set(["ask_name", "ask_join_name", "offer_send", OFFER_STEP, STAFF_STEP, TALK_STEP]);
 
 // ---------- topic ----------
 
@@ -96,22 +98,117 @@ function committeeFor(ctx: FlowContext, topic: Topic): DirectoryRow | null {
   return rowForTopic(committees, topic) ?? rowForTopic(committees, "other");
 }
 
+// ---------- where a concern goes ----------
+//
+// Life in a residence hall (noise, roommates, an RA not acting, hall rules not being enforced) is not a broken
+// thing and not a policy question: it goes to USC Housing, or to Campus Support & Intervention when the student
+// sounds unsafe or at their limit. A policy-level issue (prices, the rules themselves) goes to the usg committee
+// for its topic. Every name is a directory row's, exactly as stored. No office is ever made up here.
+
+const RESIDENT_PEOPLE = /\b(?:room ?mates?|roomies?|dorm ?mates?|suite ?mates?|floor ?mates?|hall ?mates?|house ?mates?|neighbou?rs?|ra|ras|r\.a\.|resident (?:assistant|advisor|adviser)s?|rd|res(?:idential)? ?(?:ed|life|staff)|hall (?:staff|director))\b/;
+const NOISE = /\bnois[ey]\b|\bloud\b|\bpart(?:y|ies|ying)\b|\bblasting\b|\bmusic\b|\byelling\b|\bscreaming\b/;
+const RES_CONTEXT = /\bdorms?\b|\bmy (?:room|floor|hall|suite|apartment|apt|building)\b|\bresiden\w+|\bhousing\b|\bnext door\b|\bupstairs\b|\bdownstairs\b|\bsleep(?:ing)?\b|\bat night\b/;
+const HALL_RULES = /\bquiet hours\b|\b(?:dorm|hall|residence hall|housing|floor) rules?\b/;
+/** The rule or the price itself is the problem, for everyone: that is student government's to take up. */
+const POLICY_LEVEL = /\bpolic(?:y|ies)\b|\brent\b|\bprices?\b|\bcosts?\b|\bexpensive\b|\boverpriced\b|\bfees?\b|\bhousing (?:lottery|selection|assignments?|application)\b|\b(?:usc|housing|the school) should\b|\bshould(?:n'?t)? (?:be allowed|allow|change)\b/;
+const NEEDS_SUPPORT = /\bunsafe\b|\b(?:don'?t|do not|dont) feel safe\b|\bnot safe\b|\bscared\b|\bafraid\b|\bthreaten\w*|\bharass\w*|\bbull(?:y|ied|ying)\b|\bstalk\w*|\bneed to move out\b|\bcan'?t live (?:here|there|with)\b|\bat my limit\b|\boverwhelmed\b/;
+
+/** Noise, roommates or dormmates, an RA or hall staff not acting, residence hall rules: life in housing, not a broken thing. */
+export function isHousingLife(text: string): boolean {
+  const t = (text ?? "").toLowerCase().replace(/[‘’]/g, "'");
+  return RESIDENT_PEOPLE.test(t) || HALL_RULES.test(t) || (NOISE.test(t) && RES_CONTEXT.test(t));
+}
+
+/** How an office is named to a student: the stored name without its bracketed short form or the word "maintenance", lowercase. */
+function officeWords(row: DirectoryRow): string {
+  return row.name.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+maintenance$/i, "").trim().toLowerCase();
+}
+
+/**
+ * Where a concern is routed: `routedTo` is the directory row's name exactly as stored. `office` is set (the words
+ * a student is told) when it goes to a campus office instead of a usg committee.
+ */
+export function concernRoute(ctx: FlowContext, text: string, topic: Topic): { routedTo: string; office?: string } {
+  if (isHousingLife(text) && !POLICY_LEVEL.test(text.toLowerCase())) {
+    const offices = directoryRows(ctx.db, "office");
+    const housing = rowForTopic(offices, "residence hall") ?? rowForTopic(offices, "dorm");
+    const support = rowForTopic(offices, "trojans care") ?? rowForTopic(offices, "personal emergency");
+    const row = (NEEDS_SUPPORT.test(text.toLowerCase()) ? support : null) ?? housing ?? support;
+    if (row) return { routedTo: row.name, office: officeWords(row) };
+  }
+  const committee = committeeFor(ctx, isHousingLife(text) && topic === "other" ? "housing" : topic);
+  return { routedTo: committee?.name ?? ROUTE_FALLBACK };
+}
+
 // ---------- concerns ----------
 
 interface Pending {
   description: string;
   topic: Topic;
   routedTo: string;
+  /** Set when it goes to a campus office, not a usg committee: the words a student is told ("usc housing"). */
+  office?: string;
+  /** A residence hall they named, by its stored name. Never a building that isn't one. */
+  locationText?: string;
 }
 
 function pendingFrom(data: Record<string, unknown>): Pending | null {
   if (typeof data.description !== "string" || typeof data.routedTo !== "string") return null;
-  return { description: data.description, topic: asTopic(data.topic) ?? "other", routedTo: data.routedTo };
+  return {
+    description: data.description,
+    topic: asTopic(data.topic) ?? "other",
+    routedTo: data.routedTo,
+    ...(typeof data.office === "string" && data.office ? { office: data.office } : {}),
+    ...(typeof data.locationText === "string" && data.locationText ? { locationText: data.locationText } : {}),
+  };
+}
+
+/** Who a concern would go to, as a student is told it. Code puts this in: the model never names an office. */
+const toWords = (p: Pending): string => p.office ?? `the ${p.routedTo}`;
+
+/**
+ * A concern that began in a chat is offered, never started: he says what he could do and for whom, and waits.
+ * The offer is this flow's open step, holding what he understood and their own words, so a yes never asks again.
+ */
+async function offer(ctx: FlowContext, p: Pending, lead: string[] = []): Promise<void> {
+  const to = toWords(p);
+  const fallback = [
+    [`want me to pass this to ${to}? i can send it with ur name or anonymously`],
+    [`i could get this in front of ${to} for u, with ur name or anonymous. want me to?`],
+    [`this sounds like one for ${to}. ur name or anonymous, either works. want me to send it over?`],
+  ];
+  let bubbles: string[] = [];
+  try {
+    // Loaded here: the chat brain imports this folder's shared file.
+    const { sayInHisWords } = await import("../brain.ts");
+    bubbles = await sayInHisWords(unvoiced(ctx), {
+      goal: "they have been telling troy about a problem. react to it like a friend in a few words, then offer to pass it on for them and ask if they want that. nothing has been sent, and nothing will be unless they say yes. do not ask them for any more details",
+      mustCover: [`troy could pass this on to ${to} for them, if they want`, "it can go with their name or anonymously"],
+      facts: { "who it would go to": to },
+      fallback,
+    });
+  } catch {
+    bubbles = [];
+  }
+  // It has to be a question they can answer with a yes: that is the whole point of it.
+  // And about something that has not happened: wording that says it was sent never goes out.
+  if (!bubbles.length || !bubbles[bubbles.length - 1]!.includes("?") || claimsDone(bubbles)) bubbles = fallback[0]!;
+  const ids = await ctx.say(...lead, ...bubbles);
+  const qid = [...ids].reverse().find((id) => !!id) ?? null;
+  ctx.setState({ flow: "usg", step: OFFER_STEP, data: { ...p, qid, lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+}
+
+/** An open concern that says the same thing, which this one would join instead of being filed again. */
+function sameConcern(ctx: FlowContext, p: Pending) {
+  // A campus-wide concern joins one that says the same thing. One about someone's own hall (their roommates, their
+  // ra) only joins one from the same named hall: two students with loud roommates are two situations, not one.
+  const sameHall = (r: { locationText: string | null }) => !p.office || (!!p.locationText && r.locationText === p.locationText);
+  return openReports(ctx.db, "usg_concern").find((r) => r.routedTo === p.routedTo && sameHall(r) && similarText(p.description, r.description ?? "")) ?? null;
 }
 
 /** Joins an open concern that says the same thing, or asks the one question (name or anonymous). */
-async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise<void> {
-  const dup = openReports(ctx.db, "usg_concern").find((r) => r.routedTo === p.routedTo && similarText(p.description, r.description ?? ""));
+async function raise(ctx: FlowContext, p: Pending, lead: string[] = [], choice: "name" | "anonymous" | null = null): Promise<void> {
+  const dup = sameConcern(ctx, p);
   if (dup) {
     ctx.setState(null);
     const { result, others } = follow(ctx.db, dup, ctx.user.id);
@@ -125,7 +222,7 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
     // The member's updated summary waits a little for this answer, and goes out anyway if it never comes.
     queueStaffNotice(ctx.db, dup.id);
     ctx.setState({ flow: "usg", step: "ask_join_name", data: { ...p, reportId: dup.id } });
-    await ctx.say(...lead, UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp, ASK_JOIN_NAME);
+    await ctx.say(...lead, p.office ? UT.joinedOffice(othersPhrase(others), p.office) : UT.joined(othersPhrase(others), p.routedTo), SAY.whenPickedUp, ASK_JOIN_NAME);
     await aside(ctx, {
       step: "usg_joined",
       behind: { did: "found the same concern already open and added u to it instead of filing a second one. {studentsSharingIt} students share it now, with the {committee}", numbers: { studentsSharingIt: others + 1, committee: p.routedTo } },
@@ -133,21 +230,37 @@ async function raise(ctx: FlowContext, p: Pending, lead: string[] = []): Promise
     });
     return;
   }
+  // They already said which, in the same breath as their yes: nothing to ask.
+  if (choice) {
+    await send(ctx, p, choice === "anonymous", undefined, lead);
+    return;
+  }
   ctx.setState({ flow: "usg", step: "ask_name", data: { ...p } });
   await ctx.say(...lead, ASK_NAME);
 }
 
-async function send(ctx: FlowContext, p: Pending, anonymous: boolean, note?: string): Promise<void> {
+async function send(ctx: FlowContext, p: Pending, anonymous: boolean, note?: string, lead: string[] = []): Promise<void> {
   ctx.setState(null);
-  const reportId = insertReport(ctx.db, { userId: ctx.user.id, kind: "usg_concern", anonymous, category: p.topic, description: p.description, routedTo: p.routedTo });
+  const reportId = insertReport(ctx.db, { userId: ctx.user.id, kind: "usg_concern", anonymous, category: p.topic, description: p.description, locationText: p.locationText ?? null, routedTo: p.routedTo });
   recordPerson(ctx.db, reportId, ctx.user.id, !anonymous);
-  const bubbles = [UT.sent(p.routedTo)];
+  const bubbles = [...lead, p.office ? UT.sentOffice(p.office) : UT.sent(p.routedTo)];
   if (note) bubbles.push(note);
   else if (anonymous) bubbles.push(SAY.sentAnon);
   // The committee's assigned member gets a summary: counts only, never who. Said plainly when that person is a stand-in.
   const texted = await tellStaff(ctx, reportId);
   if (texted) bubbles.push(SAY.exampleMember);
+  // Otherwise one short line about the demo, the first time this person files anything, and never again.
+  else if (firstFiling(ctx.db, ctx.user.id)) bubbles.push(DEMO_NOTE);
   await ctx.say(...bubbles);
+  if (p.office) {
+    // An office, not a committee: there is no usg member's side to play out.
+    await aside(ctx, {
+      step: "usg_sent",
+      behind: { did: "read this as a problem with people or rules, not a broken thing, so it went to {office} as a concern instead of a work order", numbers: { office: p.routedTo } },
+      decision: DECISION.officesStayInCharge,
+    });
+    return;
+  }
   // Nobody is assigned to this committee, so nothing would happen next. A judge (or a student with nobody else on
   // here) is offered the usg member's side played out; a student in a live pilot waits for the real update.
   if (!texted && (await simulateIfAlone(ctx, "usg", { what: p.description, topic: p.topic, committee: p.routedTo, anonymous: anonymous ? "yes" : "no", reportId: String(reportId) }))) return;
@@ -198,6 +311,8 @@ export function asksAboutName(text: string): boolean {
 const EXPLAIN_JOIN_NAME = ["with ur name on it, usg can ask to talk to u about it, and i'd check with u first", "anonymous means ur just counted. which one?"];
 
 export const EXPLAIN_NAME = ["with ur name, the committee sees ur first name next to it", "anonymous means no name at all. which one?"];
+/** The same answer when it is headed to a campus office, not a committee. */
+const EXPLAIN_NAME_OFFICE = ["with ur name, the office sees ur first name next to it", "anonymous means no name on it at all. which one?"];
 
 const SAY = {
   alreadySent: "u already sent that one and it's still open",
@@ -210,6 +325,7 @@ const SAY = {
   doubleCheck: "i'd double check with usg",
   heldOff: "ok, i held off on sending that one. tell me again whenever u want it sent",
   allGood: "all good",
+  leftIt: "all good, i'll leave it",
   nameAdded: "bet, ur name's on it. if usg wants to talk i'll ask u first",
   keptAnon: "all good, ur counted without ur name",
   joinUnsure: "wasn't sure which u meant, so i left ur name off",
@@ -223,6 +339,9 @@ const UT = {
   reachAt: (contact: string) => `u can reach them at ${contact}`,
   joined: (others: string, committee: string) => `${others} already sent that to the ${committee}, so i added u to it`,
   sent: (committee: string) => `sent to the ${committee}. i'll text u when they pick it up.`,
+  sentOffice: (office: string) => `passed it to ${office}. i'll text u when they pick it up.`,
+  joinedOffice: (others: string, office: string) => `${others} already raised that with ${office}, so i added u to it`,
+  goesTo: (office: string) => `that one goes to ${office}`,
   guessCommittee: (name: string) => `not 100% sure, but my best guess is the ${name} covers that. i'd double check`,
   guessCommitteeUrl: (name: string, url: string) => `not 100% sure, but my best guess is the ${name} covers that. i'd double check: ${url}`,
   guessOffice: (name: string) => `not 100% sure, but my best guess is ${name} handles that. i'd double check with them`,
@@ -241,6 +360,11 @@ export const USG_POOLS: Pools = {
     EXPLAIN_NAME,
     ["if u use ur name, the committee sees ur first name next to it", "anonymous means there's no name on it at all. which one?"],
     ["with ur name on it, the committee sees ur first name next to it", "anonymous means no name at all. which do u want?"],
+  ],
+  explainNameOffice: [
+    EXPLAIN_NAME_OFFICE,
+    ["if u use ur name, the office sees ur first name next to it", "anonymous means there's no name on it. which one?"],
+    ["with ur name on it, the office sees ur first name next to it", "anonymous means no name on it at all. which do u want?"],
   ],
   askWhat: [SAY.askWhat, "what's ur question or concern?", "what do u want to ask or raise?"],
   alreadySent: [SAY.alreadySent, "u sent that one already and it's still open", "that one's already sent by u, and it's still open"],
@@ -267,6 +391,19 @@ export const USG_POOLS: Pools = {
     "ok, holding off on that one. whenever u want it sent, tell me again",
   ],
   allGood: [SAY.allGood, "no worries", "all good, no worries"],
+  leftIt: [SAY.leftIt, "no worries, i won't send it", "ok, leaving that one alone"],
+  sentOffice: (office) => [
+    UT.sentOffice(office),
+    `it's with ${office} now. i'll text u when they pick it up.`,
+    `passed it along to ${office}, and i'll text u when they pick it up.`,
+  ],
+  joinedOffice: (others, office) => [
+    UT.joinedOffice(others, office),
+    `${others} already raised that with ${office}, so i put u on it too`,
+    `${others} raised that with ${office} already, so i added u to it`,
+  ],
+  goesTo: (office) => [UT.goesTo(office), `this is one for ${office}`, `that's ${office}'s to handle`],
+  demoNote: DEMO_NOTE_POOL,
   askJoinName: [ASK_JOIN_NAME, "do u want ur name on it too, or should i keep u anonymous?", "should i add ur name to it too, or keep u anonymous?"],
   explainJoinName: [
     EXPLAIN_JOIN_NAME,
@@ -326,7 +463,23 @@ async function start(ctx: FlowContext): Promise<void> {
     await ctx.say(SAY.askWhat);
     return;
   }
-  const concern = isConcern(text, ctx.intent.action);
+  const d = ctx.intent.details;
+  // Where this came from. `fromChat`: the chat brain handed it over and the student never asked for it to be sent.
+  // `fromFirstTen`: their answer to "what's one thing u wish was easier". Either way it began as talk, so it is
+  // offered first. `words`: the repair flow's guard passed it here with what they said.
+  const fromChat = d.fromChat === true;
+  const handed = Array.isArray(d.words) ? d.words.filter((w): w is string => typeof w === "string" && !!w.trim()) : [];
+  // Only the router model read this as usg's: the keyword rules don't, and they never asked for it to go anywhere.
+  // That is talk too, wherever the model's read came from.
+  const modelOnly = ctx.intent.source === "ai" && !handed.length && !asksToPassOn(text) && fallbackIntent({ text, hasImage: false, state: null }).flow !== "usg";
+  const began = fromChat || d.fromFirstTen === true || modelOnly;
+  // Talk builds over a few messages ("my ra doesn't enforce it", then "i told them but they didn't do anything"):
+  // what he understood is their own recent words, not only the last text, whichever model read it as a concern.
+  const thread = handed.length ? handed : fromChat || modelOnly ? ownWords(ctx.db, ctx.event.chatId, text) : [text];
+  // Their own words so far, as one line: what the concern is filled in with, so a yes never asks for it again.
+  const subject = joinWords(thread.length ? thread : [text]) || text;
+  // "can u report my ra" is worded as a question and is still them asking for it to go somewhere.
+  const concern = ((fromChat || modelOnly) && (d.meant === "concern" || isHousingLife(subject))) || handed.length > 0 || (asksToPassOn(text) && isHousingLife(text)) || isConcern(text, ctx.intent.action);
   const program = findProgram(ctx, text);
 
   // A plain question a program covers: the stored answer and nothing else. No model call needed.
@@ -336,7 +489,7 @@ async function start(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  const topic = await pickTopic(ctx, text);
+  const topic = await pickTopic(ctx, concern ? subject : text);
   const committee = committeeFor(ctx, topic);
 
   if (concern) {
@@ -347,7 +500,24 @@ async function start(ctx: FlowContext): Promise<void> {
     // Or when they named the program itself ("the rso funding deadlines are ridiculous"), not just one shared word.
     const low = text.toLowerCase();
     const named = !!program && [program.name.replace(/^usg\s+/i, ""), ...program.topics].some((p) => p.trim().includes(" ") && low.includes(p.trim().toLowerCase()));
-    await raise(ctx, { description: concernWords(text).slice(0, 300), topic, routedTo: committee?.name ?? ROUTE_FALLBACK }, program && (asked || named) ? programBubbles(program) : []);
+    const route = concernRoute(ctx, subject, topic);
+    // A hall they named goes along. A building that is not a residence hall (annenberg) is never treated as one.
+    const hall = route.office ? findPlace(ctx.db, subject) : null;
+    const p: Pending = {
+      description: concernWords(subject).slice(0, 300),
+      topic: route.office ? "housing" : topic,
+      routedTo: route.routedTo,
+      ...(route.office ? { office: route.office } : {}),
+      ...(hall?.kind === "dorm" ? { locationText: hall.name } : {}),
+    };
+    const lead = program && (asked || named) ? programBubbles(program) : [];
+    // They said yes to something troy offered in his own words a moment ago. Code can't know what that offer named,
+    // so it says where this goes and asks the one question itself; a yes to that is the yes that counts. It never
+    // adds them to someone else's concern on the model's word: that case gets the full offer.
+    if (d.accepted === true && !sameConcern(ctx, p)) await raise(ctx, p, [...lead, UT.goesTo(toWords(p))]);
+    // It began as talk, or it is headed to an office they never named: say what he could do and wait for a yes.
+    else if (began || (p.office && !asksToPassOn(text))) await offer(ctx, p, lead);
+    else await raise(ctx, p, p.office ? [...lead, UT.goesTo(p.office)] : lead);
     return;
   }
 
@@ -395,8 +565,11 @@ export const usg: FlowHandler = {
     if (await simulationTurn(plain, OWN_STEPS)) return;
     // A usg member's answer to a summary, or a student's answer about joining a group chat with them, comes first.
     if (await handleStaffTurn(plain)) return;
-    // Any other tapback or poll vote means nothing here.
-    if (ctx.event.reaction || ctx.event.pollVote) return;
+    // A thumbs up or down on troy's offer answers it. Any other tapback or poll vote means nothing here.
+    if (ctx.event.reaction || ctx.event.pollVote) {
+      if (ctx.state?.flow === "usg" && ctx.state.step === OFFER_STEP) await answerOffer(ctx, ctx.state);
+      return;
+    }
     try {
       await converse(ctx);
     } finally {
@@ -406,11 +579,87 @@ export const usg: FlowHandler = {
   },
 };
 
+/**
+ * Their answer to an offer. Only a yes (typed, or a thumbs up on that bubble) starts anything, filled in with what
+ * they already said. A no drops it with one easy line. Anything else drops it too: a new request goes where it
+ * belongs, and plain chat is left for the chat brain (this flow stays silent, so the pipeline passes it on).
+ */
+async function answerOffer(ctx: FlowContext, state: FlowState): Promise<void> {
+  const tap = !!(ctx.event.reaction || ctx.event.pollVote);
+  const pending = pendingFrom(state.data);
+  const text = ctx.event.text.trim();
+  if (!pending || !offerLive(ctx.db, ctx.event.chatId, state)) {
+    // Lapsed, or he has said something else since: a "yes" now is not a yes to this.
+    ctx.setState(null);
+    if (!tap) await movedOn(ctx, text);
+    return;
+  }
+  const answer = readYesNo({ event: ctx.event, questionMessageId: openQuestionId(ctx.db, ctx.user.id, state) });
+  // The offer has been standing through a reply or two of his: the yes gets where it goes said back before the question.
+  const lead = state.data.standing === true ? [UT.goesTo(toWords(pending))] : [];
+  if (tap) {
+    if (answer === "yes") await raise(ctx, pending, lead);
+    else if (answer === "no") {
+      ctx.setState(null);
+      await ctx.say(SAY.leftIt);
+    }
+    return;
+  }
+  const choice = parseChoice(text);
+  if (CANCEL.test(text) || (answer === "no" && !choice)) {
+    ctx.setState(null);
+    await ctx.say(SAY.leftIt);
+    return;
+  }
+  // "anonymously" or "with my name" is a yes that also answers the next question.
+  if (choice) {
+    await raise(ctx, pending, [], choice);
+    return;
+  }
+  if (answer === "yes") {
+    await raise(ctx, pending, lead);
+    return;
+  }
+  // A question about the choice gets a plain answer, and the offer stays open.
+  if (asksAboutName(text)) {
+    const ids = await ctx.say(...(pending.office ? EXPLAIN_NAME_OFFICE : EXPLAIN_NAME));
+    ctx.setState({ flow: "usg", step: OFFER_STEP, data: { ...state.data, qid: [...ids].reverse().find((id) => !!id) ?? null, lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+    return;
+  }
+  // Not an answer. A request for another flow goes there, and a new ask of this flow starts fresh: the offer is gone.
+  if (await passToOtherFlow(ctx, "usg")) return;
+  if (startsNewAsk(ctx, text)) {
+    ctx.setState(null);
+    await start({ ...ctx, state: null });
+    return;
+  }
+  // Otherwise they are talking. He stays silent here with the offer still open, and the pipeline passes the message
+  // to the chat brain, which keeps the offer standing only while they are still on this (src/flows/smalltalk.ts)
+  // and drops it the moment they have moved on. He never makes the same offer again message after message.
+}
+
+/** A dropped offer's message: another flow's request goes there, a new ask of this flow starts fresh, and chat is left alone. */
+async function movedOn(ctx: FlowContext, text: string): Promise<void> {
+  if (await passToOtherFlow(ctx, "usg")) return;
+  if (startsNewAsk(ctx, text)) await start({ ...ctx, state: null });
+}
+
+/** A message that is a new ask of this flow in its own right: they want something passed on, or ask about a program or a topic. */
+function startsNewAsk(ctx: FlowContext, text: string): boolean {
+  const asks = QUESTION.test(text.toLowerCase());
+  return text.split(/\s+/).length >= 4 && (asksToPassOn(text) || !!findProgram(ctx, text) || (asks && topicFromWords(text) !== "other"));
+}
+
 async function converse(ctx: FlowContext): Promise<void> {
   {
     const state = ctx.state?.flow === "usg" ? ctx.state : null;
     const pending = state ? pendingFrom(state.data) : null;
     const text = ctx.event.text.trim();
+
+    if (state?.step === OFFER_STEP) {
+      await answerOffer(ctx, state);
+      return;
+    }
 
     const joinId = state?.step === "ask_join_name" && typeof state.data.reportId === "number" ? state.data.reportId : null;
 
@@ -456,7 +705,7 @@ async function converse(ctx: FlowContext): Promise<void> {
       // A question about the choice gets a plain answer and the same question again. Nothing is sent on it.
       if (asksAboutName(text)) {
         ctx.setState({ flow: "usg", step: "ask_name", data: { ...state.data } });
-        await ctx.say(...EXPLAIN_NAME);
+        await ctx.say(...(pending.office ? EXPLAIN_NAME_OFFICE : EXPLAIN_NAME));
         return;
       }
       // Not an answer. Something for another flow goes there; nothing is sent without their say.

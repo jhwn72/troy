@@ -3,17 +3,28 @@
 // every follower, so this flow never sends status updates itself.
 //
 // MOCKED: Troy does not file anything in FMS's or USC Housing's own work order systems. A report is only
-// logged on Troy's staff dashboard, grouped under the office it would go to. The reply says so every time.
+// logged on Troy's staff dashboard, grouped under the office it would go to. He says so in one short line the
+// first time a person files anything, and not again.
+//
+// Only a physical thing that is broken, leaking, out of order or unsafe to use belongs here. Noise, roommates, an
+// RA or staff not doing their job, rules, hours and prices are concerns: the guard at the top of `start` passes
+// them to the concern flow, and nothing about them is ever filed with FMS.
+//
+// A chat never files anything on its own. When only the chat model read a message as a repair (`unconfirmed`),
+// this flow offers to report it and waits for a yes. A report that began from an offer names the office it is
+// going to before it is filed.
 //
 // Code decides: which office (from campus_places.kind), the office name (from the directory table),
 // whether it joins an existing report, the follower count, and the DPS number. The model only reads the photo.
 
-import type { FlowContext, FlowHandler } from "../types.ts";
-import { askJson } from "../ai.ts";
+import type { FlowContext, FlowHandler, FlowState } from "../types.ts";
+import { askJson, asksToPassOn, fallbackIntent, peopleOrPolicy } from "../ai.ts";
+import { openQuestionId, readYesNo } from "../yes.ts";
 import { DPS } from "../commands.ts";
+import { getFlowState } from "../db/index.ts";
 import { findPlace } from "../places.ts";
 import type { Place } from "../places.ts";
-import { CANCEL, CANCELLED, CANCELLED_POOL, contentWords, directoryRows, follow, insertReport, isFresh, makeVoice, noEmoji, openReports, othersPhrase, passToOtherFlow, rowForTopic, similarText, userNotes } from "./reports-shared.ts";
+import { CANCEL, CANCELLED, CANCELLED_POOL, DEMO_NOTE, DEMO_NOTE_POOL, OFFER_STEP, claimsDone, contentWords, directoryRows, firstFiling, follow, insertReport, isFresh, joinWords, makeVoice, newestOutId, noEmoji, offerLive, openReports, othersPhrase, ownWords, passToOtherFlow, rowForTopic, similarText, unvoiced, userNotes } from "./reports-shared.ts";
 import type { Pools, ReportRow, Voice } from "./reports-shared.ts";
 import { DECISION, STAFF_STEP, TALK_STEP, aside, handleStaffTurn, notifyStaffOfReport, restoreStaffPointer, simulateIfAlone, simulationTurn, tellerFor } from "../staff.ts";
 
@@ -23,7 +34,9 @@ type RouteKey = "fms" | "housing";
 const ROUTE_FALLBACK: Record<RouteKey, string> = { fms: "FMS", housing: "Housing" };
 
 /** Every step this flow (or a staff contact's job) opens. Any other open step under this flow is a simulation's. */
-const OWN_STEPS: ReadonlySet<string> = new Set(["ask_place", STAFF_STEP, TALK_STEP]);
+const OWN_STEPS: ReadonlySet<string> = new Set(["ask_place", OFFER_STEP, "confirm", STAFF_STEP, TALK_STEP]);
+/** The step after a report that began from an offer has its place: he names the office and waits for an ok. */
+const CONFIRM_STEP = "confirm";
 
 const ASK_WHERE = "which building and floor?";
 const ASK_WHAT_AND_WHERE = "what's broken, and which building and floor?";
@@ -34,6 +47,7 @@ const SAY = {
   alreadyReported: "u already reported that one and it's still open",
   whenItMoves: "i'll text u when it moves",
   notReported: "ok, i didn't report that one. text me the building whenever u want it sent",
+  leftIt: "all good, i'll leave it",
   /** Said right after a report when an example technician was texted: nobody on the other end is real staff yet. */
   exampleTech: "(heads up: i texted a stand-in technician for the hackathon. no real facilities staff are on here yet)",
 };
@@ -43,13 +57,14 @@ const RT = {
   joined: (others: string, office: string) => `${others} already reported that to ${office}, so i added u to it`,
   reported: (office: string) => `reported to ${office} ✅ i'll text u when it moves.`,
   reportedPlain: (office: string) => `reported to ${office}. i'll text u when it moves.`,
+  /** Before the filing step of a report that began from an offer: where it is going, and a last ok. */
+  confirm: (office: string) => `sending this to ${office} as a repair report. ok?`,
 };
 
 // ---------- wording variants (facts locked, wording varied) ----------
 //
 // Variant 0 of every pool is the line the code writes; the rest say the same thing with the same values.
-// NOT in any pool, so always word for word: DANGER_LINE (the dangerous-thing line with the dps number) and
-// the demo note (the honest "this is mocked" disclosure, which has to read the same every time).
+// NOT in any pool, so always word for word: DANGER_LINE (the dangerous-thing line with the dps number).
 export const REPAIR_POOLS: Pools = {
   askWhere: [ASK_WHERE, "what building and floor?", "which building is it in, and what floor?"],
   askWhatAndWhere: [ASK_WHAT_AND_WHERE, "what's broken, and what building and floor?", "what broke, and which building and floor?"],
@@ -77,6 +92,13 @@ export const REPAIR_POOLS: Pools = {
     "ok, that one's not reported. whenever u want it sent, text me the building",
   ],
   cancelled: CANCELLED_POOL,
+  leftIt: [SAY.leftIt, "no worries, i won't report it", "ok, leaving that one alone"],
+  confirm: (office) => [
+    RT.confirm(office),
+    `this would go to ${office} as a repair report. ok to send?`,
+    `i'd send this to ${office} as a repair report. good?`,
+  ],
+  demoNote: DEMO_NOTE_POOL,
   exampleTech: [
     SAY.exampleTech,
     "(heads up: the technician i texted is a stand-in for the hackathon. no real facilities staff are on here yet)",
@@ -238,9 +260,12 @@ function findDuplicate(ctx: FlowContext, draft: Draft, key: RouteKey, place: Pla
 
 // ---------- filing ----------
 
-/** Says the truth about the demo every time: the office's own system is not touched. */
-function mockNote(short: RouteKey): string {
-  return `demo note: it's logged on troy's staff dashboard for ${short}. the link into their real work order system is mocked, so nothing was filed there`;
+/**
+ * The truth about the demo (it is logged on the staff dashboard, the office's own system isn't connected yet), as
+ * one short line, the first time this person files anything. Never a paragraph and never said twice.
+ */
+function demoNote(ctx: FlowContext): string[] {
+  return firstFiling(ctx.db, ctx.user.id) ? [DEMO_NOTE] : [];
 }
 
 async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenSpot: string): Promise<void> {
@@ -260,7 +285,7 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
       await ctx.say(...lead, SAY.alreadyReported, SAY.whenItMoves);
       return;
     }
-    await ctx.say(...lead, RT.joined(othersPhrase(others), route.key), SAY.whenItMoves, mockNote(route.key));
+    await ctx.say(...lead, RT.joined(othersPhrase(others), route.key), SAY.whenItMoves, ...demoNote(ctx));
     // Never in a dangerous moment: the dps line is the only thing that matters then.
     if (!draft.dangerous) {
       await aside(ctx, {
@@ -290,7 +315,8 @@ async function file(ctx: FlowContext, draft: Draft, place: Place | null, spokenS
   } catch {
     texted = false;
   }
-  await ctx.say(...lead, confirm, mockNote(route.key), ...(texted ? [SAY.exampleTech] : []));
+  // A stand-in technician was texted: that line says it's a demo. Otherwise the one-time demo note does.
+  await ctx.say(...lead, confirm, ...(texted ? [SAY.exampleTech] : demoNote(ctx)));
   // Never in a dangerous moment: no aside and no demo offer on top of the dps line.
   if (draft.dangerous) return;
   // Nobody is assigned to this office, so nothing would happen next. A judge (or a student with nobody else on here)
@@ -339,24 +365,177 @@ async function readPhoto(ctx: FlowContext): Promise<{ category: string | null; d
 
 // ---------- handler ----------
 
+/**
+ * People and policy are never a repair. Hands what they said to the concern flow, which offers to pass it to
+ * housing, residential staff or student government and files nothing without a yes. True when it took it. When
+ * that flow isn't there, this one still files nothing: the caller stays silent and the chat brain answers.
+ */
+async function toConcern(ctx: FlowContext, thread: string[], fromChat: boolean): Promise<boolean> {
+  // Loaded here, not at the top: the registry imports this file.
+  const { getFlow } = await import("./index.ts");
+  const concerns = getFlow("usg");
+  if (!concerns || concerns.name !== "usg") return false;
+  // Their concern already has an offer open, and this is more of the same talk (the router read it as a repair, so
+  // the pipeline brought it here). It goes to that offer as whatever it is, never into a second offer. When the
+  // concern flow has nothing to say to it, the chat brain answers, as it would have had the message gone there first.
+  const open = getFlowState(ctx.db, ctx.user.id);
+  if (open && open.flow === "usg" && open.step === OFFER_STEP && offerLive(ctx.db, ctx.event.chatId, open)) {
+    let spoke = false;
+    const plain = unvoiced(ctx);
+    const say: FlowContext["say"] = (...bubbles) => {
+      spoke = true;
+      return plain.say(...bubbles);
+    };
+    await concerns.handle({ ...plain, say, state: open, intent: { flow: "usg", action: "answer", details: {}, source: "fallback" } });
+    const chat = getFlow("smalltalk");
+    if (!spoke && chat && getFlowState(ctx.db, ctx.user.id)?.step === OFFER_STEP) await chat.handle({ ...plain, state: null, intent: { flow: "smalltalk", action: "chat", details: {}, source: "fallback" } });
+    return true;
+  }
+  const { unconfirmed: _unconfirmed, ...details } = ctx.intent.details;
+  await concerns.handle({
+    ...unvoiced(ctx),
+    state: null,
+    intent: { flow: "usg", action: "concern", details: { ...details, words: thread, ...(fromChat ? { fromChat: true, meant: "concern" } : {}) }, source: ctx.intent.source },
+  });
+  return true;
+}
+
+/**
+ * Only the chat model read this as a repair, and the student never asked for a report: he says what he could do
+ * and waits. The offer is this flow's open step and holds what they said, so a yes never asks for it again. When
+ * the place is already known the offer names the office, and a yes files it.
+ */
+async function offer(ctx: FlowContext, draft: Draft, place: Place | null, spot: string): Promise<void> {
+  const to = place ? routeFor(ctx, place, spot).key : null;
+  const fallback = to
+    ? [[`want me to report that to ${to} so someone comes to fix it?`], [`i can report that to ${to} for u. want me to?`], [`sounds like one for ${to}. want me to send it in?`]]
+    : [["want me to report that so someone comes to fix it?"], ["i can report that so it gets fixed. want me to?"], ["that sounds like something i can report. should i?"]];
+  let bubbles: string[] = [];
+  try {
+    // Loaded here: the chat brain imports this folder's shared file.
+    const { sayInHisWords } = await import("../brain.ts");
+    bubbles = await sayInHisWords(unvoiced(ctx), {
+      goal: "they mentioned something on campus that sounds broken. react in a few words, then offer to report it so someone comes to fix it, and ask if they want that. nothing has been reported, and nothing will be unless they say yes. do not ask where it is",
+      mustCover: [to ? `troy could report it to ${to} so it gets fixed, if they want` : "troy could report it so it gets fixed, if they want"],
+      facts: to ? { "who fixes it": to } : {},
+      fallback,
+    });
+  } catch {
+    bubbles = [];
+  }
+  // A question, about something that has not happened: wording that says it was reported never goes out.
+  if (!bubbles.length || !bubbles[bubbles.length - 1]!.includes("?") || claimsDone(bubbles)) bubbles = fallback[0]!;
+  const ids = await ctx.say(...bubbles);
+  ctx.setState({ flow: "repair", step: OFFER_STEP, data: { ...draft, spot, qid: lastOf(ids), lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+}
+
+/** Whether this person still has an open step after the answer was read (a lapsed offer has been cleared by then). */
+const getFlowStateNow = (ctx: FlowContext) => getFlowState(ctx.db, ctx.user.id);
+
+const lastOf = (ids: (string | null)[]): string | null => [...ids].reverse().find((id) => !!id) ?? null;
+
+function draftFrom(data: Record<string, unknown>): Draft {
+  const description = typeof data.description === "string" ? data.description : "";
+  return {
+    category: typeof data.category === "string" ? data.category : categoryFromText(description),
+    description,
+    photoUrl: typeof data.photoUrl === "string" ? data.photoUrl : null,
+    dangerous: data.dangerous === true,
+    photo: data.photo === "read" || data.photo === "unread" ? data.photo : "none",
+  };
+}
+
+/**
+ * Their answer to an offer, or to the confirmation that names the office. Only a yes (typed, or a thumbs up on
+ * that bubble) moves it forward. A no drops it with one easy line. True when the message was the answer; false
+ * when the offer was dropped and the message still needs handling as whatever it is.
+ */
+async function answerOffer(ctx: FlowContext, state: FlowState): Promise<boolean> {
+  const tap = !!(ctx.event.reaction || ctx.event.pollVote);
+  if (!offerLive(ctx.db, ctx.event.chatId, state)) {
+    // Lapsed, or he has said something else since: a "yes" now is not a yes to this.
+    ctx.setState(null);
+    return tap;
+  }
+  const answer = readYesNo({ event: ctx.event, questionMessageId: openQuestionId(ctx.db, ctx.user.id, state) });
+  if (tap && !answer) return true;
+  if (answer === "no" || (!tap && CANCEL.test(ctx.event.text.trim()))) {
+    ctx.setState(null);
+    await ctx.say(SAY.leftIt);
+    return true;
+  }
+  if (answer === "yes") {
+    const draft = draftFrom(state.data);
+    const spot = typeof state.data.spot === "string" ? state.data.spot : "";
+    const place = findPlace(ctx.db, spot);
+    // The confirmation named the office, or the offer did (the place was already known) and it is still his last word.
+    if (state.step === CONFIRM_STEP || (place && state.data.standing !== true)) {
+      await file(ctx, draft, place, spot);
+      return true;
+    }
+    // The offer has been standing through a reply or two of his: he names the office again and asks once more.
+    if (place) {
+      const ids = await ctx.say(...(draft.dangerous ? [DANGER_LINE] : []), RT.confirm(routeFor(ctx, place, spot).key));
+      ctx.setState({ flow: "repair", step: CONFIRM_STEP, data: { ...draft, spot, qid: lastOf(ids), lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+      return true;
+    }
+    // The one thing still missing. Its answer gets the confirmation that names the office, then it is filed.
+    ctx.setState({ flow: "repair", step: "ask_place", data: { ...draft, needWhat: false, fromOffer: true } });
+    await ctx.say(ASK_WHERE);
+    return true;
+  }
+  // Not an answer. The caller decides what it is; the offer is still there until it does.
+  return false;
+}
+
 async function start(ctx: FlowContext): Promise<void> {
   const text = ctx.event.text.trim();
+  // `unconfirmed`: only the chat model read this as a repair (no keyword agreed, no photo). The same holds when
+  // only the router model did: the keyword rules don't read a repair, there is no photo, and they never asked for
+  // a report. Either way it is the model's word alone, so he offers and files nothing without a yes.
+  const modelOnly = ctx.intent.source === "ai" && !ctx.event.images.length && !asksToPassOn(text) && fallbackIntent({ text, hasImage: false, state: null }).flow !== "repair";
+  const fromChat = ctx.intent.details.unconfirmed === true || modelOnly;
+  // Re-check what was handed over, with what they said just before when it came out of a chat.
+  const thread = fromChat ? ownWords(ctx.db, ctx.event.chatId, text) : [text];
+  if (!ctx.event.images.length && peopleOrPolicy(thread.join(". "))) {
+    await toConcern(ctx, thread, fromChat);
+    return;
+  }
   const photo = await readPhoto(ctx);
-  const said = text.replace(/\s+/g, " ").slice(0, 300);
+  // From a chat, the thing may have been named a message or two back.
+  const basis = fromChat ? joinWords(thread) || text : text;
+  const said = basis.replace(/\s+/g, " ").slice(0, 300);
   // The student's own words win when they say enough; "this is broken" leans on what the photo shows.
   const description = (contentWords(said).size >= 3 ? said : photo.description) || said;
   const draft: Draft = {
     category: photo.category ?? categoryFromText(description),
     description,
     photoUrl: ctx.event.images[0]?.path ?? null,
-    dangerous: DANGER.test(`${text} ${photo.description ?? ""}`),
+    dangerous: DANGER.test(`${basis} ${photo.description ?? ""}`),
     photo: !ctx.event.images.length ? "none" : photo.category || photo.description ? "read" : "unread",
   };
-  const place = findPlace(ctx.db, text) ?? (photo.location ? findPlace(ctx.db, photo.location) : null);
-  // `unconfirmed`: only the chat model read this as a repair (no keyword agreed, no photo). Nothing goes to staff
-  // on that alone: the question below is asked even when a building was named, and their answer files it.
-  if (place && ctx.intent.details.unconfirmed !== true) {
-    await file(ctx, draft, place, `${text} ${photo.location ?? ""}`);
+  const place = findPlace(ctx.db, basis) ?? (photo.location ? findPlace(ctx.db, photo.location) : null);
+  if (fromChat) {
+    // They said yes to troy's own offer in the chat a moment ago: no second offer. Otherwise nothing is asked,
+    // collected or sent on the model's word alone: he offers, and a yes starts it.
+    if (ctx.intent.details.accepted !== true) {
+      await offer(ctx, draft, place, basis);
+      return;
+    }
+    if (!place) {
+      ctx.setState({ flow: "repair", step: "ask_place", data: { ...draft, needWhat: false, fromOffer: true } });
+      await ctx.say(ASK_WHERE);
+      return;
+    }
+    // The offer they said yes to was in troy's own words, and code can't know what it named. So code names the
+    // office and asks once itself: a yes to that is the yes that files it.
+    const spot = `${basis} ${photo.location ?? ""}`;
+    const ids = await ctx.say(...(draft.dangerous ? [DANGER_LINE] : []), RT.confirm(routeFor(ctx, place, spot).key));
+    ctx.setState({ flow: "repair", step: CONFIRM_STEP, data: { ...draft, spot, qid: lastOf(ids), lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+    return;
+  }
+  if (place) {
+    await file(ctx, draft, place, `${basis} ${photo.location ?? ""}`);
     return;
   }
   // One question, then it gets filed with whatever they say.
@@ -399,6 +578,13 @@ async function answer(ctx: FlowContext, data: Record<string, unknown>): Promise<
     dangerous: data.dangerous === true || DANGER.test(text),
     photo: data.photo === "read" || data.photo === "unread" ? data.photo : "none",
   };
+  // It began from an offer: before anything is filed he names the office it is going to and waits for an ok.
+  if (data.fromOffer === true) {
+    const route = routeFor(ctx, findPlace(ctx.db, text), text);
+    const ids = await ctx.say(...(draft.dangerous ? [DANGER_LINE] : []), RT.confirm(route.key));
+    ctx.setState({ flow: "repair", step: CONFIRM_STEP, data: { ...draft, spot: text, qid: lastOf(ids), lastOut: newestOutId(ctx.db, ctx.event.chatId) } });
+    return;
+  }
   await file(ctx, draft, findPlace(ctx.db, text), text);
 }
 
@@ -411,10 +597,29 @@ export const repair: FlowHandler = {
     if (await simulationTurn(plain, OWN_STEPS)) return;
     // A technician's "on it", "done" or "can't" (or a thumbs up on the job bubble) is theirs to answer first.
     if (await handleStaffTurn(plain)) return;
-    // Any other tapback or poll vote means nothing here.
-    if (ctx.event.reaction || ctx.event.pollVote) return;
+    const state = ctx.state?.flow === "repair" ? ctx.state : null;
+    const offered = !!state && (state.step === OFFER_STEP || state.step === CONFIRM_STEP);
+    // A thumbs up or down on troy's offer answers it. Any other tapback or poll vote means nothing here.
+    if ((ctx.event.reaction || ctx.event.pollVote) && !offered) return;
     try {
-      const state = ctx.state?.flow === "repair" ? ctx.state : null;
+      if (state && offered) {
+        if (await answerOffer(ctx, state)) return;
+        // The offer is gone and this message is something else. Another flow's request goes there, a new report
+        // starts fresh, and plain chat is left alone (this flow stays silent, so the pipeline passes it on).
+        const live = !!getFlowStateNow(ctx) && offerLive(ctx.db, ctx.event.chatId, state);
+        if (await passToOtherFlow(ctx, "repair")) return;
+        if (!ctx.event.images.length && fallbackIntent({ text: ctx.event.text, hasImage: false, state: null }).flow !== "repair") {
+          // Plain talk. An offer that is still live stays open while the chat brain answers: it keeps it standing
+          // only while they are still on this, and drops it when they have moved on (src/flows/smalltalk.ts). The
+          // confirmation that names the office is not kept: anything but a yes to it ends it.
+          if (!live || state.step === CONFIRM_STEP) ctx.setState(null);
+          return;
+        }
+        ctx.setState(null);
+        const { unconfirmed: _unconfirmed, accepted: _accepted, ...details } = ctx.intent.details;
+        await start({ ...ctx, state: null, intent: { ...ctx.intent, details } });
+        return;
+      }
       if (state?.step === "ask_place" && isFresh(state)) {
         await answer(ctx, state.data);
         return;

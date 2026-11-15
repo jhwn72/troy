@@ -3,7 +3,7 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { FlowState, IntentCommand } from "../src/types.ts";
 import { config } from "../src/config.ts";
-import { detectIntent, fallbackCommand, fallbackIntent, setModelCall } from "../src/ai.ts";
+import { asksToPassOn, detectIntent, fallbackCommand, fallbackIntent, peopleOrPolicy, setModelCall } from "../src/ai.ts";
 
 // No test may reach the network.
 config.anthropicKey = "";
@@ -137,6 +137,19 @@ const FLOWS: FlowCase[] = [
   ["free donuts outside leavey come grab", "food", "post_food"],
   ["when does the lax shuttle run", "usg", "question"],
   ["the water fountain on leavey 2nd floor is broken", "repair", "report"],
+  // repair is only a physical thing. people, noise, rules and prices are never repair, whatever words they use
+  ["my door lock is broken", "repair", "report"],
+  ["the elevator in parkside has been out of order for hours", "repair", "report"],
+  ["the dryer on my floor is broken and so loud", "repair", "report"],
+  ["my ra won't do anything about the noise", "smalltalk", "chat"],
+  ["my ra doesn't work", "smalltalk", "chat"],
+  ["my roommate is so loud and it's not working for me", "smalltalk", "chat"],
+  ["the front desk staff is broken lol", "smalltalk", "chat"],
+  ["the guest policy is broken", "usg", "concern"],
+  // a concern only when they ask for it to go somewhere
+  ["can u report my ra, he never does anything about the noise", "usg", "concern"],
+  ["can someone do something about my roommates being so loud", "usg", "concern"],
+  ["who do i complain to about my roommate", "usg", "question"],
 ];
 
 test("the router table covers at least 40 messages", () => {
@@ -204,4 +217,31 @@ test("detectIntent accepts the new flows from the model and still rejects unknow
   assert.equal((await ask("tryna get to lax on the 19th with someone")).flow, "rides");
   setModelCall(async () => '{"flow":"parties","action":"find"}');
   assert.equal((await ask("hey whats up")).source, "fallback");
+});
+
+test("people and policy are told apart from a broken thing, and asking for it to be passed on is told apart from saying it", () => {
+  for (const text of ["my ra won't do anything about the noise", "dorm mates are annoying. yeah and my ra doesn't enforce it", "the staff at the front desk is so rude", "the dining hall hours are a joke", "my roommate parties every night"]) {
+    assert.equal(peopleOrPolicy(text), true, text);
+  }
+  // A physical thing named means it can be fixed, whoever else is in the sentence.
+  for (const text of ["my door lock is broken", "my ra won't fix my broken door", "the elevator has been out for hours", "the sink is leaking", "lol that's wild"]) {
+    assert.equal(peopleOrPolicy(text), false, text);
+  }
+  for (const text of ["report this", "can u tell usg the dining halls close too early", "can u report my ra", "pls pass this on", "who do i complain to about this", "can someone do something about it"]) {
+    assert.equal(asksToPassOn(text), true, text);
+  }
+  for (const text of ["my ra won't do anything about the noise", "i told them but they didn't do anything", "my ta graded my lab report unfairly", "dining halls should be open later"]) {
+    assert.equal(asksToPassOn(text), false, text);
+  }
+});
+
+test("the router's instructions keep people, noise, rules, hours and prices out of repair", async () => {
+  let system = "";
+  setModelCall(async (opts) => {
+    system = opts.system;
+    return JSON.stringify({ flow: "smalltalk", action: "chat", details: {} });
+  });
+  await detectIntent({ text: "my ra won't do anything about the noise", hasImage: false, state: null, notes: [] });
+  assert.match(system, /repair: report \(a physical thing/);
+  assert.match(system, /Noise, roommates or dormmates, an RA or any staff member not doing their job, rules not being enforced, policies, hours, prices and service quality are never repair/);
 });

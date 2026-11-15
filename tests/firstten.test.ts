@@ -878,3 +878,53 @@ test("with the model down, a reply in the middle of a tour step is written to th
   const mid = await q.say("wait what is this");
   for (const l of mid) assert.ok(!/\btheir\b|\bthey\b|\bthem to\b/.test(l), l);
 });
+
+// From the live replay of John's dorm conversation: "Yeah and my ra doesn't enforce it" brushed the example offer
+// (the "yeah"), so this path answered it, and its reply was a third question in a row that nothing checked.
+test("a long message that only starts with yeah is not about the example offer: the pizza is never pushed into a vent", async () => {
+  const w = world();
+  const p = w.person("+12135550292");
+  await p.finishOnboarding();
+  const systems: string[] = [];
+  setModelCall(async (opts) => {
+    systems.push(opts.prompt);
+    return JSON.stringify({ bubbles: ["btw that pizza spot is still up if u want it"], action: null, handoff: null });
+  });
+  await p.say("Yeah and my ra doesn't enforce it");
+  setModelCall(null);
+  assert.ok(!systems.some((s) => /to know if u want that pizza spot/.test(s)), "the example-offer step never saw it");
+  // A message that does ask about it still gets there.
+  const w2 = world();
+  const q = w2.person("+12135550293");
+  await q.finishOnboarding();
+  const seen: string[] = [];
+  setModelCall(async (opts) => {
+    seen.push(opts.prompt);
+    return JSON.stringify({ bubbles: ["one sec"], action: null, handoff: null });
+  });
+  await q.say("hm is the food any good tho");
+  setModelCall(null);
+  assert.ok(seen.some((s) => /to know if u want that pizza spot/.test(s)), "a text about the food goes to the example-offer step");
+});
+
+test("chat about the example offer is held to the question limit too: a third question in a row is not sent from here", async () => {
+  const w = world();
+  const p = w.person("+12135550291");
+  await p.finishOnboarding();
+  const chatId = "chat-+12135550291";
+  for (const [direction, text] of [["in", "i hardly get sleep"], ["out", "what's keeping u up?"], ["in", "dorm mates are annoying"], ["out", "what are they doing, loud at night?"]] as const) {
+    saveMessage(w.db, { userId: p.id, chatId, direction, providerMessageId: null, text });
+  }
+  let calls = 0;
+  setModelCall(async () => {
+    calls++;
+    // The first call is this path's own reply. Whatever answers after it is the ordinary chat path.
+    if (calls === 1) return JSON.stringify({ bubbles: ["ugh, an ra who lets it slide is the worst part", "what does ur ra say when u bring it up"], action: null });
+    return JSON.stringify({ bubbles: ["ugh, an ra who lets it slide is the worst part of that"], handoff: null });
+  });
+  const out = await p.say("where is the ra when u need them");
+  setModelCall(null);
+  assert.ok(calls >= 2, "the ordinary chat path answered instead");
+  assert.ok(!out.some((b) => /what does ur ra say/.test(b)), out.join(" / "));
+  assert.ok(out.length >= 1);
+});

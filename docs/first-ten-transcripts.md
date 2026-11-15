@@ -112,3 +112,89 @@ Judge pace (typing and gaps at 45 percent of a student's). One tap starts the to
 | 2.6s | Troy | all good, that one's wrapped. nothing from the practice run got saved or sent |
 | 2.6s | Troy | that was the short version of what i do |
 | 1.1s | Troy | john's around for the full walkthrough, reach him at johnwang@usc.edu |
+
+## Dorm noise conversation, after the fix
+
+Captured Nov 14, 2026 from the running server (webchat provider, the real model, a throwaway database), replaying John's 7pm conversation as a student: the same email exchange, then the same six lines about class, sleep, dorm mates and the RA, then a yes to his offer. No real email was sent (the mail key was blank, so the codes only went to the server's console). Wording is Troy's own and differs run to run. The seconds next to "Them" are the replay script's pace, not a person's.
+
+What to look for:
+
+- The email: the gmail address gets one "has to be ur usc one" line plus a did-u-mean. "Johnwang" and "Johnwang usc edu" each get `did u mean "johnwang@usc.edu"?` and no code goes out until an address is confirmed or typed in full. Two codes were then out for johnwang@usc.edu, and the one from the first email verified.
+- The conversation: two follow-up questions at most, then a reaction and one offer that names usc housing. The next line ("I told them but they didn't do anything") gets a reaction, not the same offer again; the offer stays open. Nothing was filed before the yes, he never asked for a building or a floor, and nothing went to FMS.
+- After the yes: where it goes, the one name question, one sent line, and the one-line demo note. It was saved as a concern for the directory's housing row with John's own words as the description, and no repair report exists.
+
+| Seconds since the last bubble | Who | Bubble |
+| --- | --- | --- |
+| 0.0s | Them | hey troy |
+| 2.3s | Troy | hey, troy here |
+| 2.4s | Troy | i'm an ai, but i know a guy for pretty much everything |
+| 4.2s | Troy | send me a pic of anything on campus and i'll get it to the right person. or just text it, like "lost my airpods at leavey" |
+| 1.9s | Troy | reply STOP anytime and i'll leave u alone until u want to talk again |
+| 2.4s | Troy | save my contact if u haven't so u know it's me |
+| 1.7s | Troy | [contact card] |
+| 2.7s | Troy | quick check, are u a usc student or a hackathon judge? (pls be honest) |
+| 0.0s | Troy | [poll] usc student / hackathon judge |
+| 9.8s | Them | [votes option 1] |
+| 1.5s | Troy | cool, what's ur usc email? |
+| 7.8s | Them | johnwang@usc.edu |
+| 2.1s | Troy | sent a 6 digit code to johnwang@usc.edu |
+| 1.5s | Troy | text it back to me. might be in spam since i'm new 👀 |
+| 7.7s | Them | Can I switch the email |
+| 2.7s | Troy | all good. which usc email should i use? |
+| 7.2s | Them | John.Cheng.wang@gmail.com |
+| 2.5s | Troy | has to be ur usc one, it ends in @usc.edu |
+| 1.7s | Troy | did u mean "john.cheng.wang@usc.edu"? if so i'll send the code now |
+| 7.8s | Them | Johnwang |
+| 2.9s | Troy | did u mean "johnwang@usc.edu"? if so i'll send the code now |
+| 7.7s | Them | Johnwang usc edu |
+| 2.5s | Troy | did u mean "johnwang@usc.edu"? if so i'll send the code now |
+| 7.4s | Them | johnwang@usc.edu |
+| 2.8s | Troy | just emailed a 6 digit code to johnwang@usc.edu |
+| 1.6s | Troy | send it back here when u get it. check spam too, i'm new 👀 |
+| 7.6s | Them | [the 6 digit code from the FIRST email] |
+| 2.6s | Troy | that's the one. ur verified |
+| 1.4s | Troy | what do u want me to text u about? |
+| 0.0s | Troy | [poll] free food and stuff nearby 🌯 / rides home and to lax ✈️ / extra tickets for game day 🏈 / pickup games right now 🏀 / experienced trojans 💼 / something else |
+| 13.0s | Them | [votes option 1] |
+| 7.8s | Troy | done. i'll text u when there's free food or free stuff near u |
+| 2.4s | Troy | want more later? just tell me and i'll add it |
+| 4.1s | Troy | btw, i'm way more useful when i know where u are. here's how to share ur location with me (takes 10 seconds, turn it off anytime) 👇 |
+| 0.0s | Troy | [gif: how to share ur location] |
+| 4.0s | Troy | i only hold on to the last spot u share, so alerts and walking times are right. text "forget my location" and it's gone |
+| 4.1s | Troy | rather not share rn? tell me where u usually hang out, like "leavey and the village" |
+| 12.9s | Them | leavey and the village |
+| 2.4s | Troy | got it, i'll go off those spots |
+| 6.6s | Troy | also, if u ever find something someone lost, or lose something urself, just tell me |
+| 4.3s | Troy | same if u spot something broken on campus or have a complaint u want student government to see. i'll connect u to the right place |
+| 3.9s | Troy | ok first ping: there's free pizza about 8 min from u right now 🍕 |
+| 6.1s | Troy | fyi 3 people reported losing something close to u, so lost stuff is a real thing around here |
+| 1.2s | Troy | wanna try me out? pick one |
+| 0.0s | Troy | [poll] pretend i lost something / show me free food near me / stump me |
+| 81.8s | Troy | since ur here, what's one thing at usc u wish was just easier |
+| 57.7s | Them | Probably class |
+| 3.0s | Troy | [thumbs up on their message] |
+| 1.5s | Troy | ha, fair. class is usually the answer |
+| 3.9s | Troy | if it's adding or dropping something, the registrar's office is in the jhh lobby, 9 to 5 mon to fri. registration services is (213) 740-8500 |
+| 8.2s | Them | Getting up |
+| 3.5s | Troy | morning. it's saturday, so hopefully nothing's due |
+| 8.2s | Them | Like it's hard to get up cus I hardly get sleep |
+| 4.9s | Troy | ugh that combo is rough. hardly sleeping makes mornings feel impossible |
+| 2.5s | Troy | what's keeping u up, school stuff or just ur brain not shutting off |
+| 8.4s | Them | Dorm mates are annoying |
+| 3.8s | Troy | ohh so that's the sleep thief. loud at night? |
+| 8.6s | Them | Yeah and my ra doesn't enforce it |
+| 3.0s | Troy | [thumbs up on their message] |
+| 3.6s | Troy | ugh, an ra who lets it slide while ur running on no sleep is brutal |
+| 4.2s | Troy | i could pass this to usc housing for u, with ur name on it or anonymously. want that? |
+| 8.6s | Them | I told them but they didn't do anything |
+| 3.0s | Troy | [thumbs up on their message] |
+| 4.9s | Troy | ugh, so u already did the right thing and it went nowhere. that's the worst part |
+| 2.4s | Troy | no wonder ur running on fumes |
+| 17.0s | Them | yes |
+| 2.3s | Troy | that one goes to usc housing |
+| 2.0s | Troy | should i send it with ur name or anonymously? |
+| 7.8s | Them | with my name |
+| 2.9s | Troy | passed it to usc housing. i'll text u when they pick it up. |
+| 4.2s | Troy | (fyi it's on the staff dashboard for now. the office's own system isn't hooked up yet) |
+| 12.7s | Them | thanks |
+| 4.1s | Troy | anytime. hope u get some sleep tonight |

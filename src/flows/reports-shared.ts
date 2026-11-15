@@ -2,7 +2,8 @@
 // "is this the same report" checks. Everything here is plain code, no model calls.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Bubble, FlowContext, FlowName } from "../types.ts";
+import type { Bubble, FlowContext, FlowName, FlowState } from "../types.ts";
+import { getFlowState, getSetting, setFlowState, setSetting } from "../db/index.ts";
 import { pickVariant } from "../voice.ts";
 
 type Row = Record<string, unknown>;
@@ -245,6 +246,129 @@ export async function passToOtherFlow(ctx: FlowContext, self: FlowName): Promise
   // The other flow speaks in its own words, so it gets the plain context back.
   await other.handle({ ...unvoiced(ctx), state: null });
   return true;
+}
+
+// ---------- offers: a chat never files anything on its own ----------
+//
+// When a conversation turns into something Troy could send somewhere, the flow says what it could do and waits.
+// The offer is the flow's own open step (OFFER_STEP), holding what he understood and the student's own words so
+// far. Only a yes starts anything. A no, a change of subject or silence drops it.
+
+export const OFFER_STEP = "offer";
+/** An offer nobody answered lapses after this long. */
+export const OFFER_TTL_MS = 10 * 60 * 1000;
+
+/** The row id of the newest thing Troy sent in a chat, or null. */
+export function newestOutId(db: DatabaseSync, chatId: string): number | null {
+  try {
+    const row = db.prepare("SELECT id FROM messages WHERE chatId = ? AND direction = 'out' ORDER BY id DESC LIMIT 1").get(chatId) as { id: number } | undefined;
+    return row ? Number(row.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True while an offer (or the confirmation after it) can still be answered: it was asked recently, and it is still
+ * the last thing Troy said in that chat. Once anything else of his went out, a "yes" belongs to that, not to this.
+ */
+export function offerLive(db: DatabaseSync, chatId: string, state: Pick<FlowState, "data" | "updatedAt">, now: number = Date.now()): boolean {
+  if (now - state.updatedAt >= OFFER_TTL_MS) return false;
+  const last = state.data.lastOut;
+  return typeof last !== "number" || newestOutId(db, chatId) === last;
+}
+
+const CLAIMS_DONE = /✅|\b(?:i|i've|ive|i have|just|already|it's|its|it is|that's|thats|been|got it|all)\s+(?:just |already |now |been )?(?:sent|reported|passed|filed|flagged|submitted|logged|forwarded|told|let)\b|\b(?:is|was|got|been) (?:sent|reported|filed|submitted|passed (?:on|along))\b/;
+
+/**
+ * True when an offer's wording says the thing is already done ("i reported it", "it's sent"). An offer is a
+ * question about something that has not happened: wording that claims otherwise is never sent, and the
+ * hand-written question goes out instead.
+ */
+export function claimsDone(bubbles: string[]): boolean {
+  return bubbles.some((b) => CLAIMS_DONE.test((b ?? "").toLowerCase().replace(/[‘’]/g, "'")));
+}
+
+/** How many times an offer may be kept standing while they keep talking, before it is let go. */
+const OFFER_KEEPS = 3;
+
+/**
+ * They kept talking about it instead of answering, and troy just replied without asking anything: the offer stays
+ * open, so a later yes is still a yes to it. Their new words are added to what he understood. False (and nothing
+ * changed) when there is no open offer for this person or it has been kept often enough; the caller drops it then.
+ */
+export function keepOfferStanding(db: DatabaseSync, userId: number, chatId: string, text: string): boolean {
+  try {
+    const state = getFlowState(db, userId);
+    if (!state || state.step !== OFFER_STEP) return false;
+    const kept = Number(state.data.kept ?? 0);
+    if (kept >= OFFER_KEEPS) return false;
+    const said = (text ?? "").replace(/\s+/g, " ").trim();
+    const before = typeof state.data.description === "string" ? state.data.description : "";
+    // Only a concern's description is their running words. A repair's is the broken thing, and stays as it was.
+    const description = state.flow === "usg" && said && !BARE_ANSWER.test(said) && !before.includes(said) ? joinWords([before, said]) : before;
+    setFlowState(db, userId, { flow: state.flow, step: state.step, data: { ...state.data, description, kept: kept + 1, standing: true, lastOut: newestOutId(db, chatId) } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const BARE_ANSWER = /^(?:yes+|yeah+|yea|yep|yup|ya|sure|ok+|okay|k+|bet|no+|nah+|nope|lol|lmao|haha+|thanks?|thx|ty|cool|nice|idk|hm+|pls|please|do it|go ahead)[.!? ]*$/i;
+/** How far back a student's own words still count as the same conversation. */
+const THREAD_MS = 20 * 60 * 1000;
+
+/**
+ * The student's own recent words in this chat, oldest first, ending with `current`: what a report or concern that
+ * began in a chat is filled in with, so they are never asked for it again. Bare answers ("yes", "ok", "lol") are
+ * left out. Only their words: nothing of Troy's and nothing passed along.
+ */
+export function ownWords(db: DatabaseSync, chatId: string, current: string, max = 4): string[] {
+  const clean = (t: string) => t.replace(/\s+/g, " ").trim();
+  const out: string[] = [];
+  try {
+    const rows = db.prepare("SELECT text, createdAt FROM messages WHERE chatId = ? AND direction = 'in' ORDER BY id DESC LIMIT 12").all(chatId) as { text: string | null; createdAt: number }[];
+    const newest = rows[0]?.createdAt ?? 0;
+    for (const r of rows) {
+      const t = clean(r.text ?? "");
+      if (!t || BARE_ANSWER.test(t) || newest - r.createdAt > THREAD_MS) continue;
+      if (!out.includes(t)) out.push(t);
+      if (out.length >= max) break;
+    }
+  } catch {
+    // The message in hand still carries it.
+  }
+  out.reverse();
+  const now = clean(current ?? "");
+  if (now && !BARE_ANSWER.test(now) && !out.includes(now)) out.push(now);
+  return out.slice(-max);
+}
+
+/** Several of a student's texts as one line for a report: their words, joined, never reworded. */
+export function joinWords(parts: string[], max = 300): string {
+  return parts.map((p) => p.replace(/\s+/g, " ").trim().replace(/[.,;]+$/, "")).filter(Boolean).join(". ").slice(0, max);
+}
+
+// ---------- the demo note ----------
+
+/** One short line, the first time a person files anything: where it is logged, and that the office's own system isn't connected yet. */
+export const DEMO_NOTE = "(heads up: that's logged on the staff dashboard. the office's real system isn't connected yet)";
+export const DEMO_NOTE_POOL: readonly string[] = [
+  DEMO_NOTE,
+  "(fyi it's on the staff dashboard for now. the office's own system isn't hooked up yet)",
+  "(one note: it's logged on the staff dashboard, since the real office system isn't connected yet)",
+];
+
+/** True exactly once per person: the first time they file a report or a concern. Marks it as said. */
+export function firstFiling(db: DatabaseSync, userId: number): boolean {
+  const key = `demo_note:${userId}`;
+  try {
+    if (getSetting(db, key)) return false;
+    setSetting(db, key, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Break a stored text into bubbles at sentence ends. Joining the bubbles with a space gives the text back unchanged. */

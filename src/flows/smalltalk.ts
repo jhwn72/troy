@@ -8,7 +8,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Bubble, FlowContext, FlowHandler, IncomingEvent, Intent } from "../types.ts";
 import * as ai from "../ai.ts";
-import { askJson, chatModel, fallbackIntent, lastAskFailure, lastCacheUsage, modelReady, pullDetails } from "../ai.ts";
+import { askJson, asksToPassOn, chatModel, fallbackIntent, lastAskFailure, lastCacheUsage, modelReady, pullDetails } from "../ai.ts";
 import {
   HANDOFF_FLOWS,
   askedWhatHeDoes,
@@ -21,6 +21,10 @@ import {
   markHeavy,
   markMove,
   noteDoubleReject,
+  QUESTION_LIMIT,
+  asksSomething,
+  questionStreak,
+  recentMessages,
   sayInHisWords,
 } from "../brain.ts";
 import type { ChatContext, HandoffFlow, LookupResult } from "../brain.ts";
@@ -29,13 +33,14 @@ import { lookupOn } from "../config.ts";
 import { getFlowState } from "../db/index.ts";
 import { isProtected, pendingFor } from "../pending.ts";
 import { isDistress, pickVariant } from "../voice.ts";
+import { readYesNo } from "../yes.ts";
 import { doneForNow, isNeutral, isUntried, nextMove, noteQuestionAsked } from "../firstten.ts";
-import { directoryRows, rowMentioned } from "./reports-shared.ts";
+import { OFFER_STEP, directoryRows, keepOfferStanding, offerLive, rowMentioned } from "./reports-shared.ts";
 import { isConcern } from "./usg.ts";
 
 // ---------- fallback lines (no model) ----------
 
-export type Situation = "greeting" | "thanks" | "vent" | "question" | "unclear" | "what_he_does" | "who_he_is" | "about_troy" | "insult" | "heavy";
+export type Situation = "greeting" | "thanks" | "vent" | "question" | "unclear" | "heard" | "what_he_does" | "who_he_is" | "about_troy" | "insult" | "heavy";
 
 /**
  * Hand-written lines for when the model can't be reached. Each entry is one reply; "|" splits it into bubbles.
@@ -68,6 +73,8 @@ export const FALLBACK_POOLS: Record<Situation, string[]> = {
     "i'm a little lost. what's going on?",
     "say more, i wanna get it right",
   ],
+  // He has already asked two questions in a row: a line that takes what they said and asks for nothing.
+  heard: ["ok, i hear u", "yeah, that tracks", "got it, that makes sense", "ah ok, i get it now", "fair. that would get to me too"],
   what_he_does: [
     "i get u to the right person, office or thing on campus|lost or found stuff, free food, broken things, or who to talk to about a campus issue",
     "think of me as the guy who knows a guy|lose something, find something, spot free food, see something broken, or need usg? text me",
@@ -122,9 +129,11 @@ export function situationOf(text: string): Situation {
 }
 
 /** One hand-written reply for this message, never the line this person got last time in the same situation. */
-export function fallbackReply(db: DatabaseSync, userId: number, text: string, opts: { heavy?: boolean } = {}): string[] {
+export function fallbackReply(db: DatabaseSync, userId: number, text: string, opts: { heavy?: boolean; noQuestion?: boolean } = {}): string[] {
   // In a heavy conversation the line never depends on how the message happens to be worded.
-  const situation = opts.heavy ? "heavy" : situationOf(text);
+  let situation = opts.heavy ? "heavy" : situationOf(text);
+  // Two questions in a row already: the hand-written line may not be a third ("hm, say a little more?").
+  if (opts.noQuestion && (situation === "unclear" || situation === "greeting")) situation = "heard";
   return pickVariant(db, userId, `chat:${situation}`, FALLBACK_POOLS[situation]).split("|").map((b) => b.trim()).filter(Boolean);
 }
 
@@ -147,14 +156,15 @@ const handedOff = new WeakSet<IncomingEvent>();
  * What a handoff may do when the keyword rules do NOT read the message as that flow's. The model alone never
  * changes a note, a setting or a contact rule, never claims food, and never files a report:
  * - notes: dropped. Rules, settings and "forget" only happen when code reads them in the student's own words.
- * - repair: the flow opens with its question ("where is it?") and files nothing until the student answers it,
- *   unless there is a photo to go on. A chat line with a building in it is not a report to staff.
- * - food: a read-only look at what's out there. - usg: a question, and the flow's own rules decide if it is a concern.
+ * - repair: marked `unconfirmed` unless there is a photo to go on. The flow then asks nothing and files nothing:
+ *   it offers to report it and waits for a yes. A chat line with a building in it is not a report to staff.
+ * - food: a read-only look at what's out there. - usg: marked `fromChat`, with what the model meant. A concern is
+ *   then only offered ("want me to pass this to ...?"), and nothing is sent without a yes.
  * - lost_found: the model's action. Both only open the flow's first question.
  * - topics: a neutral action, so the flow follows, posts or unfollows only when the student's own words say so.
  * - rides, tour: each opens with its own first question.
  */
-function unconfirmedHandoff(to: { flow: HandoffFlow; action: string }, hasImage: boolean): { action: string; unconfirmed?: boolean } | null {
+function unconfirmedHandoff(to: { flow: HandoffFlow; action: string }, hasImage: boolean): { action: string; unconfirmed?: boolean; fromChat?: boolean } | null {
   switch (to.flow) {
     case "notes":
       return null;
@@ -163,7 +173,7 @@ function unconfirmedHandoff(to: { flow: HandoffFlow; action: string }, hasImage:
     case "food":
       return { action: "status" };
     case "usg":
-      return { action: "question" };
+      return { action: "question", fromChat: true };
     case "lost_found":
       return { action: to.action };
     // Following changes what they get texted and a post reaches other students, so the model's action is dropped:
@@ -193,13 +203,24 @@ async function handOff(ctx: FlowContext, to: { flow: HandoffFlow; action: string
   if (!other || other.name === "smalltalk") return false;
   const hasImage = ctx.event.images.length > 0;
   const rules = fallbackIntent({ text: ctx.event.text, hasImage, state: null });
+  // A yes to an offer troy made in his own words a moment ago: the flow starts without offering it a second time.
+  const accepted = !hasImage && saidYesToHisOffer(ctx) ? { accepted: true } : {};
   let intent: Intent;
-  if (rules.flow === to.flow) intent = { ...rules, source: "ai" };
-  else {
+  if (rules.flow === to.flow) {
+    intent = { ...rules, source: "ai" };
+    // A complaint that only reads like one (it names dining, a shuttle, a policy) is still talk. Unless they asked
+    // for it to be passed on, the concern flow gets it marked as from a chat, and offers before anything is sent.
+    if (to.flow === "usg" && rules.action === "concern" && !asksToPassOn(ctx.event.text)) intent.details = { ...intent.details, fromChat: true, meant: "concern", ...accepted };
+  } else {
     const safe = unconfirmedHandoff(to, hasImage);
     if (!safe) return false;
-    // `unconfirmed` tells the flow that only the model read this as its job: open a question, change nothing yet.
-    intent = { flow: to.flow, action: safe.action, details: { ...pullDetails(ctx.event.text), ...(safe.unconfirmed ? { unconfirmed: true } : {}) }, source: "ai" };
+    // `unconfirmed` / `fromChat` tell the flow that only the model read this as its job: offer it, file nothing.
+    intent = {
+      flow: to.flow,
+      action: safe.action,
+      details: { ...pullDetails(ctx.event.text), ...(safe.unconfirmed ? { unconfirmed: true } : {}), ...(safe.fromChat ? { fromChat: true, meant: to.action } : {}), ...(safe.unconfirmed || safe.fromChat ? accepted : {}) },
+      source: "ai",
+    };
   }
   let spoke = false;
   handedOff.add(ctx.event);
@@ -214,6 +235,20 @@ async function handOff(ctx: FlowContext, to: { flow: HandoffFlow; action: string
   });
   // A flow that opened a step of its own has taken the message, even if it said nothing yet.
   return spoke || getFlowState(ctx.db, ctx.user.id)?.flow === to.flow;
+}
+
+const HIS_OFFER = /\b(?:want me to|should i|i can|i could|want it)\b[^?]*\b(?:pass|send|report|tell|flag|file|loop|get (?:it|this|that) (?:in front of|to|over to))\b[^?]*\?/;
+
+/** Their message is a plain yes, and the last thing troy said was his own offer to send or report something. */
+function saidYesToHisOffer(ctx: FlowContext): boolean {
+  try {
+    if (readYesNo({ event: ctx.event, questionMessageId: null }) !== "yes") return false;
+    const his = recentMessages(ctx.db, ctx.event.chatId, { limit: 4, excludeMessageId: ctx.event.messageId }).filter((l) => l.from === "troy" && !l.notice);
+    const last = his[his.length - 1];
+    return !!last && HIS_OFFER.test(last.text.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -359,6 +394,8 @@ export async function chatReply(input: {
   ctx: Pick<FlowContext, "user" | "event" | "intent">;
   allowHandoff?: boolean;
   ack?: (line: string) => Promise<unknown>;
+  /** Extra lines for the model about this one reply. */
+  extra?: string[];
 }): Promise<{ bubbles: string[]; handoff: { flow: HandoffFlow; action: string } | null; source: "model" | "fallback" }> {
   const { db } = input;
   const { user, event, intent } = input.ctx;
@@ -373,7 +410,9 @@ export async function chatReply(input: {
   // The pipeline's safety read can say this message is heavy; that sticks for a while (see markHeavy).
   if (intent.details.heavy === true) markHeavy(db, user.id);
   const heavy = intent.details.heavy === true || isHeavy(db, user.id);
-  const fallback = () => ({ bubbles: fallbackReply(db, user.id, event.text, { heavy }), handoff: null, source: "fallback" as const });
+  // Two questions in a row already: whatever goes out next, hand-written lines included, is not a third.
+  const noQuestion = !heavy && !getFlowState(db, user.id) && questionStreak(db, event.chatId) >= QUESTION_LIMIT;
+  const fallback = () => ({ bubbles: fallbackReply(db, user.id, event.text, { heavy, noQuestion }), handoff: null, source: "fallback" as const });
   if (!modelReady()) return fallback();
 
   const brain = loadBrain();
@@ -383,7 +422,7 @@ export async function chatReply(input: {
   // New and untried, with no step open: the brief tells him to close on one concrete next step, and the checks hold him to it.
   const pull = !getFlowState(db, user.id);
   const base = { db, user, chatId: event.chatId, text: event.text, messageId: event.messageId, hasImage: event.images.length > 0, details: intent.details, brain, lockedStep, heavy, pull };
-  let c = buildChatContext({ ...base, lookupAvailable });
+  let c = buildChatContext({ ...base, lookupAvailable, ...(input.extra?.length ? { extra: input.extra } : {}) });
   let lookedUp = false;
   const model = chatModel();
   let rejected: string | null = null;
@@ -440,6 +479,9 @@ export async function chatReply(input: {
   return fallback();
 }
 
+const OFFER_STANDS =
+  "troy just offered to pass this on (or report it) for them, and that offer is still open. they kept talking instead of answering it. react to what they just said like a friend, in one or two short bubbles. do not ask anything and do not make or repeat the offer: it stands, and they can still say yes to it.";
+
 export const smalltalk: FlowHandler = {
   name: "smalltalk",
   async handle(ctx) {
@@ -457,12 +499,31 @@ export const smalltalk: FlowHandler = {
     if (untried && isNeutral(ctx.event.text) && (await nextMove(ctx))) return;
     const ack = (line: string) => ctx.say(line);
     let reply = await chatReply({ db: ctx.db, ctx, allowHandoff: !again, ack });
+    // An offer of his is open and they said something that isn't an answer to it (the flow stayed silent and passed
+    // the message here). The model's own read says whether they are still on it: a handoff to that same flow means
+    // yes. Then he just reacts, asks nothing and does not make the offer again, and the offer stands. Anything else
+    // means they moved on, and the offer is dropped before the message is handled as what it is.
+    // (A live offer still open at this point means its flow read this message and left it: had it been an answer, the
+    // flow would have spoken or cleared the step.)
+    const open = again ? null : getFlowState(ctx.db, ctx.user.id);
+    if (open && open.step === OFFER_STEP && (open.flow === "usg" || open.flow === "repair") && offerLive(ctx.db, ctx.event.chatId, open)) {
+      if (reply.handoff?.flow === open.flow) {
+        reply = await chatReply({ db: ctx.db, ctx, allowHandoff: false, ack, extra: [OFFER_STANDS] });
+        const said = reply.bubbles.length ? reply.bubbles : fallbackReply(ctx.db, ctx.user.id, ctx.event.text, { heavy: isHeavy(ctx.db, ctx.user.id), noQuestion: true });
+        await ctx.say(...said);
+        // A question of his own would make their next yes an answer to that, so the offer only stands after a reply that asks nothing.
+        if (said.some(asksSomething) || !keepOfferStanding(ctx.db, ctx.user.id, ctx.event.chatId, ctx.event.text)) ctx.setState(null);
+        return;
+      }
+      ctx.setState(null);
+    }
     if (reply.handoff) {
       if (await handOff(ctx, reply.handoff)) return;
       // The flow didn't take it (not registered, or it stayed silent): Troy answers it himself after all.
       reply = await chatReply({ db: ctx.db, ctx, allowHandoff: false, ack });
     }
-    const bubbles = reply.bubbles.length ? reply.bubbles : fallbackReply(ctx.db, ctx.user.id, ctx.event.text, { heavy: isHeavy(ctx.db, ctx.user.id) });
+    const heavyNow = isHeavy(ctx.db, ctx.user.id);
+    const bubbles = reply.bubbles.length ? reply.bubbles : fallbackReply(ctx.db, ctx.user.id, ctx.event.text, { heavy: heavyNow, noQuestion: !heavyNow && questionStreak(ctx.db, ctx.event.chatId) >= QUESTION_LIMIT });
     await ctx.say(...bubbles);
     // He made the "stump me" dare on his own: it counts as used, and what they name next is their attempt.
     const said = bubbles.join(" ").toLowerCase();
