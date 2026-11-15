@@ -27,6 +27,8 @@ const dir = mkdtempSync(join(tmpdir(), "troy-demo-"));
 const WALLET_PHOTO = join(dir, "wallet.jpg");
 writeFileSync(WALLET_PHOTO, "jpeg");
 const FOOD_PHOTO: IncomingImage = { path: join(dir, "food.jpg"), mime: "image/jpeg" };
+let editsOn = false;
+const edited: string[] = [];
 
 after(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -93,8 +95,10 @@ function world(opts: { groupChat?: string | null } = {}) {
     async react() {
       return true;
     },
-    async editMessage() {
-      return false;
+    async editMessage(_c, _id, text) {
+      if (!editsOn) return false;
+      edited.push(text);
+      return true;
     },
     async sendPoll(_c, _q, options) {
       return { optionMessageIds: options.map(() => null), mode: "numbered" };
@@ -254,26 +258,45 @@ test("usg: a thumbs up on the offer is a yes; null group falls back; no leaves i
   onlyDemo(w);
 });
 
-test("food: photo read by the model, yes posts nothing real and nobody else is texted", async () => {
+test("food: just the photo; counted, sent at once, counter ticks down as new bubbles when edits are off", async () => {
   const w = world();
   const john = w.person(DEMO);
   const other = w.person(OTHER);
   updateUser(w.db, other.id, { subscriptions: JSON.stringify(["food"]) });
-  const offer = await john.say("giving away some leftover food, anyone want?", [FOOD_PHOTO]);
-  assert.deepEqual(offer, ["looks like pizza, about 12 servings", "good to let people nearby know?"]);
-  const yes = await john.say("yes");
-  assert.deepEqual(yes, ["got it, posted", "2 people already claimed a portion", "i'll let u know if anyone else wants the rest"]);
-  assert.ok(w.pauses.includes(3000));
+  const out = await john.say("sweetgreen giveaway", [FOOD_PHOTO]);
+  assert.deepEqual(out, [
+    "looks like pizza, about 12 servings",
+    "sent it to 14 students close enough to grab one",
+    "pizza: 12 of 12 left",
+    "11 left", "10 left", "9 left", "8 left", "7 left", "6 left", "5 left",
+    "people are on their way. i'll text u when it's all gone",
+  ]);
   assert.equal((w.db.prepare("SELECT COUNT(*) AS n FROM food_drops").get() as { n: number }).n, 0);
   onlyDemo(w);
 });
 
-test("food: no model and no photo falls back to food, 8 servings; no says enjoy it", async () => {
+test("food: a photo with no words still counts; with edits the one counter bubble is edited down", async () => {
+  editsOn = true;
+  edited.length = 0;
+  try {
+    const w = world();
+    const john = w.person(DEMO);
+    const out = await john.say("", [FOOD_PHOTO]);
+    assert.deepEqual(out, ["looks like pizza, about 12 servings", "sent it to 14 students close enough to grab one", "pizza: 12 of 12 left", "people are on their way. i'll text u when it's all gone"]);
+    assert.deepEqual(edited, ["pizza: 11 of 12 left", "pizza: 10 of 12 left", "pizza: 9 of 12 left", "pizza: 8 of 12 left", "pizza: 7 of 12 left", "pizza: 6 of 12 left", "pizza: 5 of 12 left"]);
+    onlyDemo(w);
+  } finally {
+    editsOn = false;
+  }
+});
+
+test("food: no model falls back to food, 8 servings", async () => {
   setModelCall(null);
   const w = world();
   const john = w.person(DEMO);
-  assert.deepEqual(await john.say("i have extra food up for grabs"), ["looks like food, about 8 servings", "good to let people nearby know?"]);
-  assert.deepEqual(await john.say("nah"), ["no worries, enjoy it"]);
+  const out = await john.say("i have extra food up for grabs");
+  assert.equal(out[0], "looks like food, about 8 servings");
+  assert.equal(out.at(-1), "people are on their way. i'll text u when it's all gone");
   onlyDemo(w);
 });
 

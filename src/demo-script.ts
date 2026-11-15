@@ -17,7 +17,11 @@ import { generatePickupCode } from "./flows/lostfound/verify.ts";
 export const DEMO_CHECKING_MS = 2500;
 export const DEMO_CLAIMED_MS = 3000;
 const PHOTO_LEAD_MS = 1200;
-const FOOD_TIMEOUT_MS = 6000;
+const FOOD_TIMEOUT_MS = 12000;
+/** Gaps between example claims on the live counter, in order. */
+export const DEMO_CLAIM_GAPS_MS = [2600, 1900, 3200, 1500, 2400, 2900, 1700];
+/** How many example students the alert goes to. */
+const DEMO_NEARBY = 14;
 
 export { demoScriptOn, isDemoHandle };
 
@@ -70,7 +74,7 @@ const RESET = /^demo reset[.! ]*$/;
 const HELLO = /\b(?:hey+|hi+|hello|yo+|sup)[, ]+troy\b/;
 const WALLET = /\bwallet\b/;
 const LOSS = /\b(?:lost|lose|losing|missing|can'?t find|cant find|left|dropped|misplaced|anyone (?:got|seen|find|found|have)|has anyone)\b/;
-const FOOD_WORDS = /\b(?:giving away|give away|giving out|free|leftovers?|extra|anyone want|who wants|up for grabs|spare)\b/;
+const FOOD_WORDS = /\b(?:giving away|give away|giveaways?|giving out|free|leftovers?|extra|anyone want|who wants|up for grabs|spare)\b/;
 const USG_WORDS = /\b(?:budget|usg|student government|upgrade|restrooms?|bathrooms?|toilet paper|can we add|complaint|complain|petition|fund(?:ing)?)\b/;
 const YES = /^(?:y|ya|yah|yes+|yess*|yea+h?|yep|yup|sure|ok+|okay|k|kk|please|pls|plz|do it|go for it|go ahead|sounds good|bet|for sure|absolutely|definitely|of course|lets do it|let's do it|yes please|👍|❤️|💯)(?:\b|$|[\s,.!])/;
 const NO = /^(?:no+|nah|nope|not now|no thanks|no thank you|maybe later|never ?mind|nvm|i'?m good|im good|pass)\b/;
@@ -81,7 +85,8 @@ type Scene = "hello" | "wallet" | "usg" | "food";
 
 function sceneFor(text: string, hasPhoto: boolean, opts: { skipWallet?: boolean } = {}): Scene | null {
   if (!opts.skipWallet && WALLET.test(text) && LOSS.test(text)) return "wallet";
-  if (hasPhoto && FOOD_WORDS.test(text)) return "food";
+  // In the demo a photo is always the food scene: the only photo John sends is the giveaway.
+  if (hasPhoto) return "food";
   if (USG_WORDS.test(text)) return "usg";
   if (FOOD_WORDS.test(text)) return "food";
   if (HELLO.test(text)) return "hello";
@@ -141,7 +146,7 @@ async function readFood(io: DemoIo): Promise<{ food: string; servings: number }>
   if (!img || !modelReady()) return fallback;
   try {
     const out = await askJson<{ food?: unknown; servings?: unknown }>({
-      model: "fast",
+      model: "smart",
       system: FOOD_SYSTEM,
       prompt: "What food is this, and about how many servings?",
       images: [img],
@@ -217,11 +222,48 @@ async function usgConnect(io: DemoIo): Promise<void> {
   else await io.say("couldn't open the group rn, so i'll pass messages between u two");
 }
 
+const counterText = (what: string, left: number, total: number): string =>
+  left > 0 ? `${what}: ${left} of ${total} left` : `${what}: all ${total} claimed`;
+
+/**
+ * The photo is read for what it is and how many servings, then posted at once: the alert goes to example students
+ * close enough to walk over, and a live counter bubble is edited down as example claims come in. When edits are not
+ * available each claim is a short new bubble instead.
+ */
 async function food(io: DemoIo): Promise<void> {
+  saveState(io.db, io.user.id, null);
   void io.ready.then(() => io.adapter.startTyping(io.event.chatId)).catch(() => {});
   const { food: what, servings } = await readFood(io);
-  const ids = await io.say(`looks like ${what}, about ${servings} servings`, "good to let people nearby know?");
-  saveState(io.db, io.user.id, { step: "food_offer", qid: lastId(ids) });
+  await io.say(`looks like ${what}, about ${servings} servings`, `sent it to ${DEMO_NEARBY} students close enough to grab one`);
+  await io.pause(700);
+  const ids = await io.say(counterText(what, servings, servings));
+  const counterId = lastId(ids);
+  const claims = Math.min(servings, Math.max(3, Math.round(servings * 0.6)), DEMO_CLAIM_GAPS_MS.length);
+  let left = servings;
+  let edits = !!counterId;
+  for (let i = 0; i < claims; i++) {
+    await io.pause(DEMO_CLAIM_GAPS_MS[i]!);
+    left -= 1;
+    const text = counterText(what, left, servings);
+    if (edits) {
+      try {
+        edits = await io.adapter.editMessage(io.event.chatId, counterId!, text);
+      } catch {
+        edits = false;
+      }
+      if (edits) {
+        try {
+          io.db.prepare("UPDATE messages SET text = ? WHERE providerMessageId = ?").run(text, counterId);
+        } catch {
+          // The saved copy is only for the dashboard.
+        }
+        continue;
+      }
+    }
+    await io.say(left > 0 ? `${left} left` : "all gone");
+  }
+  await io.pause(1200);
+  await io.say(left > 0 ? "people are on their way. i'll text u when it's all gone" : "all gone. nice one");
 }
 
 async function foodPosted(io: DemoIo): Promise<void> {
