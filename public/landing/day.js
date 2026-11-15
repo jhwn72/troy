@@ -7,6 +7,8 @@
 // and the stage stays put for a short while. Scrolling is fast-forward: a scroll down while it plays moves to the
 // next stop, a scroll up goes back one, and scrolling on past the wrapper leaves the scene. How far the visitor has
 // scrolled also sets a floor ("at least this stop"), so the timer and the scroll never fight.
+// Coming into the scene from above always begins at the first stop: the scroll that brought the visitor in never
+// skips anything, and only scrolling that starts while the stage is pinned moves the day on.
 // Nothing here listens to the wheel or to touch, and nothing stops a scroll.
 // Out of view (or with the pause control) everything holds where it is, and carries on when the scene is back.
 //
@@ -24,8 +26,9 @@
 // It asks chat.js for a conversation with "convo:play", "convo:stop" and "convo:pause" on the stop's .convo mount.
 //
 // The spotlight. One phone is on stage (the stop's data-main side); the other side is a notification card beside
-// the connection picture (.day-card). .day-panel carries data-spot, and day.css keeps that one thing at full strength:
-//   "intro"  the time and setup line, large, for a beat when a stop begins
+// the connection picture (.day-card). .day-panel carries data-spot, and day.css gives that one thing a small lift
+// (nothing else is dimmed or blurred):
+//   "intro"  the time and setup line, large, alone on the panel for a beat when a stop begins (the stage is empty)
 //   "phone"  while the asker's side of the conversation plays
 //   "map"    while the connection picture moves (steps that carry "map" in conversations.json), and while Troy is
 //            reaching the other person
@@ -176,6 +179,7 @@ function start() {
   const travel = () => Math.max(1, wrap.offsetHeight - stage.offsetHeight);
   const sceneTop = () => wrap.getBoundingClientRect().top + window.scrollY;
   let zone = 0;            // the stop the scroll position asks for at least
+  let wasAbove = false;    // the scene has been out of view above the screen since it was last pinned
 
   function measure() {
     const rect = wrap.getBoundingClientRect();
@@ -184,10 +188,17 @@ function start() {
     zone = ZONES.filter((from) => p >= from).length;
     const nowPinned = rect.top <= 1 && rect.bottom >= view - 1;
     active = rect.top < view * 0.45 && rect.bottom > view * 0.55;
+    if (rect.top >= view * 0.45) wasAbove = true;
     if (nowPinned !== pinned) {
       pinned = nowPinned;
       root.toggleAttribute('data-day-pinned', pinned);
       announce();
+    }
+    if (pinned) {
+      // Entered from above: the day begins at its first stop, wherever it was left.
+      const restart = wasAbove && cur > 0 && performance.now() >= ignoreUntil;
+      wasAbove = false;
+      if (restart) go(0);
     }
     applyHold();
   }
@@ -464,8 +475,9 @@ function start() {
     const rose = zone > lastZone;
     lastZone = zone;
     if (t < ignoreUntil || !pinned) return;
-    // The floor: scrolled far enough for a later stop than the one playing.
-    if (rose && zone > cur) {
+    // The floor: scrolled far enough for a later stop than the one playing. Only for scrolling that began inside
+    // the scene: the scroll that arrives from above never skips ahead.
+    if (gesture.ok && rose && zone > cur) {
       gesture.used = true;
       return go(zone);
     }

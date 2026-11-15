@@ -486,6 +486,17 @@ class Convo {
 
     if (type === 'switch-group') {
       await gap(T.switchGroup);
+      if (T.readPerChar) {
+        // Day scene: the screen is never emptied. The conversation so far stays readable, the header becomes the
+        // group, and a system line marks where the group chat begins.
+        this.setGroup(p, step.name);
+        const note = el('div', 'msg-note', `Group chat: ${step.name}`);
+        p.list.append(note);
+        for (const part of [p.header, note]) part.animate({ opacity: [0, 1] }, { duration: T.fade, easing: 'ease-out' });
+        this.toBottom(p, true);
+        this.emit('convo:step', detail);
+        return;
+      }
       await this.fade([p.header, p.list], 1, 0, run);
       p.list.replaceChildren();
       p.list.scrollTop = 0;

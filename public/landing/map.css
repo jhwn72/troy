@@ -73,14 +73,18 @@
 /* ---------- Which layer shows ---------- */
 
 /* Not the pinned scene: the finished free food picture only. */
-#food-map:not([data-stop]) .map-layer:not([data-layer="food"]) { display: none; }
+html:not(.day-on) #food-map .map-layer:not([data-layer="food"]) { display: none; }
 
+/* The pinned scene: every layer is hidden by default, before map.js has said anything, and only the current
+   stop's layer shows. A layer that is not current is gone at once (visibility is not animated), so two pictures
+   are never on top of one another. */
+html.day-on #food-map .map-layer { opacity: 0; visibility: hidden; }
 #food-map[data-stop] .map-layer { opacity: 0; }
 #food-map[data-stop="lost-found"] .map-layer[data-layer="lost-found"],
 #food-map[data-stop="concern"] .map-layer[data-layer="concern"],
 #food-map[data-stop="food"] .map-layer[data-layer="food"],
 #food-map[data-stop="broken"] .map-layer[data-layer="broken"],
-#food-map[data-stop="rides"] .map-layer[data-layer="rides"] { opacity: 1; }
+#food-map[data-stop="rides"] .map-layer[data-layer="rides"] { opacity: 1; visibility: visible; }
 
 /* ---------- How far a layer's story has got ---------- */
 

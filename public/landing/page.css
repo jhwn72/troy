@@ -830,8 +830,8 @@ button.engine-circle { cursor: pointer; }
   .safe-card p { margin-top: 4px; font-size: 0.875rem; line-height: 1.4; }
   .pills { gap: 8px; }
 
-  /* Purpose: two by two, edge to edge like the other bands. */
-  main > section#purpose { padding-left: 0; padding-right: 0; }
+  /* Purpose: two by two, on a paper panel with a 16px gutter each side. */
+  main > section#purpose { padding-left: 16px; padding-right: 16px; }
   #purpose > .panel { padding: 40px 18px; }
   .purpose-grid { gap: 20px 16px; margin-top: 28px; }
   .purpose-grid h3 { font-size: 1rem; }
@@ -1042,6 +1042,8 @@ button.engine-circle { cursor: pointer; }
   #safe > .panel { padding-block: 100px; }
   #next > .panel { padding-block: 108px; }
   #engine > .panel { padding-block: 64px; }
+  /* Paper panels are not bands: they keep a 16px gutter and never touch the sides of the screen. */
+  main > section#faq, main > section#purpose, main > section#demos { padding-left: 16px; padding-right: 16px; }
 
   /* Tilts stay small where a card is nearly as wide as the screen. */
   #problem .pair .pair-card:first-child { transform: rotate(-1deg); }

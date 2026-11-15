@@ -5,7 +5,8 @@
    2. Pinned (day.js adds .day-on to <html>): the wrapper is a little over three screens tall and the stage sticks
       to the screen while the day plays by itself. On stage: one phone (the person asking) on the left, the
       connection picture beside it, and the other side as a small notification card that pops out of their circle. day.js sets data-spot on .day-panel
-      (intro, phone, map, card, chip): that one thing is at full strength and the rest is dimmed.
+      (intro, phone, map, card, chip): that one thing lifts a touch (scale 1.02). Nothing that has been shown in
+      the stop is dimmed or blurred; during the intro the stage is empty except for the time and the setup line.
    Only opacity and transform move. */
 
 .day-panel { box-shadow: var(--shadow-soft); }
@@ -65,8 +66,8 @@ html:not(.day-on) .day-cardbox-repair .day-card > :not(.repair-steps) { display:
 html.day-on main > section#demos {
   height: 325vh;
   height: 325svh;                 /* one screen of stage plus a little over two of scrolling: the day plays by itself */
-  padding-left: clamp(12px, 3vw, 120px);
-  padding-right: clamp(12px, 3vw, 120px);
+  padding-left: clamp(16px, 3vw, 120px);
+  padding-right: clamp(16px, 3vw, 120px);
 }
 html.day-on .day-stage {
   position: sticky;
@@ -76,12 +77,11 @@ html.day-on .day-stage {
   padding: clamp(10px, 2.2vh, 22px) 0;
 }
 html.day-on .day-panel {
-  --dim: 0.35;                    /* everything that is not in the spotlight */
   --pw: clamp(250px, 24vw, 340px);
   --ph: min(calc(var(--pw) * 2.07), calc(100vh - 170px));
   position: relative;
   display: grid;
-  grid-template-columns: var(--pw) minmax(0, 480px);
+  grid-template-columns: var(--pw) minmax(0, 500px);
   justify-content: center;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   column-gap: clamp(28px, 7vw, 112px);
@@ -90,6 +90,7 @@ html.day-on .day-panel {
   max-width: 1280px;
   height: 100%;
   padding: clamp(14px, 2.4vh, 26px) clamp(16px, 3vw, 44px);
+  background: rgba(var(--paper-rgb), 0.97);   /* nearly solid, so what is on stage has contrast */
   overflow: hidden;
 }
 @supports (height: 100svh) {
@@ -108,32 +109,33 @@ html.day-on .day-time {
   white-space: nowrap;
 }
 
-/* The clock: a small label in the top corner */
+/* The headline, top center: the time, and under it the stop's setup line (.day-setup below), in the same face */
 html.day-on .day-clock {
-  grid-column: 1;
+  grid-column: 1 / -1;
   grid-row: 1;
-  justify-self: start;
+  justify-self: center;
   display: flex;
   align-items: baseline;
   gap: 5px;
   margin: 0;
   font-family: var(--font-serif);
   font-weight: var(--display-weight, 400);
-  font-size: clamp(22px, 3.2vh, 28px);
+  font-size: clamp(22px, 3vh, 28px);
   line-height: 1;
   letter-spacing: var(--display-tracking, -0.01em);
   font-variant-numeric: tabular-nums;
-  opacity: 0.7;
-  transition: opacity 0.45s ease;
+  color: var(--ink);
+  transition: opacity 0.4s ease 0.2s;
 }
-.day-clock-time { min-width: 2.6ch; text-align: left; }
-.day-clock-ampm { font-size: 0.55em; color: var(--stone); letter-spacing: 0; }
+.day-clock-time { text-align: right; }
+.day-clock-ampm { font-size: 0.7em; letter-spacing: 0; }
 
-/* Five tiny numerals and the next arrow, tucked under the clock */
+/* Five tiny numerals and the next arrow, in the top corner */
 html.day-on .day-nav {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
   justify-self: start;
+  align-self: center;
   position: relative;
   z-index: 3;
   display: flex;
@@ -199,8 +201,8 @@ html.day-on .day-nav {
   stroke-linejoin: round;
 }
 
-/* The big time and setup line: centered over the stage for a beat, then it shrinks toward the corner label.
-   day.js makes this element and fills it from the current stop. */
+/* The big time and setup line: alone on the clean panel for a beat (the stage is empty behind it), then it lifts
+   toward the headline at the top and the stage comes in. day.js makes this element and fills it from the current stop. */
 html.day-on .day-intro {
   grid-area: 1 / 1 / -1 / -1;
   place-self: center;
@@ -216,8 +218,8 @@ html.day-on .day-intro {
   text-wrap: balance;
   pointer-events: none;
   opacity: 0;
-  transform: translate(-30vw, -34vh) scale(0.36);
-  transition: opacity 0.45s ease, transform 0.6s cubic-bezier(0.5, 0, 0.3, 1);
+  transform: translateY(-30vh) scale(0.6);
+  transition: opacity 0.3s ease, transform 0.6s cubic-bezier(0.5, 0, 0.3, 1);
 }
 .day-intro-time {
   display: block;
@@ -231,10 +233,8 @@ html.day-on .day-intro {
 html.day-on .day-panel[data-spot="intro"] .day-intro {
   opacity: 1;
   transform: none;
-  transition: opacity 0.3s ease, transform 0s;
+  transition: opacity 0.3s ease 0.12s, transform 0s;
 }
-html.day-on .day-panel[data-spot="intro"] .day-clock { opacity: 0; }
-html.day-on .day-panel[data-spot="intro"] { --dim: 0.16; }   /* the stage steps well back behind the large line */
 
 /* The one phone frame stays put. Each stop's phone sits on top of it with clear glass, so only what is on the
    screen cross-fades. */
@@ -277,19 +277,21 @@ html.day-on .day-stop .convo,
 html.day-on .day-under { display: contents; }
 html.day-on .day-stop .convo::before { display: none; }
 
-/* The setup line, small, beside the clock */
+/* The setup line: the stage's headline for the whole stop, under the time */
 html.day-on .day-setup {
-  grid-column: 2;
-  grid-row: 1 / 3;
+  grid-column: 1 / -1;
+  grid-row: 2;
   align-self: center;
-  justify-self: start;
+  justify-self: center;
   margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--fs-small);
-  font-weight: 500;
-  line-height: 1.3;
-  letter-spacing: 0;
-  color: var(--stone);
+  font-family: var(--font-serif);
+  font-size: clamp(22px, 3vh, 28px);
+  font-weight: var(--display-weight, 400);
+  line-height: 1.15;
+  letter-spacing: var(--display-tracking, -0.01em);
+  text-align: center;
+  text-wrap: balance;
+  color: var(--ink);
 }
 
 html.day-on .day-stop .phone {
@@ -308,7 +310,8 @@ html.day-on .day-stop .phone-screen { background: transparent; }
 html.day-on .day-stop:not([data-main="right"]) .phone[data-phone="right"],
 html.day-on .day-stop[data-main="right"] .phone[data-phone="left"] { visibility: hidden; }
 
-/* The connection picture: 4 by 3, as large as its cell allows up to 480px wide. The room it leaves is white space. */
+/* The connection picture: 4 by 3, centered in its half of the stage, as large as its cell allows up to 500px wide
+   (its circles are then 80px across and its labels 17px). */
 html.day-on .map-figure,
 html.day-on .day-cardbox {
   grid-column: 2;
@@ -324,10 +327,11 @@ html.day-on .day-cardbox {
 }
 html.day-on #food-map,
 html.day-on .day-cardsq {
-  width: min(100cqw, 133.33cqh, 480px);
-  height: min(75cqw, 100cqh, 360px);
+  width: min(100cqw, 133.33cqh, 500px);
+  height: min(75cqw, 100cqh, 375px);
   aspect-ratio: auto;
 }
+html.day-on #food-map .map-place { fill: var(--ink); }
 html.day-on #food-map { background: none; border: 0; border-radius: 0; overflow: visible; }
 
 /* The notification card. .day-cardsq lies exactly over the picture, so the card is placed in its coordinates
@@ -337,9 +341,9 @@ html.day-on .day-cardbox { z-index: 4; pointer-events: none; }
 html.day-on .day-cardsq { position: relative; }
 html.day-on .day-card {
   position: absolute;
-  width: clamp(196px, 46%, 290px);
-  padding: 10px 12px 12px;
-  background: var(--white);
+  width: clamp(230px, 56%, 300px);
+  padding: 12px 14px 14px;
+  background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 22px;
   box-shadow: var(--shadow-phone);
@@ -353,15 +357,16 @@ html.day-on .day-card[data-card="broken"] { right: 4%; top: 56%; transform-origi
 html.day-on .day-card[data-card="concern"] { right: 4%; top: 48%; transform-origin: 80% 0; }
 html.day-on .day-card[data-card="food"] { right: 35.5%; top: 72%; transform-origin: 100% 0; }
 html.day-on .day-card[data-card="rides"] { left: 27%; top: 45%; transform-origin: 0 30%; }
-html.day-on .day-stop.is-current .day-card.is-out { opacity: var(--dim); transform: none; }
-html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out { opacity: 1; }
+/* Once it is out it stays, at full strength. Its moment is a small lift. */
+html.day-on .day-stop.is-current .day-card.is-out { opacity: 1; transform: none; }
+html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out { transform: scale(1.02); }
 
 .day-card-who {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 0 8px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.25;
   color: var(--ink);
@@ -384,8 +389,8 @@ html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out {
   margin: 0;
   padding: 6px 10px;
   background: var(--bubble-gray);
-  border-radius: 15px;
-  font-size: 12.5px;
+  border-radius: 16px;
+  font-size: 14.5px;
   line-height: 1.3;
   color: var(--ink);
 }
@@ -400,9 +405,9 @@ html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out {
   display: none;
   padding: 2px 5px;
   background: var(--bubble-gray);
-  border: 2px solid var(--white);
+  border: 2px solid var(--paper);
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
 }
 .day-card-tap.is-on { display: block; animation: day-card-in 0.3s ease-out both; }
@@ -422,7 +427,7 @@ html.day-on .day .repair-steps {
   padding-top: 9px;
   border-top: 1px solid var(--line);
 }
-html.day-on .day .repair-steps li { gap: 5px; min-height: 0; font-size: 11.5px; }
+html.day-on .day .repair-steps li { gap: 5px; min-height: 0; font-size: 13px; color: var(--ink); }
 html.day-on .day .repair-steps li::before { width: 10px; height: 10px; }
 html.day-on .day .repair-steps li + li::after { display: none; }
 
@@ -453,7 +458,8 @@ html.day-on .day-stop .replay {
 }
 html.day-on .day-stop .replay svg { width: 17px; height: 17px; }
 
-/* Cross-fade between stops: the setup line, the screen, the label above the phone, the chip. */
+/* Cross-fade between stops: the setup line, the screen, the label above the phone, the chip.
+   Everything of a stop that is not the current one is hidden, with or without the script's later attributes. */
 html.day-on .day-setup,
 html.day-on .day-stop .phone-screen,
 html.day-on .day-stop .phone::after,
@@ -461,25 +467,35 @@ html.day-on .day-stop .stage-who,
 html.day-on .day-extra,
 html.day-on .day-stop .pair-foot {
   opacity: 0;
-  transition: opacity 0.45s ease;
+  transition: opacity 0.4s ease, transform 0.45s ease;
 }
-html.day-on .day-stop.is-current .day-setup { opacity: 0.85; }
-html.day-on .day-panel[data-spot="intro"] .day-stop.is-current .day-setup { opacity: 0; }
+html.day-on .day-stop.is-current .day-setup { opacity: 1; transition-delay: 0.2s; }
 html.day-on .day-stop.is-current .phone-screen,
 html.day-on .day-stop.is-current .phone::after,
 html.day-on .day-stop.is-current .stage-who { opacity: 1; }
-html.day-on .day-stop.is-current .pair-foot { opacity: var(--dim); pointer-events: auto; }
-html.day-on .day-panel[data-spot="chip"] .day-stop.is-current .pair-foot { opacity: 1; }
-/* The free food line shows only while the picture has the spotlight. */
+html.day-on .day-stop.is-current .pair-foot { opacity: 1; pointer-events: auto; }
+/* The free food line shows while the picture has its moment; the chip takes the same place afterwards. */
 html.day-on .day-panel[data-spot="map"] #food.is-current .day-extra { opacity: 1; }
 html.day-on .day-panel[data-spot="map"] #food.is-current .pair-foot { opacity: 0; }
 
-/* The spotlight: one thing at full strength, the rest dimmed. */
+/* The spotlight. Whatever has the moment lifts a touch; nothing else is dimmed and nothing is blurred. */
 html.day-on .day-shell,
 html.day-on .day-stop .phone,
-html.day-on .map-figure { transition: opacity 0.45s ease; }
-html.day-on .day-panel[data-spot]:not([data-spot="phone"]) :is(.day-shell, .day-stop .phone) { opacity: var(--dim); }
-html.day-on .day-panel[data-spot]:not([data-spot="map"]) .map-figure { opacity: var(--dim); }
+html.day-on .map-figure,
+html.day-on .day-cardbox { transition: opacity 0.4s ease 0.2s, transform 0.45s ease; }
+html.day-on .day-panel[data-spot="phone"] :is(.day-shell, .day-stop .phone),
+html.day-on .day-panel[data-spot="map"] .map-figure,
+html.day-on .day-panel[data-spot="chip"] .day-stop.is-current .pair-foot { transform: scale(1.02); }
+
+/* The intro: the stage is empty, so only the large time and line show on the panel. It clears at once (a cut, so
+   nothing of the stop before is ever seen through the line, and nothing shows on first load), the large line
+   comes in just after, and when the line lifts away the stage fades in (the 0.2s delays above). */
+html.day-on .day-panel[data-spot="intro"] :is(.day-clock, .day-shell, .map-figure, .day-cardbox, .day-idle),
+html.day-on .day-panel[data-spot="intro"] .day-stop .phone,
+html.day-on .day-panel[data-spot="intro"] .day-stop :is(.day-setup, .pair-foot, .day-extra, .stage-who) {
+  opacity: 0;
+  transition: none;
+}
 
 /* The nudge: a small quiet pill at the foot of the picture, once the whole day has played. */
 html.day-on .day-idle {
@@ -511,25 +527,26 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
 /* ---------- Narrow screens: the picture on top with the card over it, the one phone below ---------- */
 
 @media (max-width: 899px) {
-  html.day-on main > section#demos { padding-left: 0; padding-right: 0; }
-  html.day-on .day-stage { padding: 0; }
+  /* The panel keeps a 16px gutter, like the other paper panels: it never touches the sides of the screen. */
+  html.day-on main > section#demos { padding-left: 16px; padding-right: 16px; }
+  html.day-on .day-stage { padding: 8px 0; }
   html.day-on .day-panel {
     --pw: min(100%, 300px);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto min(30vh, calc((100vw - 28px) * 0.75)) minmax(0, 1fr) auto;
+    grid-template-rows: auto auto min(30vh, calc((100vw - 60px) * 0.75)) minmax(0, 1fr) auto;
     row-gap: 6px;
     padding: 10px 14px 8px;
-    border-radius: 0;
+    border-radius: 24px;
   }
   @supports (height: 100svh) {
-    html.day-on .day-panel { grid-template-rows: auto auto min(30svh, calc((100vw - 28px) * 0.75)) minmax(0, 1fr) auto; }
+    html.day-on .day-panel { grid-template-rows: auto auto min(30svh, calc((100vw - 60px) * 0.75)) minmax(0, 1fr) auto; }
   }
-  html.day-on .day-clock { grid-column: 1; grid-row: 1; font-size: 22px; align-self: center; }
+  html.day-on .day-clock { grid-column: 1; grid-row: 1; justify-self: start; font-size: 20px; align-self: center; }
   html.day-on .day-nav { grid-column: 1; grid-row: 1; justify-self: end; align-self: center; margin: 0 -6px 0 0; }
-  html.day-on .day-setup { grid-column: 1; grid-row: 2; font-size: 0.875rem; }
+  html.day-on .day-setup { grid-column: 1; grid-row: 2; font-size: 19px; }
   html.day-on .map-figure,
   html.day-on .day-cardbox { grid-column: 1; grid-row: 3; }
-  html.day-on .day-intro { transform: translate(-22vw, -40vh) scale(0.4); }
+  html.day-on .day-intro { transform: translateY(-36vh) scale(0.6); }
   html.day-on #food .day-extra { grid-column: 1; grid-row: 5; min-height: 38px; }
   html.day-on .day-note { font-size: 12.5px; line-height: 1.35; }
   html.day-on .day-stop .pair-foot { grid-column: 1; grid-row: 5; gap: 4px; min-height: 38px; }
@@ -537,7 +554,8 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
   html.day-on .day-stop .chip { min-height: 36px; padding: 5px 14px 5px 12px; font-size: 13px; }
 
   html.day-on .day-card { width: clamp(180px, 60%, 240px); padding: 8px 10px 10px; border-radius: 18px; }
-  /* Little room here: the card sits right under the circle, and steps away again when it is not its moment. */
+  /* Little room here: the card sits right under the circle and would cover the picture and the top of the phone
+     if it stayed, so on narrow screens it steps away again when it is not its moment. */
   html.day-on .day-card[data-card="lost-found"],
   html.day-on .day-card[data-card="broken"],
   html.day-on .day-card[data-card="concern"] { top: 45%; }
