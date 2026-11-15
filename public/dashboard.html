@@ -75,6 +75,12 @@
   .statuses button.current.closed::before { background: var(--stone); }
   .mock { margin-top: 14px; border: 1px dashed var(--stone); background: transparent; color: var(--stone); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
   .mock b { color: var(--ink); font-weight: 600; }
+  .stafflog { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--stone); }
+  .stafflog .line { display: flex; gap: 10px; align-items: baseline; margin-top: 6px; }
+  .stafflog .line .said { flex: 1; min-width: 0; color: var(--ink); white-space: pre-line; overflow-wrap: anywhere; }
+  .stafflog .line.did .said { color: var(--stone); }
+  .stafflog .line.eg .said { border: 1px dashed var(--stone); border-radius: 18px; padding: 8px 14px; color: var(--stone); }
+  select.field { appearance: none; -webkit-appearance: none; }
 
   .photo { width: 84px; height: 84px; border-radius: 22px; overflow: hidden; background: var(--stone-soft); flex: none; position: relative; border: 1px solid var(--line); padding: 0; }
   .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -141,6 +147,7 @@
     <button role="tab" data-tab="repairs" aria-selected="false">FMS and Housing<span class="count" id="c-repairs">0</span></button>
     <button role="tab" data-tab="usg" aria-selected="false">USG<span class="count" id="c-usg">0</span></button>
     <button role="tab" data-tab="moderation" aria-selected="false">Moderation<span class="count" id="c-moderation">0</span></button>
+    <button role="tab" data-tab="people" aria-selected="false">People<span class="count" id="c-people">0</span></button>
     <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
   </nav>
 
@@ -162,13 +169,13 @@
 
   <section id="tab-repairs" role="tabpanel" hidden>
     <h2>Broken things</h2>
-    <p class="lead">Reports students texted to Troy, grouped by the office they were routed to. Every status change sends a new text to the reporter and everyone following the report.</p>
+    <p class="lead">Reports students texted to Troy, grouped by the office they were routed to. Every status change sends a new text to the reporter and everyone following the report. A technician assigned under People gets a text for each new report and can answer it.</p>
     <div id="repairs-list"></div>
   </section>
 
   <section id="tab-usg" role="tabpanel" hidden>
     <h2>USG concerns</h2>
-    <p class="lead">Concerns grouped by committee. Anonymous concerns never show who sent them. Every status change sends a new text to the student and any followers.</p>
+    <p class="lead">Concerns grouped by committee. Anonymous concerns never show who sent them. Every status change sends a new text to the student and any followers. A member assigned under People gets a summary with counts only, never names.</p>
     <div id="usg-list"></div>
     <h3>Programs and committees Troy points students to</h3>
     <div id="directory-list"></div>
@@ -178,6 +185,29 @@
     <h2>Reported food drops</h2>
     <p class="lead">Drops that students reported. Banning stops that person from posting new drops; they can still use the rest of Troy.</p>
     <div id="moderation-list"></div>
+    <h3>Topic requests waiting for review</h3>
+    <p class="lead">Topics a student asked for that Troy couldn't judge on his own. Approving creates the topic, adds the student to it and texts them.</p>
+    <div id="topic-requests"></div>
+    <h3>Topics students created</h3>
+    <p class="lead">Removing a topic stops its alerts. The people following it are not texted about it.</p>
+    <div id="topic-list"></div>
+  </section>
+
+  <section id="tab-people" role="tabpanel" hidden>
+    <h2>People</h2>
+    <p class="lead">Put a phone on an office or a USG committee and Troy texts it when a report lands there. None of these are real staff yet, so every assignment is labeled example. One phone per role; a new one replaces the old.</p>
+    <div class="card">
+      <div class="title">Assign a phone</div>
+      <div class="meta">The number is added to the allow-list if it isn't on it. It has to have texted Troy before he can reach it.</div>
+      <form id="staff-form" class="inline" style="margin-top:14px" autocomplete="off">
+        <select class="field" id="staff-role" aria-label="Role"></select>
+        <input class="field" id="staff-handle" placeholder="Phone number or email" aria-label="Phone number or email">
+        <input class="field" id="staff-label" placeholder="Name Troy uses, like sam" aria-label="Name Troy uses" maxlength="30">
+        <button class="btn primary" type="submit">Assign</button>
+      </form>
+      <div id="staff-error" class="warn" hidden></div>
+      <ul class="list" id="staff-list"></ul>
+    </div>
   </section>
 
   <section id="tab-settings" role="tabpanel" hidden>
@@ -353,9 +383,21 @@
           el("div", { class: "statuses", role: "group", "aria-label": "Set status" }, r.statusOptions.map((s) =>
             el("button", { type: "button", class: s === r.status ? "current" + (DONE.includes(s) ? " done" : s === "closed" ? " closed" : "") : "", "aria-pressed": s === r.status ? "true" : "false", text: STATUS_LABEL[s] || s,
               onclick: () => setStatus(r, s) }))),
-          mock));
+          mock, staffLog(r)));
       }
     }
+  }
+
+  /** What Troy texted the assigned technician or member about this report, or the text he would have sent. */
+  function staffLog(r) {
+    const s = r.staff;
+    if (!s) return null;
+    const who = s.assigned ? (s.assigned.label || s.assigned.handle) : null;
+    const head = el("div", {}, "Texts to " + (r.kind === "repair" ? "the technician" : "the usg member"), who ? " (" + who + ") " : " ", exampleTag(true));
+    const lines = s.log.map((l) => el("div", { class: "line" + (l.kind === "action" ? " did" : "") },
+      el("div", { class: "said", text: l.text }), l.hasPhoto ? el("span", { class: "tag", text: "photo" }) : null, el("span", { text: ago(l.createdAt) })));
+    if (s.exampleText) lines.push(el("div", { class: "line eg" }, el("div", { class: "said", text: s.exampleText }), el("span", { text: s.exampleNote || "example" })));
+    return el("div", { class: "stafflog" }, head, lines);
   }
 
   async function setStatus(report, status) {
@@ -382,7 +424,10 @@
 
   // ---------- moderation ----------
   function renderModeration(data) {
-    $("c-moderation").textContent = data.drops.length;
+    const requests = data.topicRequests || [];
+    const topics = data.topics || [];
+    $("c-moderation").textContent = data.drops.length + requests.length;
+    if (changed("topics", [requests, topics])) renderTopics(requests, topics);
     if (!changed("moderation", data.drops)) return;
     const box = $("moderation-list");
     box.replaceChildren();
@@ -407,6 +452,79 @@
         } }))))));
     }
   }
+
+  function renderTopics(requests, topics) {
+    const reqBox = $("topic-requests");
+    reqBox.replaceChildren();
+    if (!requests.length) reqBox.append(empty("Nothing waiting for review."));
+    for (const q of requests) {
+      const act = async (what, done) => {
+        const r = await api("/api/moderation/topic-requests/" + q.id + "/" + what, "POST", {});
+        toast(r.json.ok ? done(r.json) : "Could not save.");
+        refresh();
+      };
+      reqBox.append(el("div", { class: "card" }, el("div", { class: "row" }, el("div", { class: "body" },
+        el("div", { class: "title", text: q.text }),
+        el("div", { class: "meta" }, el("span", { class: "pill pending", text: "Waiting for review" }), el("span", { text: "Asked by " + (q.requesterFirstName || "a student") }), el("span", { text: ago(q.createdAt) })),
+        el("div", { class: "inline", style: "margin-top:14px" },
+          el("button", { class: "btn primary", type: "button", text: "Approve and create", onclick: () => act("approve", (j) => "Topic created. " + (j.notified ? "Troy texted the student." : "No text sent.")) }),
+          el("button", { class: "btn", type: "button", text: "Dismiss", onclick: () => act("dismiss", () => "Dismissed") }))))));
+    }
+    const box = $("topic-list");
+    box.replaceChildren();
+    if (!topics.length) return box.append(empty("No student-created topics yet."));
+    box.append(el("div", { class: "card" }, el("ul", { class: "list", style: "margin-top:-10px" }, topics.map((t, i) =>
+      el("li", { style: i === 0 ? "border-top:0" : null },
+        el("div", { class: "grow" },
+          el("div", { class: "title", style: "font-size:15px", text: t.label }),
+          el("div", { class: "meta" }, el("span", { text: "Suggested by " + (t.suggestedByFirstName || "a student") }), el("span", { text: ago(t.createdAt) }))),
+        el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove topic " + t.label, onclick: async () => {
+          const r = await api("/api/moderation/topics/" + t.id + "/remove", "POST", {});
+          toast(r.json.ok ? "Topic removed" : "Could not remove.");
+          refresh();
+        } }))))));
+  }
+
+  // ---------- people ----------
+  function renderPeople(data) {
+    $("c-people").textContent = data.contacts.length;
+    if (!changed("people", data)) return;
+    const select = $("staff-role");
+    const keep = select.value;
+    select.replaceChildren(...data.roles.map((r) => el("option", { value: r.role, text: (r.role.startsWith("usg:") ? "USG: " : "Repairs: ") + r.label })));
+    if (keep) select.value = keep;
+    const ul = $("staff-list");
+    ul.replaceChildren();
+    for (const s of data.contacts) {
+      ul.append(el("li", {},
+        el("div", { class: "grow" },
+          el("div", { class: "title", style: "font-size:15px" }, s.roleLabel, " ", exampleTag(true)),
+          el("div", { class: "meta" }, el("span", { class: "mono", text: s.handle }), s.label ? el("span", { text: "Troy calls them " + s.label }) : null, el("span", { text: s.kind === "usg" ? "USG member" : "Technician" }))),
+        el("span", { class: "pill" + (s.reachable ? " done" : " pending"), text: s.reachable ? "Troy can text them" : "Hasn't texted Troy yet" }),
+        el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove " + s.roleLabel + " assignment", onclick: async () => {
+          const r = await api("/api/staff/" + s.id, "DELETE");
+          toast(r.json.ok ? "Removed" : "Could not remove.");
+          refresh();
+        } })));
+    }
+    if (!ul.children.length) ul.append(el("li", {}, el("span", { class: "grow", style: "color:var(--stone)", text: "No one is assigned yet. Reports still land here, with the text Troy would have sent." })));
+  }
+
+  $("staff-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("staff-error");
+    err.hidden = true;
+    const r = await api("/api/staff", "POST", { role: $("staff-role").value, handle: $("staff-handle").value, label: $("staff-label").value });
+    if (r.json.ok) {
+      $("staff-handle").value = "";
+      $("staff-label").value = "";
+      toast("Assigned " + r.json.assigned.handle + (r.json.addedToAllowList ? " and added to the allow-list" : ""));
+      refresh();
+    } else {
+      err.textContent = r.json.error === "bad_role" ? "Pick an office or a committee from the list." : "That is not a phone number or an email. Try a 10 digit number or a full email address.";
+      err.hidden = false;
+    }
+  });
 
   // ---------- settings ----------
   function renderSettings(data) {
@@ -480,6 +598,7 @@
       jobs.push(api("/api/reports?kind=repair").then((r) => r.json.ok && renderReports("repairs", "repairs-list", "c-repairs", r.json, "No repair reports yet.")));
       jobs.push(api("/api/reports?kind=usg_concern").then((r) => r.json.ok && renderReports("usg", "usg-list", "c-usg", r.json, "No USG concerns yet.")));
       jobs.push(api("/api/moderation").then((r) => r.json.ok && renderModeration(r.json)));
+      jobs.push(api("/api/staff").then((r) => r.json.ok && renderPeople(r.json)));
       if (tab === "usg") jobs.push(api("/api/directory").then((r) => r.json.ok && renderDirectory(r.json)));
       if (tab === "settings") jobs.push(api("/api/eval").then((r) => r.json.ok && renderEval(r.json)));
       await Promise.all(jobs);

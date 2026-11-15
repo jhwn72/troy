@@ -557,6 +557,13 @@ function watchDemos(root, convos) {
       tab.tabIndex = n === i ? 0 : -1;
       setBar(n, 0);
     });
+    // On phones the tab row scrolls sideways: bring the active tab to the middle of it.
+    if (list.scrollWidth > list.clientWidth) {
+      const row = list.getBoundingClientRect();
+      const tab = tabs[i].getBoundingClientRect();
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      list.scrollTo({ left: list.scrollLeft + tab.left - row.left - (row.width - tab.width) / 2, behavior: calm ? 'auto' : 'smooth' });
+    }
     panels.forEach((panel, n) => {
       panel.classList.toggle('is-active', n === i);
       panel.inert = n !== i;

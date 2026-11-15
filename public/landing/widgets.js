@@ -115,9 +115,25 @@ engineSteps.forEach((step) => {
   });
 });
 
+// On phones the circles sit in one row and the chosen step's title and line show under it,
+// so there the steps without an example can be chosen with a tap too.
+const engineRow = window.matchMedia("(max-width: 767px)");
+engineSteps.forEach((step) => {
+  if (engineButton(step)) return;
+  const circle = step.querySelector(".engine-circle");
+  if (!circle) return;
+  circle.addEventListener("click", () => {
+    if (!engineRow.matches) return;
+    const open = !step.classList.contains("is-open");
+    closeEngine(step);
+    step.classList.toggle("is-open", open);
+  });
+});
+
 if (engineSteps.length) {
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".engine-step button.engine-circle")) closeEngine(null);
+    const onCircle = event.target.closest(engineRow.matches ? ".engine-step .engine-circle" : ".engine-step button.engine-circle");
+    if (!onCircle) closeEngine(null);
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeEngine(null);

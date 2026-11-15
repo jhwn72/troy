@@ -114,6 +114,7 @@
     </div>
     <div class="stats">
       <div class="stat eval"><div class="n" id="eval-n">no eval yet</div><div class="l" id="eval-l">matcher eval</div></div>
+      <div class="stat" id="chat-stat" hidden><div class="n" id="chat-n">0</div><div class="l" id="chat-l">chat health</div></div>
       <div class="stat"><div class="n" id="s-found">0</div><div class="l">found</div></div>
       <div class="stat"><div class="n" id="s-lost">0</div><div class="l">lost</div></div>
       <div class="stat"><div class="n" id="s-matches">0</div><div class="l">matches</div></div>
@@ -311,6 +312,27 @@
     l.textContent = "matcher eval" + (mode ? ", mode " + mode : "");
   }
 
+  /** The chat brain's health number. Hidden until the server has one. A share (0 to 1) shows as a percent. */
+  function renderChatHealth(h) {
+    const box = $("chat-stat");
+    let text = null, label = "chat health";
+    if (typeof h === "number" && Number.isFinite(h)) text = h >= 0 && h <= 1 ? Math.round(h * 100) + "%" : String(Math.round(h));
+    else if (h && typeof h === "object") {
+      const total = h.total ?? h.checked ?? h.replies ?? h.n;
+      const good = h.passed ?? h.ok ?? h.good ?? h.clean;
+      const score = h.score ?? h.health ?? h.percent ?? h.rate;
+      // Today's count of replies that fell back to a hand-written line because the checks turned the model down twice (lower is better).
+      if (typeof h.doubleRejectsToday === "number") { text = String(h.doubleRejectsToday); label = "chat fallbacks today"; }
+      else if (typeof score === "number" && Number.isFinite(score)) text = score >= 0 && score <= 1 ? Math.round(score * 100) + "%" : String(Math.round(score));
+      else if (typeof good === "number" && typeof total === "number") text = good + " of " + total;
+      if (typeof h.label === "string" && h.label) label = "chat health, " + h.label;
+    }
+    box.hidden = text === null;
+    if (text === null) return;
+    setNum("chat-n", text);
+    if ($("chat-l").textContent !== label) $("chat-l").textContent = label;
+  }
+
   function setNum(id, v) { const n = $(id); if (n.textContent !== String(v)) n.textContent = String(v); }
 
   async function tick() {
@@ -322,6 +344,7 @@
       $("badge").className = "badge live" + (d.enabled ? "" : " off");
       $("badge-text").textContent = d.enabled ? "live" : "troy is off (kill switch)";
       renderEval(d.eval);
+      renderChatHealth(d.chatHealth);
       setNum("s-found", d.counts.found); setNum("s-lost", d.counts.lost); setNum("s-matches", d.counts.matches); setNum("s-returned", d.counts.returned);
       section("listings", "listings", d.listings, s && s.listings, "No listings yet. Text Troy a photo of something you found.", (l) => listingCard(l, s));
       section("matches", "matches", d.matches, null, "No candidate matches yet.", matchCard);

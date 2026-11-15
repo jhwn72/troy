@@ -268,8 +268,19 @@
   }
 }
 @media (max-width: 767px) {
-  #demos.is-tabbed .demo-tabs { gap: 8px; margin-bottom: 28px; }
-  .demo-tab { padding-left: 16px; padding-right: 16px; }
+  /* The four tabs stay on one row; the row scrolls sideways when it is wider than the screen. */
+  #demos.is-tabbed .demo-tabs {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 8px;
+    margin: 0 -18px 28px;
+    padding: 0 18px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #demos.is-tabbed .demo-tabs::-webkit-scrollbar { display: none; }
+  .demo-tab { flex: none; padding-left: 16px; padding-right: 16px; white-space: nowrap; }
   .demo-tab-bar { left: 16px; right: 16px; }
   #demos.is-tabbed .stage { margin-top: 24px; }
 }

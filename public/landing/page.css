@@ -275,20 +275,14 @@ h2 .s { display: inline-block; }
 
 @media (max-width: 767px) {
   main > section:not(#hero) { padding: 0 12px; }
-  .pairs { gap: 32px; }
-  .pair { grid-template-columns: 1fr; }
-  .pair-line {
-    flex-direction: column;
-    width: 2px;
-    height: 44px;
-    margin: 0 auto;
-  }
-  .pair-line::before,
-  .pair-line::after {
-    width: 0;
-    height: 38%;
-    border-top: 0;
-    border-left: 2px dotted var(--stone);
+  /* The pairs stay side by side with the line running across between them, only smaller. */
+  .pairs { gap: 16px; margin: 40px auto; }
+  .pair { grid-template-columns: 1fr 32px 1fr; }
+  .pair-card {
+    padding: 12px;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    line-height: 1.35;
   }
 }
 
@@ -698,43 +692,76 @@ button.engine-circle { cursor: pointer; }
   /* 357px sits above the hero phone here. */
   #hero .phone { height: clamp(480px, calc(100vh - 365px), 640px); height: clamp(480px, calc(100svh - 365px), 640px); }
 
-  .why-grid { grid-template-columns: 1fr; gap: 36px; }
+  /* Why: one horizontal row that scrolls and snaps, the next card peeking in from the right. */
+  .why-grid {
+    display: flex;
+    gap: 12px;
+    margin: 28px -18px 0;
+    padding: 12px 18px 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 18px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .why-grid::-webkit-scrollbar { display: none; }
+  .why-grid li { flex: 0 0 76%; scroll-snap-align: start; }
 
-  .engine-steps { grid-template-columns: 1fr; gap: 28px; padding-bottom: 0; text-align: left; }
-  .engine-after { margin-top: 40px; }
-  .engine-steps::before { display: none; }
-  .engine-step:not(:last-child)::after {
-    content: "";
-    position: absolute;
-    left: 32px;
-    top: 64px;
-    bottom: -28px;
-    width: 1px;
-    background: var(--stone);
+  /* Engine: the five circles stay in one row on the line. The steps' boxes drop out of the layout so every
+     title, line and example shares the same place under the row; only the chosen step's shows (the first
+     until one is tapped). They are hidden with opacity only, so the room never jumps. */
+  .engine-steps { gap: 0; margin-top: 40px; padding-bottom: 0; }
+  .engine-steps::before { top: 24px; }
+  .engine-step { display: contents; }
+  .engine-circle {
+    position: relative;
+    grid-row: 1;
+    justify-self: center;
+    width: 48px;
+    height: 48px;
+    font-size: 24px;
+    cursor: pointer;
   }
-  .engine-step {
-    display: grid;
-    grid-template-columns: 64px 1fr;
-    column-gap: 16px;
-    align-items: start;
+  .engine-step:nth-child(1) .engine-circle { grid-column: 1; }
+  .engine-step:nth-child(2) .engine-circle { grid-column: 2; }
+  .engine-step:nth-child(3) .engine-circle { grid-column: 3; }
+  .engine-step:nth-child(4) .engine-circle { grid-column: 4; }
+  .engine-step:nth-child(5) .engine-circle { grid-column: 5; }
+  .engine-step h3,
+  .engine-step p,
+  .engine-step p.engine-example {
+    grid-column: 1 / -1;
+    justify-self: center;
+    max-width: 22em;
+    opacity: 0;
+    pointer-events: none;
   }
-  .engine-circle { grid-row: 1 / span 3; }
-  .engine-step h3 { margin-top: 6px; }
-  .engine-step p { margin-top: 4px; }
-  /* On phones the example is in the flow, so it is removed until it is asked for. */
-  .engine-example {
-    position: static;
-    display: none;
-    grid-column: 2;
-    margin-top: 8px;
+  .engine-step h3 { grid-row: 2; margin-top: 24px; }
+  .engine-step p { grid-row: 3; margin-top: 6px; }
+  .engine-step p.engine-example { position: static; grid-row: 4; margin-top: 10px; }
+  .engine-step:hover:not(.is-open):not(:focus-within) .engine-example { opacity: 0; }
+  #engine .engine-step:hover:not(.is-open):not(:focus-within) .engine-circle {
+    border-color: var(--line);
+    color: var(--paper);
   }
-  .engine-step:hover .engine-example,
-  .engine-step:focus-within .engine-example,
-  .engine-step.is-open .engine-example {
-    display: block;
+  #engine .engine-step.is-open > :not(.engine-circle),
+  #engine .engine-step:focus-within > :not(.engine-circle),
+  #engine .engine-steps:not(:has(.is-open, :focus-within)) > .engine-step:first-child > :not(.engine-circle) {
+    opacity: 1;
   }
+  #engine .engine-steps:not(:has(.is-open, :focus-within)) > .engine-step:first-child .engine-circle {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .engine-after { margin-top: 32px; }
 
-  .safe-grid { grid-template-columns: 1fr; }
+  /* Safe: two compact columns. */
+  .safe-grid { gap: 12px; margin-top: 40px; }
+  .safe-card { padding: 16px 14px; border-radius: 20px; }
+  .safe-card .icon { width: 44px; height: 44px; }
+  .safe-card .icon svg { width: 20px; height: 20px; }
+  .safe-card h3 { margin-top: 12px; font-size: 1rem; }
+  .safe-card p { margin-top: 4px; font-size: 0.875rem; line-height: 1.4; }
   .pills { gap: 8px; }
 }
 
@@ -914,7 +941,8 @@ button.engine-circle { cursor: pointer; }
   /* Tilts stay small where a card is nearly as wide as the screen. */
   #problem .pair .pair-card:first-child { transform: rotate(-1deg); }
   #problem .pair .pair-card:last-child { transform: rotate(1deg); }
-  #why .why-grid { gap: 20px; }
+  #why .why-grid { gap: 12px; }
+  #why .why-grid li { padding: 24px 18px 28px; }
   #why .why-grid li:first-child { transform: rotate(-1deg); }
   #why .why-grid li:nth-child(2) { transform: none; }
   #why .why-grid li:last-child { transform: rotate(1deg); }

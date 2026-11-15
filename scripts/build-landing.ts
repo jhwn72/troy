@@ -94,6 +94,11 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
       if (existsSync(join(publicDir, ref))) used.add(ref);
     }
   }
+  // Chat photos live one folder deeper and are loaded by name from the script, so copy the whole folder.
+  const photosDir = join(publicDir, "img", "photos");
+  if (existsSync(photosDir)) {
+    for (const name of readdirSync(photosDir)) if (/\.webp$/i.test(name)) used.add(`img/photos/${name}`);
+  }
   const files = [...used].sort();
 
   // One version for the whole build, from the number and the bytes of every file.

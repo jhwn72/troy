@@ -49,15 +49,6 @@
 .pair-line.is-connected::before,
 .pair-line.is-connected::after { opacity: 0; }
 
-@media (max-width: 767px) {
-  .pair-line-fill {
-    width: 2px;
-    height: 100%;
-    transform: scaleY(var(--line-p, 0));
-    transform-origin: 50% 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .pair-line-fill {
     transform: none;
