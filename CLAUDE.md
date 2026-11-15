@@ -31,7 +31,7 @@ iMessage agent that connects USC students to the right person, office or item. B
 Troy runs on John's personal Apple ID, so BlueBubbles sees all of his iMessages.
 
 1. Drop every event that is from John (`isFromMe`) before anything else.
-2. A chat is allowed only if: its first message after go-live starts with "hey troy", or its handle is on the manual list (`ALLOWED_HANDLES` or the dashboard), or it's a group chat Troy created.
+2. A chat is allowed only if: its first message after go-live starts with "hey troy", or its handle is on the manual list (`ALLOWED_HANDLES` or the dashboard), or it's a group chat Troy created. A person on the `ALLOWED_HANDLES` list is let in past the history rule, but only after they text "hey troy" themselves (or already have a profile); until then their texts to John are John's and Troy never sees them. `TROY_GUEST_STUDENTS` lists testers who skip the USC email step.
 3. Everything else is ignored completely: no save, no read receipt, no typing, no tapback, no reply, never sent to Claude, never logged. At most log the literal string `ignored event`, with no handle and no text.
 4. A chat with any message from before go-live can never be allowed by the "hey troy" rule. Look up only the date of its earliest message, never the text.
 5. The adapter itself refuses to send, react, edit, mark read or type in a chat that isn't allowed. This check lives inside the adapter.
