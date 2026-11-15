@@ -44,7 +44,7 @@
         "phone": "right",
         "type": "switch-group",
         "name": "LAX ride",
-        "delay": 0
+        "delay": 2400
       },
       {
         "phone": "left",
@@ -119,7 +119,7 @@
         "phone": "right",
         "type": "switch-group",
         "name": "The finder and the owner",
-        "delay": 0
+        "delay": 2400
       },
       {
         "phone": "left",
