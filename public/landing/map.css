@@ -1,6 +1,9 @@
-/* Troy landing: the free food map (#food-map). A drawn campus in the page palette, not real map tiles.
-   With no class on #food-map this is the finished picture (no JavaScript, reduced motion).
-   map.js adds .is-armed (everything waits) and then .is-playing (the sequence runs). Only opacity and transform move. */
+/* Troy landing: the drawn campus map (#food-map), the stage of "A day at USC". Paper ground, line-colored
+   paths, soft building shapes and a few named places. Never real map tiles.
+   One layer per stop (g.map-layer[data-layer]). map.js sets data-stop on #food-map (which layer shows) and
+   data-phase on each layer (how far its story has got). Inside a layer, data-at="n" marks what appears at phase n.
+   With no attributes at all (no JavaScript, reduced motion) this is the finished free food map.
+   Only opacity and transform move, plus stroke-dashoffset on the gold lines. */
 
 #food-map { padding: 0; }
 #food-map .map {
@@ -15,6 +18,52 @@
   stroke: var(--line);
   stroke-width: 9;
 }
+.map-plaza { fill: var(--paper); stroke: var(--line); stroke-width: 6; }
+.map-shuttle { fill: var(--ink); }
+
+/* People around campus. They stay gray unless a stop lights them. */
+.map-people circle { fill: var(--stone); opacity: 0.55; }
+
+/* Named places */
+.map-label,
+.map-tag {
+  font-family: var(--font-sans);
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.map-label { font-size: 11px; font-weight: 500; fill: var(--stone); }
+.map-tag { font-size: 10px; font-weight: 600; fill: var(--ink); }
+.map-tag-start { text-anchor: start; }
+
+/* The pieces the stops share */
+.map-person { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
+.map-pin path { fill: var(--cardinal); }
+.map-pin circle { fill: var(--paper); }
+.map-link,
+.map-link-shade {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+}
+.map-link { stroke: var(--gold); stroke-width: 3; }
+.map-link-shade { stroke: var(--amber); stroke-width: 4.6; }
+.map-office circle { fill: var(--ink); }
+.map-arrow {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.map-lit-amber { fill: var(--amber); opacity: 0.45; }
+.map-lit-laurel { fill: var(--laurel); opacity: 0.7; }
+.map-tech circle { fill: var(--ink); stroke: var(--paper); stroke-width: 1.5; }
+/* The three riders end up at the edge of the map, on their way to LAX. */
+.map-leave { transform: translateX(-104px); }
 
 /* The 15-minute walk */
 .map-range {
@@ -26,10 +75,6 @@
   transform-box: fill-box;
   transform-origin: center;
 }
-
-/* People. Outside the circle they stay gray. Inside, a gold dot sits on top of the gray one. */
-.map-out circle,
-.map-dot-off { fill: var(--stone); opacity: 0.55; }
 .map-dot-on { fill: var(--gold); stroke: var(--ink); stroke-width: 1; }
 /* A tiny chat bubble pops above each dot as its text lands, then fades. The finished map shows the gold dots only. */
 .map-bubble {
@@ -41,18 +86,58 @@
   transform-origin: 50% 100%;
 }
 
-/* The food spot */
-.map-pin path { fill: var(--cardinal); }
-.map-pin circle { fill: var(--paper); }
+/* ---------- Which layer shows ---------- */
+
+/* Not the pinned scene: the finished free food map only. */
+#food-map:not([data-stop]) .map-layer:not([data-layer="food"]) { display: none; }
+
+#food-map[data-stop] .map-layer { opacity: 0; }
+#food-map[data-stop="lost-found"] .map-layer[data-layer="lost-found"],
+#food-map[data-stop="concern"] .map-layer[data-layer="concern"],
+#food-map[data-stop="food"] .map-layer[data-layer="food"],
+#food-map[data-stop="broken"] .map-layer[data-layer="broken"],
+#food-map[data-stop="rides"] .map-layer[data-layer="rides"] { opacity: 1; }
+
+/* ---------- How far a layer's story has got ---------- */
+
+/* Not yet: hidden. Things that travel wait where they come from; gold lines wait undrawn. */
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"],
+    .map-layer[data-phase="1"] [data-at="3"],
+    .map-layer[data-phase="2"] [data-at="3"]) { opacity: 0; }
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"],
+    .map-layer[data-phase="1"] [data-at="3"],
+    .map-layer[data-phase="2"] [data-at="3"]).map-move { transform: translate(var(--dx, 0px), var(--dy, 0px)); }
+:is(.map-layer[data-phase="0"] [data-at],
+    .map-layer[data-phase="1"] [data-at="2"],
+    .map-layer[data-phase="1"] [data-at="3"],
+    .map-layer[data-phase="2"] [data-at="3"]):is(.map-link, .map-link-shade) { stroke-dashoffset: 100; }
+
+/* Broken things: the technician waits a 5 minute walk away, then walks over. */
+.map-layer[data-phase="0"] .map-tech { opacity: 0; }
+.map-layer:is([data-phase="0"], [data-phase="1"]) .map-tech { transform: translate(222px, -90px); }
+/* Rides: the three stay where they met until the group chat starts. */
+.map-layer:is([data-phase="0"], [data-phase="1"]) .map-leave { transform: none; }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Waiting */
-  #food-map.is-armed:not(.is-playing) .map-pin,
-  #food-map.is-armed:not(.is-playing) .map-range,
-  #food-map.is-armed:not(.is-playing) .map-dot-on { opacity: 0; }
+  .map-layer { transition: opacity 0.45s ease; }
+  .map-layer [data-at] {
+    transition: opacity 0.35s ease, transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: calc(var(--i, 0) * 90ms);
+  }
+  .map-layer :is(.map-link, .map-link-shade)[data-at] {
+    transition: opacity 0.2s ease, stroke-dashoffset 1s ease 0.15s;
+  }
+  .map-tech { transition: opacity 0.35s ease; }
+  .map-layer:is([data-phase="2"], [data-phase="3"]) .map-tech { animation: map-walk 2.4s ease-in-out both; }
+  .map-leave { transition: transform 1.8s ease-in-out 0.5s; }
+  .map-layer:is([data-phase="0"], [data-phase="1"]) .map-leave { transition: none; }
 
+  /* Free food. Waiting: */
+  #food-map.is-armed:not(.is-playing) .map-layer[data-layer="food"] :is(.map-pin, .map-range, .map-dot-on) { opacity: 0; }
   /* Pin drops, circle spreads for 1.5 seconds, then the dots light up one by one, nearest first. */
-  #food-map.is-playing .map-pin { animation: map-pin-drop 0.35s cubic-bezier(0.3, 0, 0.4, 1) both; }
+  #food-map.is-playing .map-layer[data-layer="food"] .map-pin { animation: map-pin-drop 0.35s cubic-bezier(0.3, 0, 0.4, 1) both; }
   #food-map.is-playing .map-range { animation: map-spread 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) 0.3s both; }
   #food-map.is-playing .map-dot-on {
     animation: map-fade 0.25s ease-out both;
@@ -64,6 +149,11 @@
   }
 }
 
+@keyframes map-walk {
+  from { transform: translate(222px, -90px); }
+  30% { transform: translate(222px, 0); }
+  to { transform: none; }
+}
 @keyframes map-pin-drop {
   from { opacity: 0; transform: translateY(-48px); }
   to { opacity: 1; transform: translateY(0); }

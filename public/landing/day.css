@@ -1,0 +1,435 @@
+/* Troy landing: "A day at USC" (#demos).
+   Two looks, one markup:
+   1. Static (no JavaScript, reduced motion): five stops stacked as cards, each with its time, setup line,
+      finished conversation and chip. Everything below up to "The pinned scene" is that look.
+   2. Pinned (day.js adds .day-on to <html>): the wrapper is tall, the stage sticks to the screen, the map
+      stays in the middle, and the five stops share one place and cross-fade.
+   Only opacity and transform move. */
+
+.day-panel { box-shadow: var(--shadow-soft); }
+.day-title { max-width: 26ch; margin: 0 auto; }
+
+/* Only the pinned scene uses these. */
+.day-clock, .day-nav, .day-shell, .day-idle { display: none; }
+
+.day-stop { margin-top: 88px; }
+.day-shell + .day-stop { margin-top: 56px; }
+.day-time {
+  font-family: var(--font-serif);
+  font-weight: var(--display-weight, 400);
+  font-size: var(--fs-lead);
+  line-height: 1.1;
+}
+.day-setup { margin-top: 6px; font-weight: 500; }
+
+.day .stage { flex-wrap: wrap; margin-top: 28px; }
+.day .map-figure { flex: 0 1 380px; }
+.day-under { margin-top: 28px; }
+.day-note {
+  max-width: 34em;
+  margin: 0 auto;
+  font-size: var(--fs-small);
+  color: var(--stone);
+  text-wrap: balance;
+}
+.day .pair-foot { margin-top: 16px; }
+
+/* Who the two new phones belong to (phone.css has the others). */
+.convo[data-convo="food"] .phone[data-phone="right"]::after { content: "A student nearby"; }
+.convo[data-convo="rides"] .phone[data-phone="left"]::after { content: "A student"; }
+.convo[data-convo="rides"] .phone[data-phone="right"]::after { content: "Another student"; }
+
+/* Reported, On it, Fixed: one row under the map. */
+.day .repair-steps {
+  position: static;
+  width: auto;
+  grid-auto-flow: column;
+  justify-content: center;
+  gap: 34px;
+}
+.day .repair-steps li { gap: 8px; min-height: 24px; }
+.day .repair-steps li::before { width: 20px; height: 20px; }
+.day .repair-steps li + li::after {
+  left: -26px;
+  bottom: 50%;
+  width: 18px;
+  height: 1px;
+}
+
+/* ---------- The pinned scene ---------- */
+
+html.day-on main > section#demos {
+  height: 600vh;
+  height: 600svh;                 /* one screen of stage plus five screens of scrolling, one per stop */
+  padding-left: clamp(12px, 3vw, 120px);
+  padding-right: clamp(12px, 3vw, 120px);
+}
+html.day-on .day-stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  padding: clamp(10px, 2.2vh, 22px) 0;
+}
+html.day-on .day-panel {
+  --pw: clamp(212px, 21vw, 280px);
+  --ph: min(calc(var(--pw) * 2.07), calc(100vh - 176px));
+  --tilt: 2deg;
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--pw) minmax(0, 1fr) var(--pw);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  column-gap: clamp(16px, 3vw, 48px);
+  row-gap: clamp(6px, 1.2vh, 12px);
+  width: 100%;
+  max-width: 1280px;
+  height: 100%;
+  padding: clamp(14px, 2.4vh, 26px) clamp(16px, 3vw, 40px);
+  overflow: hidden;
+}
+@supports (height: 100svh) {
+  html.day-on .day-panel { --ph: min(calc(var(--pw) * 2.07), calc(100svh - 176px)); }
+}
+
+/* The heading and each stop's own time stay for screen readers; the clock shows the time. */
+html.day-on .day-title,
+html.day-on .day-time {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The clock, top center */
+html.day-on .day-clock {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-weight: var(--display-weight, 400);
+  font-size: clamp(40px, 6.4vh, 64px);
+  line-height: 1;
+  letter-spacing: var(--display-tracking, -0.01em);
+  font-variant-numeric: tabular-nums;
+}
+.day-clock-time { min-width: 2.6ch; text-align: right; }
+.day-clock-ampm { min-width: 1.6ch; font-size: 0.5em; text-align: left; color: var(--stone); letter-spacing: 0; }
+
+/* Five stop marks and the next button */
+html.day-on .day-nav {
+  grid-column: 2;
+  grid-row: 3;
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+.day-marks { display: flex; align-items: center; gap: 2px; }
+.day-mark,
+.day-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1;
+  color: var(--stone);
+  cursor: pointer;
+}
+/* The round mark is drawn inside a larger tap area. */
+.day-mark { position: relative; z-index: 0; }
+.day-mark::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  z-index: -1;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--paper);
+}
+.day-mark.is-past { color: var(--ink); }
+.day-mark.is-past::before { border-color: var(--stone); }
+.day-mark.is-current { color: var(--paper); }
+.day-mark.is-current::before { background: var(--ink); border-color: var(--ink); }
+.day-next { color: var(--ink); }
+.day-next {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  margin-left: 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.day-next::after { content: ""; position: absolute; inset: -5px; }   /* tap area */
+.day-next svg,
+.day-idle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The two phone frames stay put. Each stop's phones sit on top of them with clear glass, so only what is
+   on the screens cross-fades. */
+html.day-on .day-shell {
+  display: block;
+  position: relative;
+  grid-row: 1 / -1;
+  align-self: center;
+  justify-self: center;
+  width: var(--pw);
+  height: var(--ph);
+  margin-top: 30px;               /* room for the label above the phone */
+  background: var(--ink);
+  border-radius: 48px;
+  box-shadow: var(--shadow-phone);
+}
+html.day-on .day-shell::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  background: var(--white);
+  border-radius: 38px;
+}
+html.day-on .day-shell[data-side="left"] { grid-column: 1; transform: rotate(var(--tilt)); }
+html.day-on .day-shell[data-side="right"] { grid-column: 3; transform: rotate(calc(var(--tilt) * -1)); }
+
+/* The five stops share the panel's grid and lie on top of one another. */
+html.day-on .day-stop {
+  grid-area: 1 / 1 / -1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-template-rows: subgrid;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+html.day-on .day-stop-head,
+html.day-on .day-stop .stage,
+html.day-on .day-stop .convo,
+html.day-on .day-under { display: contents; }
+html.day-on .day-stop .convo::before { display: none; }
+
+html.day-on .day-setup {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  font-size: clamp(1rem, 1.9vh, 1.1875rem);
+  font-weight: 500;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+html.day-on .day-stop .phone {
+  grid-row: 1 / -1;
+  align-self: center;
+  justify-self: center;
+  width: var(--pw);
+  height: var(--ph);
+  margin-top: 30px;
+  background: transparent;
+  box-shadow: none;
+}
+html.day-on .day-stop .phone-screen { background: transparent; }
+html.day-on .day-stop .phone[data-phone="left"] { grid-column: 1; transform: rotate(var(--tilt)); }
+html.day-on .day-stop .phone[data-phone="right"] { grid-column: 3; transform: rotate(calc(var(--tilt) * -1)); }
+
+/* The map: the stage in the middle the whole time. It is a square as large as its cell allows. */
+html.day-on .map-figure {
+  grid-column: 2;
+  grid-row: 4;
+  container-type: size;
+  display: grid;
+  place-items: center;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+}
+html.day-on #food-map {
+  width: min(100cqw, 100cqh);
+  height: min(100cqw, 100cqh);
+  aspect-ratio: auto;
+}
+
+html.day-on .day-extra {
+  grid-column: 2;
+  grid-row: 5;
+  display: grid;
+  align-items: center;
+  min-height: 40px;
+}
+html.day-on .day-stop .pair-foot {
+  grid-column: 2;
+  grid-row: 6;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-height: 46px;
+  margin: 0;
+}
+html.day-on .day-stop .replay { flex: none; }
+
+/* Cross-fade: a stop's setup line, its two screens, its line under the map and its chip. */
+html.day-on .day-setup,
+html.day-on .day-stop .phone-screen,
+html.day-on .day-stop .phone::after,
+html.day-on .day-stop .stage-who,
+html.day-on .day-extra,
+html.day-on .day-stop .pair-foot {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+html.day-on .day-stop.is-current .day-setup,
+html.day-on .day-stop.is-current .phone-screen,
+html.day-on .day-stop.is-current .phone::after,
+html.day-on .day-stop.is-current .stage-who,
+html.day-on .day-stop.is-current .day-extra,
+html.day-on .day-stop.is-current .pair-foot { opacity: 1; }
+html.day-on .day-stop.is-current .pair-foot { pointer-events: auto; }
+
+/* The nudge: a small paper pill at the foot of the map. */
+html.day-on .day-idle {
+  grid-column: 2;
+  grid-row: 4;
+  align-self: end;
+  justify-self: center;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 8px 16px 8px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-soft);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+html.day-on .day-idle.is-on { opacity: 1; transform: none; }
+
+/* ---------- Narrow screens: map on top, one phone under it ---------- */
+
+@media (max-width: 899px) {
+  html.day-on main > section#demos { padding-left: 0; padding-right: 0; }
+  html.day-on .day-stage { padding: 0; }
+  html.day-on .day-panel {
+    --pw: min(100%, 300px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto min(40vh, calc(100vw - 28px)) auto minmax(0, 1fr) auto auto;
+    row-gap: 6px;
+    padding: 10px 14px 8px;
+    border-radius: 0;
+  }
+  @supports (height: 100svh) {
+    html.day-on .day-panel { grid-template-rows: auto auto min(40svh, calc(100vw - 28px)) auto minmax(0, 1fr) auto auto; }
+  }
+  html.day-on .day-clock { grid-column: 1; grid-row: 1; font-size: 34px; }
+  html.day-on .day-setup { grid-column: 1; grid-row: 2; font-size: 0.9375rem; }
+  html.day-on .map-figure { grid-column: 1; grid-row: 3; }
+  html.day-on .day-extra { grid-column: 1; grid-row: 4; min-height: 34px; }
+  html.day-on .day-note { font-size: 12.5px; line-height: 1.35; }
+  html.day-on .day-nav { grid-column: 1; grid-row: 6; }
+  html.day-on .day-stop .pair-foot { grid-column: 1; grid-row: 7; gap: 8px; }
+  html.day-on .day-idle { grid-column: 1; grid-row: 5; margin-bottom: 10px; }
+  .day-mark, .day-next { font-size: 15px; }
+  .day-mark { width: 36px; height: 36px; }
+
+  html.day-on .day .repair-steps { gap: 28px; }
+  html.day-on .day .repair-steps li { font-size: 13px; }
+  html.day-on .day-stop .chip { min-height: 38px; padding: 6px 14px 6px 12px; font-size: 13px; }
+  html.day-on .day-stop .replay { width: 38px; height: 38px; }
+
+  /* One phone, upright, as tall as the room left for it. */
+  html.day-on .day-shell[data-side="right"] { display: none; }
+  html.day-on .day-shell[data-side="left"],
+  html.day-on .day-stop .phone[data-phone] {
+    grid-column: 1;
+    grid-row: 5;
+    align-self: stretch;
+    width: var(--pw);
+    height: auto;
+    min-height: 0;
+    margin-top: 0;
+    padding: 7px;
+    border-radius: 34px;
+    transform: none;
+  }
+  html.day-on .day-shell::before { inset: 7px; border-radius: 27px; }
+  html.day-on .day-stop .phone::after { display: none; }
+  html.day-on .day-stop .phone-screen { border-radius: 27px; font-size: 13px; }
+  html.day-on .day-stop .phone-screen::before { display: none; }       /* no room for the island */
+  html.day-on .day-stop .msg-header { flex-direction: row; justify-content: center; gap: 6px; padding: 7px 10px 6px; }
+  html.day-on .day-stop .msg-header > .msg-avatar { width: 22px; height: 22px; }
+  html.day-on .day-stop .msg-group { height: 22px; }
+  html.day-on .day-stop .msg-group > * { width: 22px; height: 22px; }
+  html.day-on .day-stop .msg-group > i::before { top: 3px; width: 7px; height: 7px; margin-left: -3.5px; }
+  html.day-on .day-stop .msg-group > i::after { top: 11px; width: 16px; height: 12px; margin-left: -8px; }
+  html.day-on .day-stop .msg-list { padding: 8px 10px 4px; }
+  html.day-on .day-stop .msg-input { min-height: 28px; margin: 3px 9px 9px; }
+  html.day-on .day-stop .msg-send { width: 22px; height: 22px; }
+  html.day-on .day-stop .msg-send::before { top: 6px; }
+  html.day-on .day-stop .msg-send::after { top: 6px; height: 10px; }
+  html.day-on .day-stop .bubble.is-image { width: 116px; height: 87px; }
+  html.day-on .day-stop .bubble.is-image.has-photo[data-image$="-door"] { width: 84px; height: 112px; }
+
+  /* Whichever side is speaking shows; the other waits behind it. chat.js sets data-focus on .stage. */
+  html.day-on .day-stop.is-current .stage:not([data-focus="right"]) .phone[data-phone="right"] .phone-screen,
+  html.day-on .day-stop.is-current .stage[data-focus="right"] .phone[data-phone="left"] .phone-screen { opacity: 0; }
+
+  /* A small label on the top edge of the phone says whose it is. */
+  html.day-on .day-stop .stage-who {
+    grid-column: 1;
+    grid-row: 5;
+    align-self: start;
+    justify-self: center;
+    z-index: 3;
+    display: block;
+    transform: translateY(-50%);
+  }
+  html.day-on .stage-who span {
+    display: none;
+    padding: 3px 10px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  html.day-on .stage-who span.is-on,
+  html.day-on .stage:not([data-focus]) .stage-who span:first-child { display: block; }
+}
+
+/* Short narrow screens: the input bar gives its room to the messages. */
+@media (max-width: 899px) and (max-height: 700px) {
+  html.day-on .day-stop .msg-input { display: none; }
+  html.day-on .day-extra { min-height: 0; }
+}

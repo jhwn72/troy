@@ -3,6 +3,8 @@
 // The route is built from where the sections are right now: it leaves the hero between the phones,
 // swings from one side gutter to the other between sections, loops in the open painting, runs through
 // the engine's five circles, and ends at the footer bubble. It draws with the scroll and un-draws on the way up.
+// It starts from the gold line between the hero's two phones (hero.css draws that one first), and it keeps to
+// the side of the pinned "day at USC" scene, which has gold lines of its own.
 // Only stroke-dashoffset, opacity and transform are written per frame. Reduced motion: fully drawn, static.
 //
 // scene.js reads window.__troyThread to move Troy along the same path.
@@ -100,6 +102,18 @@ window.__troyThread = api;
 
 /* ---------- Measuring the page ---------- */
 
+// The sticky stage inside the pinned scene, if the page has one (same test as scene.js).
+function stickyIn(sec) {
+  if (!sec || sec.id !== 'demos') return null;
+  const kids = sec.querySelectorAll(':scope > *, :scope > * > *');
+  for (let i = 0; i < kids.length; i += 1) {
+    if (getComputedStyle(kids[i]).position === 'sticky') {
+      return kids[i].getBoundingClientRect().height < sec.getBoundingClientRect().height - 40 ? kids[i] : null;
+    }
+  }
+  return null;
+}
+
 function geometry() {
   const sy = window.scrollY;
   const viewW = document.documentElement.clientWidth;
@@ -122,12 +136,33 @@ function geometry() {
   const g = { viewW, viewH, narrow, secs: [], holes: [] };
   g.hero = heroEl ? box(heroEl) : null;
   g.troy = troyEl && troyEl.getBoundingClientRect().width ? box(troyEl) : null;
+  // The line between the hero phones: the thread starts at its middle, behind Troy.
+  const linkEl = heroEl ? $('.hero-link', heroEl) : null;
+  g.link = null;
+  if (linkEl && linkEl.getBoundingClientRect().width) {
+    const b = box(linkEl);
+    const flipped = /matrix\([^,]+,[^,]+,[^,]+,\s*-/.test(getComputedStyle(linkEl).transform);
+    const dip = 58 / 72;                       // where the drawn curve is lowest, in its 240 by 72 box
+    g.link = { x: b.left + b.width * (122 / 240), y: b.top + b.height * (flipped ? 1 - dip : dip) };
+  }
   g.phones = heroEl ? $$('.phone', heroEl).map((el) => ({ ...box(el), r: radius(el) })).filter((b) => b.height) : [];
   g.phones.forEach((b) => g.holes.push(b));
 
   // Same list and order as scene.js: every top-level section but the hero that takes up room.
   $$('main > section').forEach((sec) => {
     if (sec.id === 'hero') return;
+    const stage = stickyIn(sec);
+    if (stage) {
+      // The pinned scene: its tall wrapper is the section, and the thread keeps to the side of the stage.
+      const b = box(sec);
+      if (!b.height) return;
+      const r = stage.getBoundingClientRect();
+      g.secs.push({
+        ...b, r: 0, solid: false, id: sec.id, circles: null, behind: false,
+        pin: { left: Math.max(0, r.left), right: Math.min(viewW, r.right) },
+      });
+      return;
+    }
     const panel = $('.panel', sec) || sec;
     const b = box(panel);
     if (!b.height) return;
@@ -159,6 +194,8 @@ function signature(g) {
   add(g.hero);
   add(g.troy);
   add(g.bubble);
+  if (g.link) parts.push(g.link.x, g.link.y);
+  g.secs.forEach((sec) => { if (sec.pin) parts.push(sec.pin.left, sec.pin.right); });
   g.holes.forEach(add);
   g.secs.forEach(add);
   return parts.map(Math.round).join(',');
@@ -222,6 +259,13 @@ function route(g) {
 
   const lane = (sec, right) => {
     if (g.narrow) return { x: g.viewW - 10, amp: 4.5 };
+    if (sec.pin) {
+      // Beside the pinned stage, nearly straight. A stage as wide as the screen gets the line along its edge.
+      const gutter = Math.max(0, right ? g.viewW - sec.pin.right : sec.pin.left);
+      if (gutter < 24) return { x: right ? g.viewW - 12 : 12, amp: 4 };
+      const off = Math.min(gutter * 0.5, 30);
+      return { x: right ? sec.pin.right + off : sec.pin.left - off, amp: Math.min(gutter * 0.25, 12) };
+    }
     const gutter = Math.max(0, right ? g.viewW - sec.right : sec.left);
     const off = sec.behind ? Math.min(gutter * 0.5, 26) : Math.min(gutter * 0.5, 64);
     const amp = sec.behind ? Math.min(gutter * 0.42, 40) : Math.min(gutter * 0.3, 36);
@@ -230,7 +274,8 @@ function route(g) {
 
   // Start: Troy's feet in the hero, then down between the phones.
   let start;
-  if (g.troy) start = { x: g.troy.cx, y: g.troy.bottom - 8 };
+  if (g.link) start = { x: g.link.x, y: g.link.y };
+  else if (g.troy) start = { x: g.troy.cx, y: g.troy.bottom - 8 };
   else if (g.hero) start = { x: g.viewW / 2, y: g.hero.top + g.hero.height * 0.5 };
   else start = { x: g.viewW / 2, y: 0 };
   add(start.x, start.y);

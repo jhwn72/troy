@@ -87,6 +87,27 @@
 .convo.is-live > .hero-link .hero-link-rest { transition: opacity 0.3s linear; }
 .convo.is-live.is-linked > .hero-link .hero-link-rest { opacity: 0; }
 
+/* The lead: before anything else moves, the gold line draws from one phone to the other. Then Troy falls onto it
+   and the conversation starts (scene.js sets html.hero-lead and times the fall). The line stays gold through the
+   first scenario, until chat.js connects the two phones and takes it over. The page-long thread starts at its middle. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero-link-shade,
+  .hero-link-gold {
+    stroke-dasharray: 100;
+    animation: hero-lead 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.15s backwards;
+  }
+  html.hero-lead .convo.is-live > .hero-link .hero-link-shade,
+  html.hero-lead .convo.is-live > .hero-link .hero-link-gold {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  html.hero-lead .convo.is-live > .hero-link .hero-link-rest { opacity: 0; }
+}
+@keyframes hero-lead {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
 /* ---------- Narrow screens: the phones stay side by side, smaller, with Troy above the space between them ---------- */
 @media (max-width: 767px) {
   #hero {

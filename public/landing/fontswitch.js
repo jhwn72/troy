@@ -9,7 +9,8 @@ const SANS = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 // g: the Google Fonts family spec (null = already loaded by the page). scale shrinks headlines for wide faces.
 const DISPLAY = [
-  { name: 'Instrument Serif', note: 'current', g: null, weight: 400, scale: 1, track: '-0.01em', fb: SERIF },
+  { name: 'Space Grotesk', note: 'current', g: null, weight: 500, scale: 0.84, track: '-0.03em', fb: SANS },
+  { name: 'Instrument Serif', note: 'the first pick', g: 'Instrument+Serif', weight: 400, scale: 1, track: '-0.01em', fb: SERIF },
   { name: 'Fraunces', note: 'soft, warm serif', g: 'Fraunces:opsz,wght@9..144,500', weight: 500, scale: 0.9, track: '-0.02em', fb: SERIF },
   { name: 'Playfair Display', note: 'high contrast', g: 'Playfair+Display:wght@500', weight: 500, scale: 0.9, track: '-0.01em', fb: SERIF },
   { name: 'DM Serif Display', note: 'sturdy', g: 'DM+Serif+Display', weight: 400, scale: 0.92, track: '-0.01em', fb: SERIF },
@@ -19,7 +20,6 @@ const DISPLAY = [
   { name: 'Cinzel', note: 'Roman inscription capitals', g: 'Cinzel:wght@500', weight: 500, scale: 0.72, track: '0', fb: SERIF, wide: true },
   { name: 'Marcellus', note: 'classical, calm', g: 'Marcellus', weight: 400, scale: 0.88, track: '0', fb: SERIF },
   { name: 'Bricolage Grotesque', note: 'friendly grotesque', g: 'Bricolage+Grotesque:opsz,wght@12..96,600', weight: 600, scale: 0.86, track: '-0.02em', fb: SANS },
-  { name: 'Space Grotesk', note: 'technical', g: 'Space+Grotesk:wght@500', weight: 500, scale: 0.84, track: '-0.03em', fb: SANS },
   { name: 'Syne', note: 'wide and bold', g: 'Syne:wght@700', weight: 700, scale: 0.74, track: '-0.02em', fb: SANS, wide: true },
   { name: 'Inter Tight', note: 'plain and tight', g: 'Inter+Tight:wght@600', weight: 600, scale: 0.84, track: '-0.02em', fb: SANS },
 ];

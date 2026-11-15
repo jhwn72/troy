@@ -79,16 +79,16 @@
     "steps": [
       { "phone": "left", "from": "me", "image": "airpods", "alt": "Photo of AirPods" },
       { "phone": "left", "from": "troy", "text": "got it. where'd u find them?" },
-      { "phone": "left", "from": "me", "text": "leavey 2nd floor", "status": "Read" },
+      { "phone": "left", "from": "me", "text": "leavey 2nd floor", "status": "Read", "map": 1 },
       { "phone": "left", "from": "troy", "text": "thanks 🙏 i'll find the owner" },
-      { "phone": "right", "from": "me", "text": "lost my airpods near leavey 😭", "status": "Read" },
+      { "phone": "right", "from": "me", "text": "lost my airpods near leavey 😭", "status": "Read", "map": 2 },
       { "phone": "right", "from": "troy", "text": "on it 👀" },
       { "phone": "right", "from": "troy", "text": "someone found airpods near leavey. quick check: what's on the case?" },
       { "phone": "right", "from": "me", "text": "a little trojan sticker", "status": "Read" },
       { "phone": "right", "from": "troy", "text": "that's them 🙌 asking the finder how they want to hand it off" },
       { "phone": "left", "from": "troy", "text": "found the owner ✅ want to meet them or drop it at DPS?" },
       { "phone": "left", "from": "me", "text": "meet", "status": "Read" },
-      { "phone": "left", "type": "switch-group", "name": "The finder and the owner" },
+      { "phone": "left", "type": "switch-group", "name": "The finder and the owner", "map": 3 },
       { "phone": "right", "type": "switch-group", "name": "The finder and the owner" },
       { "phone": "left", "from": "troy", "text": "handing u off. you two got it from here 🤝" },
       { "phone": "right", "from": "troy", "text": "handing u off. you two got it from here 🤝" }
@@ -100,12 +100,12 @@
       "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A USG committee member" }
     },
     "steps": [
-      { "phone": "left", "from": "me", "text": "the late shuttle to the village is always late", "status": "Read" },
+      { "phone": "left", "from": "me", "text": "the late shuttle to the village is always late", "status": "Read", "map": 1 },
       { "phone": "left", "from": "troy", "text": "that goes to USG's transportation committee. send it with ur name or anonymously?" },
       { "phone": "left", "from": "me", "text": "with my name", "status": "Read" },
       { "phone": "right", "from": "troy", "text": "5 trojans raised late village shuttles this week. 2 want to talk. want a group chat with them?" },
       { "phone": "right", "from": "me", "text": "yes", "status": "Read" },
-      { "phone": "left", "type": "switch-group", "name": "USG transportation" },
+      { "phone": "left", "type": "switch-group", "name": "USG transportation", "map": 2 },
       { "phone": "right", "type": "switch-group", "name": "USG transportation" },
       { "phone": "left", "from": "troy", "text": "meet Alex from USG transportation. she wants to hear what's going on 🙌" },
       { "phone": "right", "from": "troy", "text": "meet Alex from USG transportation. she wants to hear what's going on 🙌" }
@@ -114,16 +114,19 @@
   "food": {
     "phones": {
       "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A club officer" },
-      "map": { "kind": "map", "label": "The map" }
+      "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A student nearby" }
     },
     "steps": [
       { "phone": "left", "from": "me", "image": "food-trays", "alt": "Photo of food trays" },
       { "phone": "left", "from": "troy", "text": "looks like 20 bowls, right?" },
       { "phone": "left", "from": "me", "text": "yep, at leavey till 2", "status": "Read" },
-      { "phone": "left", "from": "troy", "text": "sending it to trojans nearby 🌯", "focusAfter": "map" },
-      { "phone": "left", "from": "troy", "type": "count", "text": "20 left", "delay": 900 },
-      { "phone": "left", "from": "troy", "type": "count", "text": "14 left", "delay": 1200 },
-      { "phone": "left", "from": "troy", "type": "count", "text": "6 left", "delay": 1400, "focus": "left" }
+      { "phone": "left", "from": "troy", "text": "sending it to trojans nearby 🌯", "map": 1 },
+      { "phone": "right", "from": "troy", "text": "free bowls at leavey 🌯 5 min from u. 20 left. react 👍 to claim" },
+      { "phone": "left", "from": "troy", "type": "count", "text": "20 left", "delay": 500, "with": true },
+      { "phone": "right", "from": "me", "tapback": "👍" },
+      { "phone": "left", "from": "troy", "type": "count", "text": "14 left", "delay": 900, "with": true },
+      { "phone": "right", "from": "troy", "text": "saved u one. it's at leavey till 2" },
+      { "phone": "left", "from": "troy", "type": "count", "text": "6 left", "delay": 1200, "focus": "left" }
     ]
   },
   "broken": {
@@ -133,14 +136,32 @@
     },
     "steps": [
       { "phone": "left", "from": "me", "image": "broken-door", "alt": "Photo of a broken door" },
-      { "phone": "left", "from": "me", "text": "the door to my building won't lock", "status": "Read" },
+      { "phone": "left", "from": "me", "text": "the door to my building won't lock", "status": "Read", "map": 1 },
       { "phone": "left", "from": "troy", "text": "got it. letting facilities know now. i'll text u when it's fixed.", "repair": "reported" },
       { "phone": "right", "from": "troy", "text": "someone reported a door that won't lock at new north, about a 5 minute walk from u. can u take it?" },
-      { "phone": "right", "from": "me", "text": "on it", "status": "Read" },
+      { "phone": "right", "from": "me", "text": "on it", "status": "Read", "map": 2 },
       { "phone": "left", "from": "troy", "text": "facilities is on it 🔧", "repair": "on-it" },
       { "phone": "right", "from": "me", "image": "fixed-door", "alt": "Photo of the fixed door" },
-      { "phone": "right", "from": "me", "text": "done", "status": "Read" },
+      { "phone": "right", "from": "me", "text": "done", "status": "Read", "map": 3 },
       { "phone": "left", "from": "troy", "text": "fixed ✅ thanks for flagging it", "repair": "fixed" }
+    ]
+  },
+  "rides": {
+    "phones": {
+      "left": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "A student" },
+      "right": { "name": "Troy", "avatar": "assets/troy-avatar.svg", "kind": "phone", "label": "Another student" }
+    },
+    "steps": [
+      { "phone": "left", "from": "me", "text": "find me people tryna go to lax first day of break", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "on it 👀" },
+      { "phone": "right", "from": "troy", "text": "someone in ur building is headed to lax on the 19th around noon. want to split a ride?", "map": 1 },
+      { "phone": "right", "from": "me", "text": "yes", "status": "Read" },
+      { "phone": "left", "from": "troy", "text": "3 trojans flying out of lax on the 19th around noon. want a group chat to split a ride?" },
+      { "phone": "left", "from": "me", "text": "yes pls", "status": "Read" },
+      { "phone": "left", "type": "switch-group", "name": "LAX ride", "map": 2 },
+      { "phone": "right", "type": "switch-group", "name": "LAX ride" },
+      { "phone": "left", "from": "troy", "text": "done. say hi 👋" },
+      { "phone": "right", "from": "troy", "text": "done. say hi 👋" }
     ]
   }
 }

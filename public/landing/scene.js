@@ -3,6 +3,8 @@
 // and Troy himself: one traveling mascot that lands in the hero, perches on each section as
 // it comes into view, and falls asleep on the footer's chat bubble. Between perches he travels along
 // the gold thread (thread.js) and rides just behind its drawing tip.
+// While the pinned "day at USC" scene (#demos with a sticky stage) is on screen, the sky follows its clock
+// ("day:stop") and Troy stays perched on a top corner of the stage; "day:idle" makes him pop forward and nod.
 // Only opacity and transform are written. Under reduced motion everything is static.
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -58,6 +60,22 @@ if (!reduced && skyEl) {
   skyEl.appendChild(stars);
 }
 
+// The pinned day scene drives the sky once its script has spoken ("day:stop"). Until then the positions below do.
+const demosEl = byId('demos');
+const day = { on: false, tod: 0, range: null, g: 0, n: 0, tg: 0, tn: 0, raf: 0, last: 0 };
+
+// The sticky stage inside the pinned scene, if the page has one.
+function stickyIn(sec) {
+  if (!sec || sec.id !== 'demos') return null;
+  const kids = sec.querySelectorAll(':scope > *, :scope > * > *');
+  for (let i = 0; i < kids.length; i += 1) {
+    if (getComputedStyle(kids[i]).position === 'sticky') {
+      return kids[i].getBoundingClientRect().height < sec.getBoundingClientRect().height - 40 ? kids[i] : null;
+    }
+  }
+  return null;
+}
+
 // Scroll positions (of the middle of the viewport) where each fade begins and ends.
 let fade = null;
 let lineRange = null;
@@ -96,6 +114,8 @@ function measure() {
     fade = { goldenStart, goldenEnd, nightStart, nightEnd };
   }
 
+  day.range = demosEl && demosEl.getBoundingClientRect().height ? box(demosEl) : null;
+
   // Problem lines: all four are complete when the cards are centered in the viewport.
   const pairs = $('.pairs');
   if (pairs) {
@@ -113,21 +133,7 @@ function setOpacity(el, value) {
   if (el) el.style.opacity = String(value);
 }
 
-function paintSky() {
-  if (!fade) return;
-  const mid = window.scrollY + viewH / 2;
-  let golden;
-  let night;
-  if (reduced) {
-    // Simple fades: each painting switches at the halfway point and CSS fades it.
-    golden = mid >= (fade.goldenStart + fade.goldenEnd) / 2 ? 1 : 0;
-    night = mid >= (fade.nightStart + fade.nightEnd) / 2 ? 1 : 0;
-  } else {
-    golden = smooth(clamp01((mid - fade.goldenStart) / Math.max(1, fade.goldenEnd - fade.goldenStart)));
-    night = smooth(clamp01((mid - fade.nightStart) / Math.max(1, fade.nightEnd - fade.nightStart)));
-    golden = Math.round(golden * 1000) / 1000;
-    night = Math.round(night * 1000) / 1000;
-  }
+function applySky(golden, night) {
   // Day stays at full opacity underneath; golden fades in over it, then night over golden.
   if (golden !== lastGolden) {
     setOpacity(skyGolden, golden);
@@ -139,6 +145,83 @@ function paintSky() {
     lastNight = night;
   }
 }
+
+const round3 = (v) => Math.round(v * 1000) / 1000;
+
+function paintSky() {
+  const mid = window.scrollY + viewH / 2;
+  if (day.on && day.range) {
+    // The scene's clock: day before it, night after it, its own time of day while it is on screen.
+    // Day for stops I and II, golden hour at III, dusk blending at IV, night by V.
+    const tod = mid < day.range.top ? 0 : (mid > day.range.bottom ? 1 : day.tod);
+    let golden = smooth(clamp01((tod - 0.3) / 0.2));
+    let night = smooth(clamp01((tod - 0.56) / 0.4));
+    if (reduced) {
+      applySky(golden >= 0.5 ? 1 : 0, night >= 0.5 ? 1 : 0);
+      return;
+    }
+    golden = round3(golden);
+    night = round3(night);
+    if (lastGolden < 0) {
+      day.g = golden;
+      day.n = night;
+      applySky(golden, night);
+      return;
+    }
+    // Eased over time, so a clock that moves in steps never makes the sky jump.
+    day.tg = golden;
+    day.tn = night;
+    if (!day.raf && (golden !== lastGolden || night !== lastNight)) {
+      day.g = lastGolden;
+      day.n = lastNight;
+      day.last = performance.now();
+      day.raf = requestAnimationFrame(easeSky);
+    }
+    return;
+  }
+  if (!fade) return;
+  let golden;
+  let night;
+  if (reduced) {
+    // Simple fades: each painting switches at the halfway point and CSS fades it.
+    golden = mid >= (fade.goldenStart + fade.goldenEnd) / 2 ? 1 : 0;
+    night = mid >= (fade.nightStart + fade.nightEnd) / 2 ? 1 : 0;
+  } else {
+    golden = round3(smooth(clamp01((mid - fade.goldenStart) / Math.max(1, fade.goldenEnd - fade.goldenStart))));
+    night = round3(smooth(clamp01((mid - fade.nightStart) / Math.max(1, fade.nightEnd - fade.nightStart))));
+  }
+  applySky(golden, night);
+}
+
+function easeSky(stamp) {
+  day.raf = 0;
+  const dt = clamp((stamp - day.last) / 1000, 0.001, 0.05);
+  day.last = stamp;
+  const k = 1 - Math.exp(-dt * 5);
+  const step = (cur, to) => {
+    const v = cur + (to - cur) * k;
+    return Math.abs(to - v) < 0.004 ? to : v;
+  };
+  day.g = step(day.g, day.tg);
+  day.n = step(day.n, day.tn);
+  applySky(round3(day.g), round3(day.n));
+  if (day.g !== day.tg || day.n !== day.tn) day.raf = requestAnimationFrame(easeSky);
+}
+
+window.addEventListener('day:stop', (event) => {
+  const d = (event && event.detail) || {};
+  let tod = d.tod == null ? NaN : Number(d.tod);
+  if (!Number.isFinite(tod)) {
+    // No time of day given: five stops, I to V, spread evenly from morning to night.
+    const i = d.index == null ? NaN : Number(d.index);
+    const p = Number(d.progress);
+    if (!Number.isFinite(i)) return;
+    tod = (i + (Number.isFinite(p) ? clamp01(p) : 0)) / 4;
+  }
+  day.on = true;
+  day.tod = clamp01(tod);
+  requestFrame();
+});
 
 /* ---------- Problem section lines ---------- */
 
@@ -195,14 +278,32 @@ function measureTroy(box, all, footerEl) {
   A.stamp += 1;
   all.forEach((sec) => {
     if (sec.id === 'hero') return;
-    const b = box($('.panel', sec) || sec);
+    const stage = stickyIn(sec);             // the pinned scene is measured by its tall wrapper
+    const b = box(stage ? sec : ($('.panel', sec) || sec));
     if (!b.height) return;
     const i = A.secs.length;
-    const right = narrow || i % 2 === 0;     // alternate sides; always top right on narrow screens
+    let right = narrow || i % 2 === 0;       // alternate sides; always top right on narrow screens
     const s = narrow ? 0.4 : 0.6;
+    let pin = null;
+    if (stage) {
+      // His corner of the stage: the one away from the clock, so he never sits on it.
+      const r = stage.getBoundingClientRect();
+      const clock = $('[class*="clock"], [id*="clock"]', sec);
+      const c = clock ? clock.getBoundingClientRect() : null;
+      if (c && c.width) right = c.left + c.width / 2 < r.left + r.width / 2;
+      const edge = narrow ? 40 : 64;
+      pin = {
+        right,
+        x: right ? Math.min(r.right, viewW) - edge : Math.max(r.left, 0) + edge,
+        cx: clamp(r.left + r.width / 2, 0, viewW),
+        h: r.height,
+        stick: parseFloat(getComputedStyle(stage).top) || 0,
+      };
+    }
     const gutter = right ? viewW - b.right : b.left;
     const inset = narrow ? 56 : 68;
     A.secs.push({
+      pin,
       top: b.top,
       bottom: b.bottom,
       s,
@@ -226,7 +327,14 @@ const T = {
   gx: 0, gy: 0, lean: 0, pk: 0, peek: false,
   seq: [], parked: null, fixed: null, last: 0, clock: 0,
   th: null, thv: -1, thStamp: -1, curL: null,   // the gold thread he travels along (built by thread.js)
+  pop: null, pops: 0,            // the pop forward in the pinned scene, at most twice per visit
+  release: null,                 // lets the hero conversation start once he has landed
 };
+
+// Where the top of the pinned stage is on screen: it scrolls in, sticks, then leaves with the end of its wrapper.
+function stageTop(sec, sy) {
+  return Math.min(Math.max(sec.pin.stick, sec.top - sy), sec.bottom - sec.pin.h - sy);
+}
 
 // The gold thread, when thread.js has drawn it and its sections line up with ours. Without it he hops in free arcs.
 function syncThread() {
@@ -252,7 +360,8 @@ function keyL(key) {
   const sec = th.secs[i];
   if (!sec) return 0;
   // Riding beside a panel: just behind the drawing tip, from this section's perch to the next one.
-  if (key[0] === 's') return clamp(th.tip - 26, sec.L, Math.max(sec.L, sec.end));
+  // Perched on the pinned stage he is off the thread; his place on it is kept beside the tip, so he joins it nearby.
+  if (key[0] === 's' || key[0] === 'p') return clamp(th.tip - 26, sec.L, Math.max(sec.L, sec.end));
   return sec.L;
 }
 
@@ -275,6 +384,12 @@ function anchorPos(key, sy) {
   }
   const sec = A.secs[Number(key.slice(key.indexOf(':') + 1))];
   if (!sec) return T.cur || { x: viewW / 2, y: -200, s: 0.6, par: 0, face: 0, bob: 0, fixed: true };
+  if (key[0] === 'p' && sec.pin) {
+    // The pinned scene: on the stage's top edge as it scrolls in, then tucked into its top corner for as long as it is pinned.
+    const top = stageTop(sec, sy);
+    const y = Math.max(top + 3 + BOX * (1 - FEET) * sec.s, Math.min(14, top + 14) + BOX * sec.s);
+    return { x: sec.pin.x, y, s: sec.s, par: 0, face: sec.pin.right ? -1 : 1, bob: 2, fixed: true };
+  }
   if (key[0] === 's' && T.th) {
     // Riding the thread beside a tall panel, just behind the tip as it draws.
     const p = T.th.at(keyL(key));
@@ -312,6 +427,7 @@ function pickKey(sy) {
   }
   if (idx < 0) return A.hero ? 'hero' : (A.secs.length ? 't:0' : 'footer');
   const sec = A.secs[idx];
+  if (sec.pin) return 'p:' + idx;            // one perch for the whole pinned scene: nothing inside it moves him
   const side = sec.sideOk && sec.top - sy < (T.key === 's:' + idx ? 150 : 100);
   return (side ? 's:' : 't:') + idx;
 }
@@ -334,6 +450,7 @@ function startHop(key, now, sy) {
     blink(now + 120);
   }
   T.seq.length = 0;
+  T.pop = null;
   // Along the thread: from where he is on it to where the new anchor is. If he was left off screen,
   // he joins it at the edge of the screen instead.
   let path = null;
@@ -397,6 +514,10 @@ const HELM_Y = [
 ];
 const HELM_R = [[0, 0], [230, 9, easeOut], [430, 6], [600, 0, easeIn], [690, -4, easeOut], [780, 0, easeIn]];
 const FALL_MS = 460;
+const LEAD_MS = 900;             // the gold line between the hero phones draws first (hero.css), then he falls
+const POP_IN = 420;
+const POP_HOLD = 1650;
+const POP_OUT = 480;
 
 function troyFrame(stamp) {
   requestAnimationFrame(troyFrame);
@@ -441,6 +562,8 @@ function troyFrame(stamp) {
   let dropY = 0;
   let tilt = 0;
   let stretch = 0;
+  let nod = 0;
+  let popW = 0;
   if (T.intro) {
     const t = now - T.intro.t0;
     if (t < 0) return;
@@ -460,6 +583,7 @@ function troyFrame(stamp) {
       T.dipV += 130;           // the phone dips and settles
       T.dipOn = 'hero';
       T.helmT = now;           // the helmet pops off
+      if (T.release) T.release();                             // now the conversation may start
       at(600, () => { T.sqV += 2.2; });                       // helmet lands back on his head
       at(880, () => { T.shakeT = T.clock; });       // shake it off
       at(1020, () => blink(T.clock));
@@ -533,6 +657,39 @@ function troyFrame(stamp) {
     P = anchorPos(T.key, sy);
   }
   if (!T.hop) T.curL = T.th ? keyL(T.key) : null;
+
+  // The pop: forward to the lower center of the stage, two nods down at what is there, back to the perch.
+  if (T.pop) {
+    const sec = T.key && T.key[0] === 'p' ? A.secs[keyIndex(T.key)] : null;
+    const t = now - T.pop.t0;
+    if (T.hop || !sec || !sec.pin || t >= POP_HOLD + POP_OUT) T.pop = null;
+    else {
+      let w;
+      if (t < POP_IN) {
+        const u = t / POP_IN - 1;
+        w = 1 + 2.2 * u * u * u + 1.2 * u * u;       // a little past, then back: the bounce
+      } else w = t < POP_HOLD ? 1 : 1 - smooth((t - POP_HOLD) / POP_OUT);
+      if (!T.pop.hit && t >= POP_IN * 0.8) {
+        T.pop.hit = true;
+        T.sqV += 2.6;
+      }
+      const u1 = (t - POP_IN - 200) / 360;
+      const u2 = (t - POP_IN - 660) / 360;
+      nod = u1 > 0 && u1 < 1 ? Math.sin(Math.PI * u1) : (u2 > 0 && u2 < 1 ? Math.sin(Math.PI * u2) : 0);
+      popW = clamp01(w);
+      const top = stageTop(sec, sy);
+      P = {
+        x: lerp(P.x, sec.pin.cx, w),
+        y: lerp(P.y, Math.min(top + sec.pin.h - 26, viewH - 22), w) + nod * 7 * P.s,
+        s: lerp(P.s, P.s * 1.4, w),
+        par: 0,
+        bob: P.bob,
+        face: popW > 0.4 ? 0 : P.face,
+        fixed: true,
+      };
+      stretch += 0.06 * nod;
+    }
+  }
   T.cur = P;
 
   // Nothing to draw while he waits off screen.
@@ -568,6 +725,7 @@ function troyFrame(stamp) {
       helmR = kf(t, HELM_R);
     }
   }
+  helmY += 9 * nod;                              // the helmet tips forward with each nod
   helmY += 4 * T.sleep;                          // it slips a little when he sleeps
   helmR += -3 * T.sleep;
 
@@ -600,7 +758,13 @@ function troyFrame(stamp) {
     lookY = (dy / d) * 6 * near;
     leanTo = clamp(dx / 420, -1, 1) * 3.5;
   }
-  lookY += helmY * 0.07;                         // he watches his helmet go up
+  if (popW) {
+    // Popped forward: he looks at the visitor, then down with each nod.
+    lookX = lerp(lookX, 0, popW);
+    lookY = lerp(lookY, 2 + 6 * nod, popW);
+    leanTo = lerp(leanTo, 0, popW);
+  }
+  lookY += (helmY - 9 * nod) * 0.07;             // he watches his helmet go up
   const ease = 1 - Math.exp(-dt * 10);
   T.gx += (lookX * awake - T.gx) * ease;
   T.gy += (lookY * awake - T.gy) * ease;
@@ -631,6 +795,43 @@ function troyFrame(stamp) {
   T.eyeL.style.transform = `scaleY(${open.toFixed(3)})`;
   T.eyeR.style.transform = `scaleY(${openR.toFixed(3)})`;
   T.helmet.style.transform = `translate(0px, ${helmY.toFixed(2)}px) rotate(${helmR.toFixed(2)}deg)`;
+}
+
+// The hero's opening: the gold line between the two phones draws first (hero.css, html.hero-lead), then Troy
+// falls, then the conversation starts. chat.js pauses a hero conversation while the pointer is over a phone,
+// so the conversation is held with that same signal until he has landed.
+function leadHero() {
+  const root = document.documentElement;
+  root.classList.add('hero-lead');
+  if (!heroConvo) return;
+  const phone = $('.phone', heroConvo);
+  let held = false;
+  let done = false;
+  const signal = (name) => {
+    try {
+      phone.dispatchEvent(new PointerEvent(name, { pointerType: 'mouse' }));
+    } catch (error) { /* the conversation just starts on its own */ }
+  };
+  const watch = new MutationObserver(() => {
+    const cl = heroConvo.classList;
+    if (!done && !held && phone && cl.contains('is-live')) {
+      held = true;
+      signal('pointerenter');
+    }
+    // The line stays gold until chat.js connects the two phones itself; from then on it is chat.js's line.
+    if (cl.contains('is-linked')) {
+      root.classList.remove('hero-lead');
+      watch.disconnect();
+    }
+  });
+  watch.observe(heroConvo, { attributes: true, attributeFilter: ['class'] });
+  T.release = () => {
+    T.release = null;
+    done = true;
+    if (held) signal('pointerleave');
+    held = false;
+  };
+  setTimeout(() => { if (T.release) T.release(); }, LEAD_MS + 2200);
 }
 
 function initTroy() {
@@ -664,8 +865,10 @@ function initTroy() {
   T.key = key;
   if (key === 'hero' && A.hero && A.hero.y - sy > 0) {
     // The landing: he waits above the screen, then falls onto the phone.
-    T.intro = { t0: T.clock + 450 };
+    // The gold line between the phones leads; he waits above the screen until it is drawn.
+    T.intro = { t0: T.clock + LEAD_MS };
     el.style.opacity = '0';
+    leadHero();
   } else if (key === 'footer') {
     T.sleep = 1;
     T.sleepTarget = 1;
@@ -694,6 +897,15 @@ if (!reduced && finePointer) {
     M.ty = 0;
   });
 }
+
+// The pinned scene has gone quiet: Troy pops forward and nods at it. At most twice per visit.
+window.addEventListener('day:idle', () => {
+  if (!T.el || T.pop || T.hop || T.intro || T.pops >= 2 || !T.key || T.key[0] !== 'p') return;
+  const sec = A.secs[keyIndex(T.key)];
+  if (!sec || !sec.pin || sec.top - window.scrollY > viewH * 0.5) return;   // only once the stage is up
+  T.pops += 1;
+  T.pop = { t0: T.clock, hit: false };
+});
 
 /* ---------- Scroll loop ---------- */
 

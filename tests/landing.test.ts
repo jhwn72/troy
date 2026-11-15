@@ -70,12 +70,39 @@ test("landing page follows the design reference's rules", () => {
   assert.ok(html.includes("ChatGPT gives you information. Troy gets you connected."));
   // Sections, in the reference's order.
   const ids = [...html.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ["hero", "problem", "demos", "lost-found", "concern", "food", "broken", "why", "engine", "safe", "next", "faq"]);
+  assert.deepEqual(ids, ["hero", "problem", "demos", "lost-found", "concern", "food", "broken", "rides", "why", "engine", "safe", "next", "faq"]);
   assert.ok(html.includes('<footer id="footer">'));
-  // One demo stage: four tabs, each with its panel inside #demos.
-  const tabs = [...html.matchAll(/<button class="demo-tab" type="button" data-demo="([^"]+)"><span class="demo-tab-label">([^<]+)</g)].map((m) => `${m[1]}: ${m[2]}`);
-  assert.deepEqual(tabs, ["lost-found: Lost and found", "concern: Raise a concern", "food: Free food", "broken: Broken things"]);
-  assert.equal([...html.matchAll(/<section id="[^"]+" class="demo"/g)].length, 4);
+  // "A day at USC": one pinned scene (#demos) with five stops inside it, one map, and no tabs.
+  const day = html.slice(html.indexOf('<section id="demos"'), html.indexOf('<section id="why"'));
+  assert.ok(html.includes('<section id="demos" class="day"'));
+  assert.ok(!html.includes("demo-tab"), "the tabbed demo stage is gone");
+  const stops = [...day.matchAll(/<section id="([^"]+)" class="day-stop" data-day-minutes="(\d+)" data-day-tod="([\d.]+)"/g)].map((m) => `${m[1]} ${m[2]} ${m[3]}`);
+  assert.deepEqual(stops, ["lost-found 520 0", "concern 735 0.18", "food 1050 0.5", "broken 1270 0.78", "rides 1425 1"]);
+  assert.deepEqual([...day.matchAll(/<p class="day-time">([^<]+)</g)].map((m) => m[1]), ["8:40 am", "12:15 pm", "5:30 pm", "9:10 pm", "11:45 pm"]);
+  assert.deepEqual([...day.matchAll(/class="day-setup">([^<]+)</g)].map((m) => m[1]), [
+    "your airpods aren't in your pocket.",
+    "the shuttle was late. again.",
+    "a club meeting ends with 20 extra bowls.",
+    "your door won't lock.",
+    "three of you are headed to lax in the morning.",
+  ]);
+  assert.deepEqual([...day.matchAll(/<span class="chip">([^<]+)</g)].map((m) => m[1]), [
+    "Connected you to: the student who found it",
+    "Connected you to: USG and 4 students with the same issue",
+    "Connected you to: 20 trojans within a 15-minute walk",
+    "Connected you to: the closest technician",
+    "Connected you to: 2 trojans leaving when you are",
+  ]);
+  assert.deepEqual([...day.matchAll(/<div class="convo" data-convo="([^"]+)"/g)].map((m) => m[1]), ["lost-found", "concern", "food", "broken", "rides"]);
+  assert.equal([...day.matchAll(/<div class="phone" data-phone="(?:left|right)"/g)].length, 10, "two phones per stop");
+  assert.deepEqual([...day.matchAll(/class="day-mark"[^>]*>([^<]+)</g)].map((m) => m[1]), ["I", "II", "III", "IV", "V"]);
+  assert.equal(day.split('id="food-map"').length - 1, 1, "one map for the whole day");
+  assert.deepEqual([...day.matchAll(/class="map-layer" data-layer="([^"]+)"/g)].map((m) => m[1]), ["lost-found", "concern", "food", "broken", "rides"]);
+  for (const place of ["leavey", "the village", "new north", "shuttle stop", "the plaza"]) assert.ok(day.includes(`>${place}</text>`), place);
+  assert.ok(day.includes("Only students within a 15-minute walk get the text. Everyone else is left alone."));
+  assert.ok(day.includes("keep scrolling, the day keeps going"));
+  assert.equal(day.split('class="day-next"').length - 1, 1);
+  assert.deepEqual([...day.matchAll(/<li data-step="([^"]+)">/g)].map((m) => m[1]), ["reported", "on-it", "fixed"]);
   assert.ok(html.includes("Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it."));
   assert.ok(html.includes("<li>🏀 pickup basketball at Lyon Center</li>"));
   // Voice and the "never" list.
@@ -89,10 +116,10 @@ test("landing page follows the design reference's rules", () => {
   // Paths are relative so the same file works on the local server and on a static host.
   assert.ok(!/(?:src|href|srcset)="\//.test(html), "paths are relative");
   // Every script and stylesheet is there exactly once.
-  for (const name of ["config", "chat", "scene", "map", "widgets", "thread", "fontswitch"]) {
+  for (const name of ["config", "day", "chat", "scene", "map", "widgets", "thread", "fontswitch"]) {
     assert.equal(html.split(`src="landing/${name}.js"`).length - 1, 1, `${name}.js once`);
   }
-  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "hero", "thread", "fontswitch"]) {
+  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "day", "hero", "thread", "fontswitch"]) {
     assert.equal(html.split(`href="landing/${name}.css"`).length - 1, 1, `${name}.css once`);
   }
 });
@@ -162,11 +189,24 @@ test("landing page carries the amended copy", () => {
   assert.ok(html.includes("that&#39;s them 🙌 asking the finder how they want to hand it off"));
   assert.ok(!html.includes("pick up at DPS?"));
   // Every line the animation plays is also in the page as plain text (hero scenarios 2 to 4 are added by the script).
-  for (const key of ["hero-1", "lost-found", "concern", "broken"]) {
+  for (const key of ["hero-1", "lost-found", "concern", "food", "broken", "rides"]) {
     for (const step of data[key].steps) {
+      // The live count ("20 left", "14 left") changes in place; the page shows where it ends.
+      if (step.type === "count" && step.text !== "6 left") continue;
       if (step.text) assert.ok(html.includes(step.text.replace(/'/g, "&#39;")), `${key}: ${step.text}`);
     }
   }
+  // The day's five conversations: who is on each side, and the lines the reference gives.
+  const sides = (key: string) => [data[key].phones.left.label, data[key].phones.right.label];
+  assert.deepEqual(sides("lost-found"), ["The finder", "The owner"]);
+  assert.deepEqual(sides("concern"), ["A student", "A USG committee member"]);
+  assert.deepEqual(sides("food"), ["A club officer", "A student nearby"]);
+  assert.deepEqual(sides("broken"), ["The student", "An FMS technician"]);
+  assert.deepEqual(sides("rides"), ["A student", "Another student"]);
+  assert.deepEqual(data.food.steps.filter((s: { type?: string }) => s.type === "count").map((s: { text: string }) => s.text), ["20 left", "14 left", "6 left"]);
+  assert.ok(data.food.steps.some((s: { phone: string; from?: string; tapback?: string }) => s.phone === "right" && s.from === "me" && s.tapback === "👍"));
+  assert.ok(lines("rides").includes("left/me: find me people tryna go to lax first day of break"));
+  assert.equal(data.rides.steps.filter((s: { type?: string }) => s.type === "switch-group").length, 2, "rides ends in the group chat on both phones");
 });
 
 test("static build bakes the number into the page, the QR and a Vercel config", async () => {

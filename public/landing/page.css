@@ -65,13 +65,17 @@ h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; }
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% 50%;
+  /* The plaza paintings: the statue fills the left 17%, Bovard's tower ends 88.5% across, and the picture is 2.33
+     times as wide as it is tall. Centered while that shows the whole tower; on squarer screens the tower's right
+     side is held 28px inside the right edge instead (the statue comes into frame from about 1.8:1). */
+  object-position: min(0px, max(100vw - 233.01vh, min(50vw - 116.5vh, 100vw - 206.2vh - 28px))) 50%;
+  object-position: min(0px, max(100vw - 233.01lvh, min(50vw - 116.5lvh, 100vw - 206.2lvh - 28px))) 50%;
 }
 #sky-golden, #sky-night { opacity: 0; }
 
-/* Around 38% keeps Bovard's tower in frame on phones; 44% puts its roof beside Troy instead of behind him. */
+/* Phones: the tower stands to the right of Troy, with the palms and jacaranda around it. */
 @media (max-width: 767px) {
-  #sky img { object-position: 44% 50%; }
+  #sky img { object-position: 86% 50%; }
 }
 
 main, #footer { position: relative; z-index: 1; }
@@ -125,6 +129,15 @@ main, #footer { position: relative; z-index: 1; }
   background: rgba(var(--ink-rgb), var(--scrim, 0.54));
   border-radius: 96px;
   filter: blur(36px);
+}
+
+/* The hero sits on the calm morning sky of the plaza painting, so its headline is ink with no dark patch:
+   the darkest brushstroke behind it needs a paper haze of 0.17 for ink to reach 4.5:1 (measured at 1440 and 390 wide); 0.22 covers the soft edge. */
+#hero .on-painting { color: var(--ink); }
+#hero .on-painting::before { background: rgba(var(--paper-rgb), var(--scrim, 0.22)); }
+/* Between phone and desktop widths the subline can reach the palms beside the tower, so the haze is stronger there. */
+@media (min-width: 768px) and (max-width: 1199px) {
+  #hero { --scrim: 0.45; }
 }
 
 #hero h1 { font-size: var(--fs-hero); line-height: 1; }
@@ -553,6 +566,20 @@ button.engine-circle { cursor: pointer; }
   opacity: 1;
 }
 .engine-after { margin: 24px auto 0; max-width: 36em; text-wrap: balance; }
+/* The five steps are numbered I to V. The digit in the markup stays for screen readers; the numeral is drawn here. */
+#engine .engine-circle { font-size: 0; }
+#engine .engine-circle::after {
+  font-size: 26px;
+  letter-spacing: 0.02em;
+}
+#engine .engine-step:nth-child(1) .engine-circle::after { content: "I"; content: "I" / ""; }
+#engine .engine-step:nth-child(2) .engine-circle::after { content: "II"; content: "II" / ""; }
+#engine .engine-step:nth-child(3) .engine-circle::after { content: "III"; content: "III" / ""; }
+#engine .engine-step:nth-child(4) .engine-circle::after { content: "IV"; content: "IV" / ""; }
+#engine .engine-step:nth-child(5) .engine-circle::after { content: "V"; content: "V" / ""; }
+@media (max-width: 767px) {
+  #engine .engine-circle::after { font-size: 20px; }
+}
 
 /* ---------- Safe by design ---------- */
 
@@ -655,7 +682,11 @@ button.engine-circle { cursor: pointer; }
   padding: var(--panel-gap) 16px;
   text-align: center;
   overflow-x: clip;
-  --scrim: 0.42;          /* the night painting is already dark; this covers the lit windows */
+  --scrim: 0.6;           /* the footer line can sit over the tower's lit windows: 0.54 measured at 390 wide */
+}
+/* On wide screens the line sits over the dark plaza, clear of the tower: 0.26 measured at 1440 wide. */
+@media (min-width: 1200px) {
+  #footer { --scrim: 0.32; }
 }
 .footer-line {
   font-family: var(--font-serif);
@@ -687,7 +718,7 @@ button.engine-circle { cursor: pointer; }
 }
 
 @media (max-width: 767px) {
-  #hero { padding-top: 40px; --scrim: 0.5; }
+  #hero { padding-top: 40px; }
   .hero-phone { margin-top: 122px; }
   /* 357px sits above the hero phone here. */
   #hero .phone { height: clamp(480px, calc(100vh - 365px), 640px); height: clamp(480px, calc(100svh - 365px), 640px); }
@@ -988,4 +1019,51 @@ button.engine-circle { cursor: pointer; }
       var(--key-down) 50% 12px / 15px 12px repeat-x,
       var(--key-up) 50% calc(100% - 12px) / 15px 12px repeat-x;
   }
+}
+
+/* ==========================================================================
+   Classical details. Three small things, used the same way everywhere:
+     laurel sprigs   two mirrored sprigs above each section headline
+     Roman numerals  the engine's five steps (see Engine above)
+     double rule     a thin double rule with a small diamond, the quiet divider inside paper panels
+   All drawn here as masks or backgrounds, in palette colors. Nothing animates.
+   ========================================================================== */
+
+:root {
+  --sprigs: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 24'%3E%3Cdefs%3E%3Cpath id='l' d='M0 0Q3.6 -2.7 7.4 0Q3.6 2.7 0 0Z'/%3E%3Cg id='s'%3E%3Cpath d='M29 20Q14 20 5 6' fill='none' stroke='%23000' stroke-width='1.1' stroke-linecap='round'/%3E%3Cuse href='%23l' transform='translate(23.2 19.4) rotate(-134)'/%3E%3Cuse href='%23l' transform='translate(23.2 19.4) rotate(157)'/%3E%3Cuse href='%23l' transform='translate(18 17.8) rotate(-121)'/%3E%3Cuse href='%23l' transform='translate(18 17.8) rotate(169)'/%3E%3Cuse href='%23l' transform='translate(13.2 15) rotate(-109)'/%3E%3Cuse href='%23l' transform='translate(13.2 15) rotate(-179)'/%3E%3Cuse href='%23l' transform='translate(8.8 11) rotate(-97)'/%3E%3Cuse href='%23l' transform='translate(8.8 11) rotate(-167)'/%3E%3Cuse href='%23l' transform='translate(5.4 6.6) rotate(-123)'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23s'/%3E%3Cuse href='%23s' transform='translate(64 0) scale(-1 1)'/%3E%3C/svg%3E");
+  --diamond: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 1.2L10.8 6L6 10.8L1.2 6Z' fill='%23FFCC00' stroke='%2378716C' stroke-width='1'/%3E%3C/svg%3E");
+}
+
+/* Laurel: above each section's headline. Laurel green on paper, gold on the dark bands. */
+.panel > h2::before {
+  content: "";
+  display: block;
+  width: 58px;
+  height: 22px;
+  margin: 0 auto 18px;
+  background: var(--laurel);
+  -webkit-mask: var(--sprigs) 50% 50% / contain no-repeat;
+  mask: var(--sprigs) 50% 50% / contain no-repeat;
+}
+#problem > .panel > h2::before, #why > .panel > h2::before, #safe > .panel > h2::before,
+#engine > .panel > h2::before, #next > .panel > h2::before { background: var(--gold); }
+
+/* Double rule with a diamond: between the FAQ's questions and its closing line. */
+#faq .faq-more::before {
+  content: "";
+  align-self: center;
+  width: min(320px, 72%);
+  height: 12px;
+  margin-bottom: 12px;
+  background:
+    var(--diamond) 50% 50% / 12px 12px no-repeat,
+    linear-gradient(var(--stone), var(--stone)) 0 3px / calc(50% - 14px) 1px no-repeat,
+    linear-gradient(var(--stone), var(--stone)) 0 8px / calc(50% - 14px) 1px no-repeat,
+    linear-gradient(var(--stone), var(--stone)) 100% 3px / calc(50% - 14px) 1px no-repeat,
+    linear-gradient(var(--stone), var(--stone)) 100% 8px / calc(50% - 14px) 1px no-repeat;
+  opacity: 0.7;
+}
+
+@media (max-width: 767px) {
+  .panel > h2::before { width: 50px; height: 19px; margin-bottom: 14px; }
 }

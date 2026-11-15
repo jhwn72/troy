@@ -1,14 +1,21 @@
 // Troy landing: the one conversation component.
 // Reads landing/conversations.json and, for every .convo mount, replaces the static final state with
-// an animated playback. Drives the two hero phones (a loop of scenarios) and the demo stage (#demos): four
-// tabs, one conversation playing at a time, moving on to the next tab by itself.
-// With reduced motion it only fills in photos, and the static HTML stays (the four demos stacked).
+// an animated playback. Drives the two hero phones (a loop of scenarios) and the five conversations of
+// "A day at USC" (#demos). Those five do not start by themselves: day.js decides which stop is current and
+// asks for it with a "convo:play" event on the mount (and "convo:stop" when the visitor scrolls on).
+// With reduced motion it only fills in photos, and the static HTML stays (the five stops stacked).
 //
 // Events, dispatched on the .convo mount (they bubble):
 //   "convo:start"  detail { key, replay }               a conversation starts (or restarts)
 //   "convo:step"   detail { key, index, step, phone }   a step's content has just appeared
 //   "convo:done"   detail { key }                       the last step has finished
 // The mount also carries data-convo-state="idle|playing|done" for scripts that load late.
+//
+// Events it listens for on a mount that is not a loop:
+//   "convo:play"   detail { replay }   play this conversation from the start
+//   "convo:stop"                       stop where it is
+// When every mount has been taken over (or the data could not load) it dispatches "convo:ready" on window,
+// detail { live }, and sets data-convo-ready on <html>.
 //
 // Two optional step fields, used by the hero:
 //   "with": true   the step plays alongside the step before it (each phone keeps its own order)
@@ -37,9 +44,7 @@ const TIMING = {
   phoneChange: 200,      // extra beat when the story moves to the other phone
   holdBeforeClear: 700,  // hero: last bubble stays this long, then
   fade: 220,             // the chat fades out (and group chats fade in)
-  // Demo stage
-  demoHold: 2600,        // a finished demo stays this long before the next tab
-  demoStatic: 6000,      // per tab when the conversations could not load
+  // A day at USC
   focusRead: 700,        // one screen at a time: time to read before it switches to the other screen
 };
 const T = TIMING;
@@ -48,8 +53,8 @@ const T = TIMING;
 const VERSION = new URL(import.meta.url).search;
 const DATA_URL = new URL('./conversations.json' + VERSION, import.meta.url);
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-// Below this width the demo stage shows one screen at a time (the one that is "speaking").
-const oneScreen = window.matchMedia('(max-width: 1023px)');
+// Below this width the day scene shows one phone at a time (the one that is "speaking").
+const oneScreen = window.matchMedia('(max-width: 899px)');
 
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
@@ -489,37 +494,6 @@ class Convo {
   }
 }
 
-// Roughly how long a conversation takes to play, for the progress line on its tab.
-function estimate(steps, single) {
-  const perChar = (T.charMin + T.charMax) / 2;
-  let ms = 0;
-  let prev = null;
-  let focus = steps[0] ? steps[0].focus || steps[0].phone : null;
-  const look = (name) => {
-    if (!single || !name || name === focus) return;
-    ms += T.focusRead;
-    focus = name;
-  };
-  steps.forEach((step, i) => {
-    if (sameBeat(steps[i - 1], step)) return; // plays alongside the step before it
-    const type = kind(step);
-    const moved = prev && prev !== step.phone ? T.phoneChange : 0;
-    const gap = (wait) => (step.delay != null ? step.delay : (i === 0 ? T.firstBeat : wait + moved));
-    if (type !== 'count' || step.focus) look(step.focus || step.phone);
-    if (type === 'clear') ms += gap(T.holdBeforeClear) + T.fade;
-    else if (type === 'switch-group') ms += gap(T.switchGroup) + T.fade * 2;
-    else if (step.tapback) ms += gap(T.tapback);
-    else if (type === 'count' && i > 0 && kind(steps[i - 1]) === 'count') ms += gap(T.countUpdate) + 120;
-    else if (step.from === 'me') {
-      ms += gap(T.beforeTyping) + T.press + T.delivered + T.read;
-      if (step.text) ms += letters(step.text).length * perChar + T.beforeSend;
-    } else ms += gap(T.beforeDots) + dotsFor(step);
-    look(step.focusAfter);
-    prev = step.phone;
-  });
-  return ms;
-}
-
 function watchHero(convo) {
   // Pause while the pointer is over a phone, or after a tap on one (tap again to resume).
   for (const phone of Object.values(convo.phones)) {
@@ -537,175 +511,14 @@ function watchHero(convo) {
   convo.play();
 }
 
-/* ---------- The demo stage: four tabs, one conversation at a time ---------- */
-// convos[i] plays in panels[i]. It is missing when conversations.json could not load; the tabs then
-// show the static conversations and move on by a timer.
-function watchDemos(root, convos) {
-  const tabs = [...root.querySelectorAll('.demo-tab[data-demo]')];
-  const panels = tabs.map((tab) => document.getElementById(tab.dataset.demo));
-  const area = root.querySelector('.demo-panels');
-  if (!tabs.length || !area || panels.some((panel) => !panel)) return;
-
-  const list = root.querySelector('.demo-tabs');
-  list.setAttribute('role', 'tablist');
-  tabs.forEach((tab, i) => {
-    tab.id = `tab-${tab.dataset.demo}`;
-    tab.setAttribute('role', 'tab');
-    tab.setAttribute('aria-controls', panels[i].id);
-    panels[i].setAttribute('role', 'tabpanel');
-  });
-  root.classList.add('is-tabbed');
-
-  let active = -1;
-  let turn = 0;
-  let phase = 'idle';      // idle | playing | hold
-  let started = false;
-  let onscreen = false;
-  let elapsed = 0;         // time the current demo has been playing
-  let total = 1;           // how long it is expected to play
-  let holdElapsed = 0;
-  let holdFrom = 0;        // where the progress line stood when the demo finished
-  const holds = new Set(); // reasons auto-advance is paused: "hover", "tap"
-
-  const bar = (i) => tabs[i].querySelector('.demo-tab-bar i');
-  const setBar = (i, frac) => {
-    const line = bar(i);
-    if (line) line.style.transform = `scaleX(${frac})`;
-  };
-
-  const show = (i) => {
-    active = i;
-    tabs.forEach((tab, n) => {
-      tab.classList.toggle('is-active', n === i);
-      tab.setAttribute('aria-selected', String(n === i));
-      tab.tabIndex = n === i ? 0 : -1;
-      setBar(n, 0);
-    });
-    // On phones the tab row scrolls sideways: bring the active tab to the middle of it.
-    if (list.scrollWidth > list.clientWidth) {
-      const row = list.getBoundingClientRect();
-      const tab = tabs[i].getBoundingClientRect();
-      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      list.scrollTo({ left: list.scrollLeft + tab.left - row.left - (row.width - tab.width) / 2, behavior: calm ? 'auto' : 'smooth' });
-    }
-    panels.forEach((panel, n) => {
-      panel.classList.toggle('is-active', n === i);
-      panel.inert = n !== i;
-    });
-  };
-
-  const toHold = () => {
-    holdFrom = Math.min(elapsed / (total + T.demoHold), 1);
-    holdElapsed = 0;
-    phase = 'hold';
-  };
-
-  const start = (i) => {
-    const token = ++turn;
-    if (active >= 0 && convos[active]) convos[active].stop();
-    show(i);
-    started = true;
-    elapsed = 0;
-    holdElapsed = 0;
-    phase = 'playing';
-    const convo = convos[i];
-    if (!convo) {
-      total = T.demoStatic;
-      return;
-    }
-    // The chip comes back when this conversation finishes (scene.js shows it on "convo:done").
-    const chip = panels[i].querySelector('.chip');
-    if (chip) chip.classList.remove('is-shown');
-    total = estimate(convo.data[convo.keys[0]].steps, oneScreen.matches);
-    // Always a "replay", so the map and the repair steps start over each time their tab comes round.
-    convo.play(true).then((finished) => {
-      if (finished && token === turn) toHold();
-    });
-  };
-
-  let last = performance.now();
-  const tick = (now) => {
-    const dt = Math.min(now - last, 100);
-    last = now;
-    if (onscreen && active >= 0 && phase !== 'idle') {
-      const whole = total + T.demoHold;
-      let frac;
-      if (phase === 'playing') {
-        elapsed += dt;
-        frac = Math.min(elapsed, total) / whole;
-        if (!convos[active] && elapsed >= total) toHold();
-      } else {
-        if (!holds.size) holdElapsed += dt;
-        frac = holdFrom + (1 - holdFrom) * Math.min(holdElapsed / T.demoHold, 1);
-      }
-      setBar(active, frac);
-      if (phase === 'hold' && holdElapsed >= T.demoHold) start((active + 1) % tabs.length);
-    }
-    requestAnimationFrame(tick);
-  };
-
-  const setHold = (reason, on) => {
-    if (on) holds.add(reason);
-    else holds.delete(reason);
-    root.classList.toggle('is-paused', holds.size > 0);
-  };
-
-  tabs.forEach((tab, i) => {
-    tab.addEventListener('click', () => {
-      setHold('tap', false);
-      start(i);
-    });
-    tab.addEventListener('keydown', (event) => {
-      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
-      if (!step) return;
-      event.preventDefault();
-      const next = (i + step + tabs.length) % tabs.length;
-      tabs[next].focus();
-      start(next);
-    });
-  });
-
-  // Hovering the stage, or tapping it, keeps the current demo up. Tap again to let it move on.
-  let pointer = 'mouse';
-  area.addEventListener('pointerdown', (event) => { pointer = event.pointerType; });
-  area.addEventListener('pointerenter', (event) => {
-    if (event.pointerType === 'mouse') setHold('hover', true);
-  });
-  area.addEventListener('pointerleave', () => setHold('hover', false));
-  area.addEventListener('click', (event) => {
-    if (pointer === 'mouse' || event.target.closest('.replay')) return;
-    setHold('tap', !holds.has('tap'));
-  });
-
-  for (const button of root.querySelectorAll('.replay')) {
-    button.addEventListener('click', () => {
-      setHold('tap', false);
-      if (active >= 0) start(active);
-    });
-  }
-
-  // A link to one demo (#food) opens its tab.
-  const fromHash = () => tabs.findIndex((tab) => `#${tab.dataset.demo}` === location.hash);
-  window.addEventListener('hashchange', () => {
-    const i = fromHash();
-    if (i >= 0) start(i);
-  });
-
-  show(Math.max(fromHash(), 0));
-
-  // Play while the stage is on screen. The first demo starts when it first scrolls into view.
-  new IntersectionObserver((entries) => {
-    onscreen = entries[entries.length - 1].isIntersecting;
-    for (const convo of convos) if (convo) convo.setPaused('offscreen', !onscreen);
-    if (onscreen && !started) start(active);
-  }, { threshold: 0.25 }).observe(area);
-
-  requestAnimationFrame(tick);
+function ready(live) {
+  document.documentElement.dataset.convoReady = String(live);
+  window.dispatchEvent(new CustomEvent('convo:ready', { detail: { live } }));
 }
 
 async function init() {
   probePhotos();
-  if (reducedMotion.matches) return;
+  if (reducedMotion.matches) return ready(0);
   let data = null;
   try {
     const res = await fetch(DATA_URL);
@@ -718,20 +531,23 @@ async function init() {
     for (const mount of document.querySelectorAll('.convo[data-convo]')) {
       const convo = new Convo(mount, data);
       if (!convo.keys.length) continue;
+      // The day scene's conversations only play when day.js has pinned the scene. Otherwise the static stops stay.
+      if (!convo.loop && !document.documentElement.classList.contains('day-on')) continue;
       convo.takeOver();
       live.set(mount, convo);
-      if (convo.loop) watchHero(convo);
-      else convo.addWho();
+      if (convo.loop) {
+        watchHero(convo);
+        continue;
+      }
+      // A day at USC: day.js says when each stop plays.
+      convo.addWho();
+      mount.addEventListener('convo:play', (event) => {
+        convo.play(!event.detail || event.detail.replay !== false);
+      });
+      mount.addEventListener('convo:stop', () => convo.stop());
     }
   }
-  const demos = document.getElementById('demos');
-  if (demos) {
-    const convos = [...demos.querySelectorAll('.demo-tab[data-demo]')].map((tab) => {
-      const panel = document.getElementById(tab.dataset.demo);
-      return (panel && live.get(panel.querySelector('.convo'))) || null;
-    });
-    watchDemos(demos, convos);
-  }
+  ready(live.size);
 }
 
 init();

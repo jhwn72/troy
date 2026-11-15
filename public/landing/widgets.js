@@ -62,8 +62,8 @@ if (steps && broken && motionOk) {
     clearTimers();
     timers.push(setTimeout(() => {
       const driven = sawEvents || (convo && convo.dataset.convoState === "playing");
-      // Inside the tabbed demo stage the conversation always drives the steps.
-      if (driven || !visible || allDone() || broken.closest(".is-tabbed")) return;
+      // Inside the pinned day scene the conversation always drives the steps.
+      if (driven || !visible || allDone() || document.documentElement.classList.contains("day-on")) return;
       order.forEach((name, i) => timers.push(setTimeout(() => { if (!sawEvents) mark(name); }, i * 1600)));
     }, FALLBACK_MS));
   };
@@ -72,6 +72,11 @@ if (steps && broken && motionOk) {
     visible = entries[entries.length - 1].isIntersecting;
     if (visible && !sawEvents && !allDone()) armFallback();
   }, { threshold: 0.5 }).observe(steps);
+
+  // The day scene showing this stop without a conversation to play (the data did not load): show it finished.
+  window.addEventListener("day:settle", (event) => {
+    if (event.detail && event.detail.key === "broken") mark("fixed");
+  });
 
   const replay = broken.querySelector(".replay");
   if (replay) {

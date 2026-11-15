@@ -1,90 +1,66 @@
-// Troy landing: plays the free food map (#food-map).
-// The picture itself is static SVG in index.html and its look is in map.css. This file only decides when it plays.
+// Troy landing: the drawn campus map (#food-map), the stage of "A day at USC".
+// The picture is static SVG in index.html and its look is in map.css. This file only sets attributes.
 //
-// Starts when the food conversation reaches Troy's "sending it to trojans nearby" line. That arrives as a
-// "convo:step" event on the section's .convo mount, with the step from conversations.json as event.detail
-// (or event.detail.step). If the conversation is not playing and sends no events, the map plays after it has been
-// in view for four seconds. The section's replay button, or a "convo:start" with detail.replay, plays it again. With reduced motion nothing here runs and the finished map shows.
+// The map has one layer per stop (g.map-layer[data-layer]). Two things drive it:
+//   1. Which stop is current: day.js dispatches "day:stop" on window; the map gets data-stop="<key>" and that
+//      stop's layer cross-fades in.
+//   2. How far that stop's story has got: steps in conversations.json carry "map": 1, 2 or 3. They arrive as
+//      "convo:step" events (detail { key, step }); the layer gets data-phase and map.css shows what belongs to it.
+//      "convo:start" puts the layer back to phase 0.
+// The free food layer keeps its own sequence (pin, 15-minute circle, dots one by one): phase 1 adds .is-playing.
+// Without the pinned scene (reduced motion, no JavaScript) nothing here runs and the finished food map shows.
 
-const TRIGGER = "sending it to trojans nearby";
-const FALLBACK_MS = 4000;
+const KEYS = ["lost-found", "concern", "food", "broken", "rides"];
+const FOOD_TRIGGER = "sending it to trojans nearby";
 
+const root = document.documentElement;
 const map = document.getElementById("food-map");
-const section = map && map.closest("section");
-const motionOk = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-if (map && section && motionOk) {
-  let wanted = false;     // the trigger has happened and the map should play
-  let playing = false;
-  let visible = false;
-  let sawEvents = false;  // the conversation script is dispatching, so the timer steps aside
-  let timer = 0;
+if (map && root.classList.contains("day-on")) {
+  const layers = {};
+  for (const layer of map.querySelectorAll(".map-layer[data-layer]")) layers[layer.dataset.layer] = layer;
 
-  const convo = section.querySelector(".convo");
-  map.classList.add("is-armed");
-
-  const play = () => {
-    if (playing) return;
-    playing = true;
-    map.classList.add("is-playing");
-  };
-
-  const reset = () => {
-    playing = false;
-    wanted = false;
-    map.classList.remove("is-playing");
-    void map.offsetWidth; // so the same animations can run again
-  };
-
-  // Play only once the map is on screen (on phones it sits below the officer's phone).
-  const request = () => {
-    wanted = true;
-    if (visible) play();
-  };
-
-  const armFallback = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      // If the conversation is playing, its "sending it" line starts the map instead.
-      const driven = sawEvents || (convo && convo.dataset.convoState === "playing");
-      // Inside the tabbed demo stage the conversation always drives the map.
-      const tabbed = section.closest(".is-tabbed");
-      if (!driven && !tabbed && !playing && visible) request();
-    }, FALLBACK_MS);
-  };
-
-  // A replayed conversation starts the map over. ("convo:start" carries detail.replay.)
-  section.addEventListener("convo:start", (event) => {
-    sawEvents = true;
-    if (event.detail && event.detail.replay) reset();
-  }, true);
-
-  // Capture phase, so this hears the event on the .convo mount whether or not it bubbles.
-  section.addEventListener("convo:step", (event) => {
-    sawEvents = true;
-    const detail = event.detail || {};
-    const step = detail.step || detail;
-    if (typeof step.text === "string" && step.text.includes(TRIGGER)) request();
-  }, true);
-
-  new IntersectionObserver((entries) => {
-    visible = entries[entries.length - 1].isIntersecting;
-    if (!visible) {
-      clearTimeout(timer);
-    } else if (wanted) {
-      play();
-    } else if (!playing) {
-      armFallback();
+  const setPhase = (key, phase) => {
+    const layer = layers[key];
+    if (!layer) return;
+    if (phase == null) delete layer.dataset.phase;      // finished
+    else layer.dataset.phase = String(phase);
+    if (key !== "food") return;
+    const playing = phase == null || phase >= 1;
+    if (!playing && map.classList.contains("is-playing")) {
+      map.classList.remove("is-playing");
+      void map.offsetWidth; // so the same animations can run again
+    } else if (playing) {
+      map.classList.add("is-playing");
     }
-  }, { threshold: 0.4 }).observe(map);
+  };
 
-  const replay = section.querySelector(".replay");
-  if (replay) {
-    replay.addEventListener("click", () => {
-      reset();
-      sawEvents = false;
-      // Wait a tick so a conversation script that restarts on this same click is seen first.
-      setTimeout(() => { if (visible) armFallback(); }, 0);
-    });
-  }
+  map.classList.add("is-armed");
+  for (const key of Object.keys(layers)) setPhase(key, 0);
+
+  const showStop = (index) => {
+    const key = KEYS[index];
+    if (key && map.dataset.stop !== key) map.dataset.stop = key;
+  };
+  showStop(Number(root.dataset.dayStop || 0));
+  window.addEventListener("day:stop", (event) => showStop(event.detail.index));
+
+  // Capture phase, so this hears the events on the .convo mounts whether or not they bubble.
+  document.addEventListener("convo:start", (event) => {
+    const key = event.detail && event.detail.key;
+    if (layers[key]) setPhase(key, 0);
+  }, true);
+
+  document.addEventListener("convo:step", (event) => {
+    const detail = event.detail || {};
+    const step = detail.step || {};
+    if (!layers[detail.key]) return;
+    if (step.map != null) setPhase(detail.key, step.map);
+    else if (detail.key === "food" && typeof step.text === "string" && step.text.includes(FOOD_TRIGGER)) setPhase("food", 1);
+  }, true);
+
+  // A stop shown without a conversation to play (the data did not load): show its finished picture.
+  window.addEventListener("day:settle", (event) => {
+    if (event.detail) setPhase(event.detail.key, null);
+  });
 }
