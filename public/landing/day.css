@@ -2,7 +2,7 @@
    Two looks, one markup:
    1. Static (no JavaScript, reduced motion): five stops stacked as cards, each with its time, setup line,
       finished conversation (both sides) and chip. Everything below up to "The pinned scene" is that look.
-   2. Pinned (day.js adds .day-on to <html>): the wrapper is a little over three screens tall and the stage sticks
+   2. Pinned (day.js adds .day-on to <html>): the wrapper is five screens tall and the stage sticks
       to the screen while the day plays by itself. On stage: one phone (the person asking) on the left, the
       connection picture beside it, and the other side as a small notification card that pops out of their circle. day.js sets data-spot on .day-panel
       (intro, phone, map, card, chip): that one thing lifts a touch (scale 1.02). Nothing that has been shown in
@@ -63,9 +63,15 @@ html:not(.day-on) .day-cardbox-repair .day-card > :not(.repair-steps) { display:
 
 /* ---------- The pinned scene ---------- */
 
+/* The only snap point on the page is the top of the scene, and only when a scroll ends near it. */
+html.day-on { scroll-snap-type: y proximity; }
+
 html.day-on main > section#demos {
-  height: 325vh;
-  height: 325svh;                 /* one screen of stage plus a little over two of scrolling: the day plays by itself */
+  height: 500vh;
+  height: 500svh;                 /* one screen of stage plus four of scrolling: the day plays by itself, the first
+                                     stop holds for a screen, and each skip (day.js) takes most of a screen */
+  scroll-snap-align: start;       /* a scroll that ends just short of the scene settles with the stage filling
+                                     the screen; inside the scene (taller than the screen) scrolling stays free */
   padding-left: clamp(16px, 3vw, 120px);
   padding-right: clamp(16px, 3vw, 120px);
 }
@@ -355,8 +361,26 @@ html.day-on .day-card {
 html.day-on .day-card[data-card="lost-found"],
 html.day-on .day-card[data-card="broken"] { right: 4%; top: 56%; transform-origin: 80% 0; }
 html.day-on .day-card[data-card="concern"] { right: 4%; top: 48%; transform-origin: 80% 0; }
-html.day-on .day-card[data-card="food"] { right: 35.5%; top: 72%; transform-origin: 100% 0; }
-html.day-on .day-card[data-card="rides"] { left: 27%; top: 45%; transform-origin: 0 30%; }
+/* Free food and rides: the picture fills its lower half (the ring, the three lines), so the card sits under the
+   picture, joined to its circle by a short line, and the picture and card move up a little into the room above. */
+html.day-on .day-card[data-card="food"] { right: 30%; top: 88%; transform-origin: 90% 0; }
+html.day-on .day-card[data-card="rides"] { left: 4%; top: 72%; transform-origin: 20% 0; }
+html.day-on[data-day-stop="2"] #food-map,
+html.day-on[data-day-stop="4"] #food-map,
+html.day-on :is(#food, #rides) .day-cardsq { transform: translateY(max((100% - 100cqh) / 2, -56px)); }
+html.day-on :is(#food, #rides) .day-cardsq::before {
+  content: "";
+  position: absolute;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--stone);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+html.day-on #food .day-cardsq::before { left: 64.5%; top: 75%; height: 13%; }
+html.day-on #rides .day-cardsq::before { left: 15%; top: 67%; height: 5%; }
+html.day-on :is(#food, #rides).is-current .day-cardsq:has(.day-card.is-out)::before { opacity: 0.55; }
 /* Once it is out it stays, at full strength. Its moment is a small lift. */
 html.day-on .day-stop.is-current .day-card.is-out { opacity: 1; transform: none; }
 html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out { transform: scale(1.02); }
@@ -553,17 +577,39 @@ html.day-on .day-idle.is-on { opacity: 1; transform: none; }
   html.day-on .day-idle { grid-column: 1; grid-row: 3; margin-bottom: 6px; }
   html.day-on .day-stop .chip { min-height: 36px; padding: 5px 14px 5px 12px; font-size: 13px; }
 
-  html.day-on .day-card { width: clamp(180px, 60%, 240px); padding: 8px 10px 10px; border-radius: 18px; }
-  /* Little room here: the card sits right under the circle and would cover the picture and the top of the phone
-     if it stayed, so on narrow screens it steps away again when it is not its moment. */
-  html.day-on .day-card[data-card="lost-found"],
-  html.day-on .day-card[data-card="broken"],
-  html.day-on .day-card[data-card="concern"] { top: 45%; }
+  /* Little room here, so the card only shows while it is its moment, as a wide banner in the gap between the
+     picture and the phone: its foot sits just above the phone, and for that moment the picture steps up (and, where
+     it fills its box, gets smaller) so the card covers none of its circles, lines or labels. */
+  html.day-on .day-stop .day-card[data-card] {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 10px;
+    width: auto;
+    padding: 8px 10px 10px;
+    border-radius: 18px;
+    transform-origin: 50% 100%;
+  }
+  html.day-on :is(#food, #rides) .day-cardsq::before { display: none; }
   html.day-on .day-panel:not([data-spot="card"]) .day-stop.is-current .day-card.is-out { opacity: 0; }
+  /* The picture makes room first, then the card comes in; the card is gone again before the picture is back. */
+  html.day-on .day-stop .day-card[data-card] { transition-duration: 0.15s, 0.45s; }
+  html.day-on .day-panel[data-spot="card"] .day-stop.is-current .day-card.is-out {
+    transition-duration: 0.3s, 0.45s;
+    transition-delay: 0.3s;
+  }
+  html.day-on .map-figure { transform-origin: 50% 0; }
+  html.day-on[data-day-stop="1"] .day-panel[data-spot="card"] .map-figure { transform: translateY(-8%); }
+  html.day-on[data-day-stop="3"] .day-panel[data-spot="card"] .map-figure { transform: translateY(-23%); }
+  html.day-on[data-day-stop="2"] .day-panel[data-spot="card"] .map-figure { transform: translateY(-4%) scale(0.53); }
+  html.day-on[data-day-stop="4"] .day-panel[data-spot="card"] .map-figure { transform: translateY(-4%) scale(0.78); }
   .day-card-who { margin-bottom: 6px; font-size: 12px; }
   .day-card-avatar { width: 22px; height: 22px; }
   .day-card-avatar svg { width: 15px; height: 15px; }
-  .day-card-b { font-size: 12px; }
+  /* Short replies sit beside the line they answer, so the banner stays low. */
+  .day-card-msgs { flex-flow: row wrap; justify-content: flex-end; align-items: flex-end; }
+  .day-card-b { max-width: 80%; font-size: 12px; }
+  .day-card-b:not(.is-me) { margin-right: auto; }
   .day-card-b.is-photo { width: 76px; height: 57px; }
 
   /* The phone, upright, as tall as the room left for it. */

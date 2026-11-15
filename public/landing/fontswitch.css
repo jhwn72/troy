@@ -105,6 +105,18 @@ h1, h2, .lead, .footer-line {
   cursor: pointer;
 }
 
+/* Narrow screens: a smaller button in the left gutter, level with the lower part of the phone in "A day at USC",
+   so it sits on nothing in that scene (not the chip at the foot, not the phone). */
+@media (max-width: 899px) {
+  .fontswitch {
+    left: calc(2px + env(safe-area-inset-left, 0px));
+    bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  }
+  .fontswitch-toggle { position: relative; width: 32px; height: 32px; font-size: 12px; }
+  .fontswitch-toggle::after { content: ""; position: absolute; inset: -6px; }   /* tap area */
+  .fontswitch-panel { left: 14px; bottom: 42px; max-height: calc(100vh - 170px); max-height: calc(100dvh - 170px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fontswitch-panel { transition: none; }
 }

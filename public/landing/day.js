@@ -3,10 +3,11 @@
 // setup line, the conversation on the phone, the connection picture, the other person's card, the chip, a short
 // rest, then the clock ticks on to the next stop. After the last stop it rests there (a small replay control shows).
 //
-// The wrapper is a little over three screens tall and its stage is position: sticky, so the page scrolls normally
-// and the stage stays put for a short while. Scrolling is fast-forward: a scroll down while it plays moves to the
-// next stop, a scroll up goes back one, and scrolling on past the wrapper leaves the scene. How far the visitor has
-// scrolled also sets a floor ("at least this stop"), so the timer and the scroll never fight.
+// The wrapper is five screens tall and its stage is position: sticky, so the page scrolls normally and the stage
+// stays put for a while. Scrolling is fast-forward, with some resistance: one deliberate scroll down while it plays
+// (most of a screen within about a second) moves to the next stop, one up goes back one, and scrolling on past the
+// wrapper leaves the scene. Small scrolls and the tail of a flick move nothing, and one flick is never two stops.
+// The first stop holds longer: for the first screen of pinned scrolling nothing skips it, so arriving never runs past it.
 // Coming into the scene from above always begins at the first stop: the scroll that brought the visitor in never
 // skips anything, and only scrolling that starts while the stage is pinned moves the day on.
 // Nothing here listens to the wheel or to touch, and nothing stops a scroll.
@@ -43,10 +44,15 @@ const TICK_MS = 900;         // the clock takes this long to tick over to the ne
 const MAP_BEAT = 1500;       // the connection picture keeps the spotlight this long when it moves
 const MAP_BEAT_FOOD = 3000;  // free food: the ring and its circles take longer
 const FOOD_TRIGGER = 'sending it to trojans nearby';
-const ZONES = [0.28, 0.46, 0.64, 0.82];   // how far through the pinned scrolling stops II to V begin (the floor)
-const SKIP_PX = 50;          // a scroll of at least this much while the scene is pinned skips one stop
+const SKIP_VH = 0.65;        // a skip needs this much of a screen height of scrolling one way...
+const SKIP_WINDOW = 1000;    // ...within this long, while the scene is pinned
+const SKIP_COOLDOWN = 900;   // a stop that has only just begun is not skipped: scrolling in this time counts for nothing
+const DWELL_VH = 1;          // the first stop: scrolling down skips nothing until the scene is this many screens in
+const ENTER_HOLD = 1200;     // scrolling in the first moments after the stage pins (arriving) counts for nothing
+const SKIP_MIN_STEP = 3;     // scroll steps smaller than this (the slow tail of a flick) count for nothing
 const GESTURE_GAP = 280;     // scrolling that pauses this long counts as a new scroll
-const SKIP_REST = 700;       // a stop that has only just begun is not skipped by the same burst of scrolling
+const PUSH_RATIO = 2;        // within one unbroken scroll, speeding up this much is a new push (a second flick)
+const PUSH_MIN_STEP = 20;    // ...when the step is at least this large
 const IDLE_AFTER = 6000;     // the day has finished and nothing has moved for this long: show the nudge
 const IDLE_MAX = 2;          // nudges per visit
 const CHAT_WAIT = 4000;      // how long to wait for chat.js before showing stops finished
@@ -176,21 +182,19 @@ function start() {
 
   /* ---------- Where the visitor is ---------- */
 
-  const travel = () => Math.max(1, wrap.offsetHeight - stage.offsetHeight);
   const sceneTop = () => wrap.getBoundingClientRect().top + window.scrollY;
-  let zone = 0;            // the stop the scroll position asks for at least
+  let pinnedAt = 0;        // when the stage last pinned
   let wasAbove = false;    // the scene has been out of view above the screen since it was last pinned
 
   function measure() {
     const rect = wrap.getBoundingClientRect();
     const view = window.innerHeight;
-    const p = clamp01(-rect.top / travel());
-    zone = ZONES.filter((from) => p >= from).length;
     const nowPinned = rect.top <= 1 && rect.bottom >= view - 1;
     active = rect.top < view * 0.45 && rect.bottom > view * 0.55;
     if (rect.top >= view * 0.45) wasAbove = true;
     if (nowPinned !== pinned) {
       pinned = nowPinned;
+      if (pinned) pinnedAt = performance.now();
       root.toggleAttribute('data-day-pinned', pinned);
       announce();
     }
@@ -455,35 +459,48 @@ function start() {
   /* ---------- Scrolling is fast-forward ---------- */
 
   let lastY = window.scrollY;
-  let lastZone = 0;
-  let gesture = null;
+  let lastT = 0;
+  let gesture = null;      // one unbroken scroll in one direction
   let ignoreUntil = 0;     // scrolling this script started itself does not count
 
   window.addEventListener('scroll', () => {
     const t = performance.now();
     const y = window.scrollY;
     const dy = y - lastY;
+    const dt = Math.max(t - lastT, 8);
     const wasPinned = pinned;
     lastY = y;
+    lastT = t;
     measure();
     moved();
     if (!dy) return;
     const dir = dy > 0 ? 1 : -1;
-    if (!gesture || t - gesture.last > GESTURE_GAP || gesture.dir !== dir) gesture = { dir, sum: 0, used: false, ok: wasPinned };
+    const step = Math.abs(dy);
+    const speed = step / dt;
+    // ok: it began inside the scene (the scroll that arrives from above never skips). used: it has had its one stop.
+    if (!gesture || t - gesture.last > GESTURE_GAP || gesture.dir !== dir) gesture = { dir, steps: [], used: false, ok: wasPinned, speed };
     gesture.last = t;
-    gesture.sum += Math.abs(dy);
-    const rose = zone > lastZone;
-    lastZone = zone;
-    if (t < ignoreUntil || !pinned) return;
-    // The floor: scrolled far enough for a later stop than the one playing. Only for scrolling that began inside
-    // the scene: the scroll that arrives from above never skips ahead.
-    if (gesture.ok && rose && zone > cur) {
-      gesture.used = true;
-      return go(zone);
+    const cooling = t - beganAt < SKIP_COOLDOWN;
+    // A flick's momentum only ever slows down. Speeding up again, once the new stop has had its time, is a new push.
+    if (gesture.used && !cooling && step >= PUSH_MIN_STEP && speed > gesture.speed * PUSH_RATIO) gesture.used = false;
+    gesture.speed = gesture.speed * 0.7 + speed * 0.3;
+    // The first stop's dwell: the first screen of pinned scrolling moves nothing on.
+    const dwell = dir > 0 && cur === 0 && -wrap.getBoundingClientRect().top < window.innerHeight * DWELL_VH;
+    const arriving = t - pinnedAt < ENTER_HOLD;
+    if (t < ignoreUntil || !pinned || !gesture.ok || gesture.used || cooling || dwell || arriving) {
+      gesture.steps.length = 0;
+      return;
     }
+    if (step < SKIP_MIN_STEP) return;
+    // How far this scroll has gone in the last second.
+    gesture.steps.push({ t, step });
+    while (t - gesture.steps[0].t > SKIP_WINDOW) gesture.steps.shift();
+    let sum = 0;
+    for (const one of gesture.steps) sum += one.step;
+    if (sum < window.innerHeight * SKIP_VH) return;
     // One scroll, one stop.
-    if (!gesture.ok || gesture.used || gesture.sum < SKIP_PX || t - beganAt < SKIP_REST) return;
     gesture.used = true;
+    gesture.steps.length = 0;
     if (dir > 0 && cur < N - 1) go(cur + 1);
     else if (dir < 0 && cur > 0) go(cur - 1);
   }, { passive: true });

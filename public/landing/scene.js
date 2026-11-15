@@ -258,7 +258,8 @@ const heroSpot = byId('troy-hero');
 const sleepSpot = byId('troy-sleep');
 const footer = byId('footer');
 const heroConvo = $('#hero .convo');
-const qr = byId('qr');
+const heroCopy = $('#hero .hero-copy');
+const heroCta = $('#hero .hero-cta');
 const sleepBubble = $('.sleep-bubble');
 
 // Cached anchor positions in document coordinates.
@@ -292,10 +293,23 @@ function measureTroy(box, all, footerEl) {
       const c = clock ? clock.getBoundingClientRect() : null;
       if (c && c.width) right = c.left + c.width / 2 < r.left + r.width / 2;
       const edge = narrow ? 40 : 64;
+      // One column (narrow screens): both top corners are taken (the clock, the stop marks), so he sits smaller in
+      // the gap between them, on the first row. The gap is taken at its smallest: the widest time, every control showing.
+      const marks = $('[class*="nav"]', sec);
+      const m = marks ? marks.getBoundingClientRect() : null;
+      let slot = null;
+      if (c && c.width && m && m.width && m.left > c.right && m.top < c.bottom && m.bottom > c.top) {
+        const from = c.left + 80;
+        const to = m.right - 202;
+        const ps = clamp((to - from - 14) / BOX, 0.2, 0.28);
+        slot = { x: (from + to) / 2, s: ps, oy: c.bottom - r.top + 11 };
+      }
       pin = {
         right,
-        x: right ? Math.min(r.right, viewW) - edge : Math.max(r.left, 0) + edge,
+        slot,
+        x: slot ? slot.x : (right ? Math.min(r.right, viewW) - edge : Math.max(r.left, 0) + edge),
         cx: clamp(r.left + r.width / 2, 0, viewW),
+        px: popSpot(sec, r),
         h: r.height,
         stick: parseFloat(getComputedStyle(stage).top) || 0,
       };
@@ -314,6 +328,17 @@ function measureTroy(box, all, footerEl) {
       sideX: right ? b.right + gutter / 2 : b.left - gutter / 2,
     });
   });
+}
+
+// Where he pops forward to in the pinned scene: the empty foot of the panel beside the phone, so he never lands on
+// the chip or the pill under the picture. Without that room (narrow screens), the middle of the stage.
+function popSpot(sec, r) {
+  const panel = $('.panel', sec);
+  const phone = $('[class*="shell"]', sec);
+  const p = panel ? panel.getBoundingClientRect() : null;
+  const f = phone ? phone.getBoundingClientRect() : null;
+  if (p && f && f.width && f.left - p.left >= 150) return (p.left + f.left) / 2;
+  return clamp(r.left + r.width / 2, 0, viewW);
 }
 
 const T = {
@@ -387,6 +412,8 @@ function anchorPos(key, sy) {
   if (key[0] === 'p' && sec.pin) {
     // The pinned scene: on the stage's top edge as it scrolls in, then tucked into its top corner for as long as it is pinned.
     const top = stageTop(sec, sy);
+    const slot = sec.pin.slot;
+    if (slot) return { x: slot.x, y: top + slot.oy, s: slot.s, par: 0, face: 0, bob: 0, fixed: true };
     const y = Math.max(top + 3 + BOX * (1 - FEET) * sec.s, Math.min(14, top + 14) + BOX * sec.s);
     return { x: sec.pin.x, y, s: sec.s, par: 0, face: sec.pin.right ? -1 : 1, bob: 2, fixed: true };
   }
@@ -546,7 +573,11 @@ function troyFrame(stamp) {
   const fgy = -M.y * 14;
   if (finePointer) {
     setT(skyEl, `translate3d(${(-M.x * 12).toFixed(2)}px, ${(-M.y * 8).toFixed(2)}px, 0) scale(1.035)`);
-    setT(qr, `translate3d(${(fgx * 0.7).toFixed(2)}px, ${(fgy * 0.7).toFixed(2)}px, 0)`);
+    // The hero's words and its call to action (button, QR card, badge) are one layer: the same small shift, a few
+    // pixels at most, so the button stays where the cursor expects it.
+    const copyT = `translate3d(${(fgx * 0.25).toFixed(2)}px, ${(fgy * 0.25).toFixed(2)}px, 0)`;
+    setT(heroCopy, copyT);
+    setT(heroCta, copyT);
   }
   setT(heroConvo, `translate3d(${fgx.toFixed(2)}px, ${(fgy + (T.dipOn === 'hero' ? T.dip : 0)).toFixed(2)}px, 0)`);
   setT(sleepBubble, `translate3d(${fgx.toFixed(2)}px, ${(fgy + (T.dipOn === 'footer' ? T.dip : 0)).toFixed(2)}px, 0)`);
@@ -678,10 +709,11 @@ function troyFrame(stamp) {
       nod = u1 > 0 && u1 < 1 ? Math.sin(Math.PI * u1) : (u2 > 0 && u2 < 1 ? Math.sin(Math.PI * u2) : 0);
       popW = clamp01(w);
       const top = stageTop(sec, sy);
+      const stay = Boolean(sec.pin.slot);          // narrow screens: no empty place to pop to, so he nods where he sits
       P = {
-        x: lerp(P.x, sec.pin.cx, w),
-        y: lerp(P.y, Math.min(top + sec.pin.h - 26, viewH - 22), w) + nod * 7 * P.s,
-        s: lerp(P.s, P.s * 1.4, w),
+        x: stay ? P.x : lerp(P.x, sec.pin.px, w),
+        y: (stay ? P.y : lerp(P.y, Math.min(top + sec.pin.h - 26, viewH - 22), w)) + nod * 7 * P.s,
+        s: stay ? P.s : lerp(P.s, P.s * 1.4, w),
         par: 0,
         bob: P.bob,
         face: popW > 0.4 ? 0 : P.face,
