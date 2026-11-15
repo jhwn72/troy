@@ -7,3 +7,4 @@ data/
 *.log
 design/paintings/
 vercel-landing/
+.DS_Store
