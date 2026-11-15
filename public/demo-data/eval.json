@@ -1,0 +1,12 @@
+{
+ "ok": true,
+ "eval": {
+  "total": 40,
+  "correct": 37,
+  "wrongHandoffs": 0,
+  "sentToFinder": 14,
+  "sentToFinderNotOwner": 0,
+  "mode": "fallback"
+ },
+ "generatedAt": 1794686400000
+}

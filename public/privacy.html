@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troy and your privacy</title>
+<meta name="description" content="What Troy keeps, who can see it and how to erase it.">
+<meta name="theme-color" content="#FAF7F2">
+<link rel="icon" href="assets/troy-avatar.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500&amp;family=Inter:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="landing/tokens.css">
+<link rel="stylesheet" href="landing/nav.css">
+<link rel="stylesheet" href="landing/tool.css">
+<style>
+  /* Only what this page has that the other working pages don't. The shared look is landing/tool.css. */
+  body { font-size: 17px; }
+  .wrap { max-width: 760px; }
+  .page-head .sub { font-size: 17px; }
+  .card { padding: 24px 26px; border-radius: var(--r-panel); margin-bottom: 14px; }
+  .card h2 { font-size: 1.5rem; margin: 0 0 10px; }
+  .card p { margin: 0 0 10px; }
+  .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+  .card ul { margin: 0 0 10px; padding: 0; list-style: none; }
+  .card li { position: relative; padding-left: 22px; margin-top: 8px; }
+  .card li::before { content: ""; position: absolute; left: 2px; top: 0.58em; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--laurel); }
+  .say { font-weight: 600; white-space: nowrap; }
+  @media (max-width: 620px) { body { font-size: 16px; } .card { padding: 20px; border-radius: var(--r-card); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="site-nav-brand" href="./">Troy</a>
+    <nav class="site-nav-links" aria-label="Site">
+      <a href="./">Home</a>
+      <a href="dashboard.html">For staff</a>
+      <a href="panel.html">Under the hood</a>
+      <a href="privacy.html" aria-current="page">Privacy</a>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Privacy</h1>
+    <p class="sub">What Troy keeps, who can see it and how to erase it.</p>
+  </div>
+  <hr class="key-rule" aria-hidden="true">
+
+  <main>
+    <section class="card" aria-labelledby="p-first">
+      <h2 id="p-first">He only answers people who text him first</h2>
+      <p>A chat starts when you text <span class="say">"hey troy"</span>. Troy never texts someone who hasn't opted in, and he can only see what you send to that chat. Nothing else on your phone, no other texts, no student records.</p>
+      <p>Before he helps, he asks for your USC email once, only to check that you are a Trojan.</p>
+    </section>
+
+    <section class="card" aria-labelledby="p-keeps">
+      <h2 id="p-keeps">What Troy keeps</h2>
+      <ul>
+        <li>The messages in your chat with him, so he can follow the conversation.</li>
+        <li>Notes and settings you gave him, like "no emoji", your quiet hours, how far you want alerts from and which texts you follow.</li>
+        <li>The last location you shared, and only the last one. While you are sharing it he keeps that spot current. He uses it for walking times and to know which alerts are close enough to bother you with.</li>
+      </ul>
+      <p>You can ask him "what do u know about me" and he will tell you.</p>
+    </section>
+
+    <section class="card" aria-labelledby="p-sees">
+      <h2 id="p-sees">Who can see what</h2>
+      <ul>
+        <li><strong>Other students</strong> see nothing without your yes. Not your messages, not your location, not your number. Your contact is shared only if you agree to it in a lost and found handoff.</li>
+        <li><strong>Staff</strong> see the reports you file (something broken, a concern) and items you turn in as found, on their dashboard. A concern sent without your name reaches them without saying who sent it. Your saved location is never on a dashboard.</li>
+        <li><strong>The builder.</strong> This demo runs on its builder's Mac, and everything is stored there. John built Troy and can see chats during the demo.</li>
+      </ul>
+      <p>The staff pages on this website show example data only.</p>
+    </section>
+
+    <section class="card" aria-labelledby="p-ai">
+      <h2 id="p-ai">An outside AI service reads your messages to write replies</h2>
+      <p>To understand a message and answer it, its text is sent to an outside AI service (Claude, made by Anthropic). The parts that have to be exact, like pickup codes and who gets told what, are plain code with no AI in them. For what that service keeps on its side, ask John.</p>
+    </section>
+
+    <section class="card" aria-labelledby="p-erase">
+      <h2 id="p-erase">How to erase it</h2>
+      <ul>
+        <li><span class="say">"forget my location"</span> erases your saved location.</li>
+        <li><span class="say">"delete my data"</span> erases your messages, notes, profile and saved location, and also the photos you sent and the listings made from them.</li>
+        <li><span class="say">"STOP"</span> makes him leave you alone and erases your saved location. Text <span class="say">"START"</span> or <span class="say">"hey troy"</span> to come back.</li>
+      </ul>
+    </section>
+
+    <section class="card" aria-labelledby="p-proto">
+      <h2 id="p-proto">A hackathon prototype</h2>
+      <p>A USC student built Troy at the AI@USC Hackathon, Nov 14 to 15, 2026. He is not an official USC service and doesn't speak for USC, DPS or USG. He is not a confidential service or a counselor, and for an emergency he is the wrong tool: call 911.</p>
+      <p>Questions, or want something removed? Email <a href="mailto:johnwang@usc.edu">johnwang@usc.edu</a>.</p>
+    </section>
+  </main>
+
+  <footer class="page-foot">
+    <span>Troy is a hackathon prototype, not an official USC service.</span>
+    <span><a href="./">Home</a> · <a href="dashboard.html">For staff</a> · <a href="panel.html">Under the hood</a></span>
+  </footer>
+</div>
+</body>
+</html>

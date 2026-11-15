@@ -1,0 +1,82 @@
+{
+ "ok": true,
+ "note": "Example data for the public demo pages. Every row is an example. Made by scripts/build-demo-data.ts.",
+ "statusCopy": {
+  "received": null,
+  "in_progress": "in progress 🔧",
+  "fixed": "fixed ✅",
+  "on_agenda": "on the agenda",
+  "acted_on": "acted on ✅",
+  "closed": "closed"
+ },
+ "reports": {
+  "1": {
+   "reference": "update on \"water fountain is leaking onto the floor, theres a puddle...\" at taper hall 2nd floor",
+   "recipients": 3
+  },
+  "2": {
+   "reference": "update on \"the elevator on the right is stuck on 3 and the door wont...\" at leavey library",
+   "recipients": 1
+  },
+  "3": {
+   "reference": "update on \"handle on the west entrance door is loose and about to fa...\" at sgm",
+   "recipients": 1
+  },
+  "4": {
+   "reference": "update on \"shower drain is clogged in the 4th floor bathroom\" at birnkrant 4th floor",
+   "recipients": 2
+  },
+  "5": {
+   "reference": "update on \"hallway light is out by the 5th floor lounge\" at fluor tower 5th floor",
+   "recipients": 1
+  },
+  "6": {
+   "reference": "update on the usg concern \"why does the village dining hall close so early on weekends\"",
+   "recipients": 2
+  },
+  "7": {
+   "reference": "update on the usg concern \"course evals should be visible before registration opens\"",
+   "recipients": 3
+  },
+  "8": {
+   "reference": "update on the usg concern \"the wait for a safe ride home is over 30 minutes after 11pm\"",
+   "recipients": 1
+  },
+  "9": {
+   "reference": "update on the usg concern \"counseling appointments are booked out for weeks\"",
+   "recipients": 1
+  }
+ },
+ "samplePickup": {
+  "handoff": {
+   "id": 1,
+   "matchId": 44,
+   "method": "dps_code",
+   "completedAt": null,
+   "createdAt": 1794402000000,
+   "matchStatus": "verified",
+   "item": {
+    "id": 26,
+    "type": "found",
+    "category": "phone",
+    "title": "black iphone in a clear case",
+    "publicSummary": "black iphone",
+    "color": "black",
+    "brand": "Apple",
+    "locationText": "outside the bookstore",
+    "happenedAt": 1794362400000,
+    "status": "handed_off",
+    "isValuable": true,
+    "isDangerous": false,
+    "heldBy": "dps",
+    "isExample": true,
+    "hasPhoto": false,
+    "photoSensitive": false,
+    "hasHiddenDetails": true,
+    "createdAt": 1794363000000
+   },
+   "ownerFirstName": "Ethan"
+  }
+ },
+ "generatedAt": 1794686400000
+}

@@ -1,0 +1,70 @@
+{
+ "ok": true,
+ "roles": [
+  {
+   "role": "fms",
+   "label": "FMS"
+  },
+  {
+   "role": "housing",
+   "label": "Housing"
+  },
+  {
+   "role": "usg:USG Committee on Sustainability and Campus Infrastructure",
+   "label": "USG Committee on Sustainability and Campus Infrastructure"
+  },
+  {
+   "role": "usg:USG Committee on Affordability and Basic Needs",
+   "label": "USG Committee on Affordability and Basic Needs"
+  },
+  {
+   "role": "usg:USG Committee on Academic Affairs",
+   "label": "USG Committee on Academic Affairs"
+  },
+  {
+   "role": "usg:USG Committee on External Affairs",
+   "label": "USG Committee on External Affairs"
+  },
+  {
+   "role": "usg:USG Committee on Wellness Affairs",
+   "label": "USG Committee on Wellness Affairs"
+  },
+  {
+   "role": "usg:USG Committee on Accessibility Affairs",
+   "label": "USG Committee on Accessibility Affairs"
+  },
+  {
+   "role": "usg:USG Funding Department",
+   "label": "USG Funding Department"
+  },
+  {
+   "role": "usg:USG general contact",
+   "label": "USG general contact"
+  }
+ ],
+ "contacts": [
+  {
+   "id": 1,
+   "role": "fms",
+   "roleLabel": "FMS",
+   "kind": "repair",
+   "handle": "•••• 0119",
+   "label": "omar",
+   "isExample": true,
+   "reachable": true,
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 2,
+   "role": "usg:USG Committee on Sustainability and Campus Infrastructure",
+   "roleLabel": "USG Committee on Sustainability and Campus Infrastructure",
+   "kind": "usg",
+   "handle": "•••• 0118",
+   "label": "hannah",
+   "isExample": true,
+   "reachable": true,
+   "createdAt": 1794686400000
+  }
+ ],
+ "generatedAt": 1794686400000
+}

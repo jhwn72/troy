@@ -4,124 +4,119 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Troy, under the hood</title>
+<meta name="theme-color" content="#FAF7F2">
+<link rel="icon" href="assets/troy-avatar.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500&amp;family=Inter:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="landing/tokens.css">
+<link rel="stylesheet" href="landing/nav.css">
+<link rel="stylesheet" href="landing/tool.css">
 <style>
-  :root {
-    --paper: #FAF7F2; --ink: #1C1917; --stone: #78716C; --line: #E7E2DA; --white: #FFFFFF;
-    --cardinal: #990000; --gold: #FFCC00; --laurel: #4D7C5B; --amber: #B7791F;
-    --laurel-soft: #E8F0EA; --amber-soft: #F7EEDD; --cardinal-soft: #F6E4E4; --stone-soft: #F0ECE6;
-  }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  body { margin: 0; background: var(--paper); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 18px; line-height: 1.4; }
-  button { font: inherit; color: inherit; cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .wrap { max-width: 1760px; margin: 0 auto; padding: 0 28px 60px; }
+  /* Only what this page has that the other working pages don't. The shared look is landing/tool.css. */
+  body { font-size: 16px; }
+  .wrap { max-width: 1560px; padding: 0 28px 64px; }
 
-  header { display: flex; align-items: flex-end; gap: 24px; padding: 28px 0 22px; flex-wrap: wrap; }
-  .brand { flex: 1; min-width: 280px; }
-  .badge { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--white); border-radius: var(--r-pill); padding: 5px 14px; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 14px; }
   .badge i { width: 9px; height: 9px; border-radius: 50%; background: var(--laurel); }
   .badge.off i { background: var(--cardinal); }
+  .badge.eg i { background: var(--gold); }
   .badge.live i { animation: pulse 2s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: .3; } }
-  h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: clamp(40px, 4.6vw, 72px); line-height: 1; margin: 12px 0 0; }
-  .stats { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
-  .stat { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 14px 22px; min-width: 120px; }
-  .stat .n { font-family: "Instrument Serif", Georgia, serif; font-size: 44px; line-height: 1; }
-  .stat .l { font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); margin-top: 4px; }
-  .stat.eval { background: var(--ink); color: var(--paper); border-color: var(--ink); position: relative; padding-right: 30px; }
-  .stat.eval .l { color: #C9C2B8; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  .page-head-row > .grow { flex: 1 1 420px; }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .stat { background: var(--white); border: 1px solid var(--line); border-radius: var(--r-card); padding: 14px 20px; min-width: 108px; }
+  .stat .n { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 34px; line-height: 1; }
+  .stat .l { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--stone); margin-top: 6px; }
+  .stat.eval { background: var(--ink); color: var(--paper); border-color: var(--ink); position: relative; padding-right: 32px; }
+  .stat.eval .l { color: rgba(var(--paper-rgb), 0.7); }
   .stat.eval::after { content: ""; position: absolute; top: 14px; right: 14px; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); }
-  .stat.eval .n small { font-family: Inter, system-ui, sans-serif; font-size: 17px; font-weight: 500; margin-left: 8px; white-space: nowrap; display: inline-block; }
-  .toggle { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 12px 20px; font-size: 15px; font-weight: 600; display: inline-flex; align-items: center; gap: 10px; align-self: center; }
+  .stat.eval .n small { font-family: var(--font-body); letter-spacing: 0; font-size: 14px; font-weight: 500; margin-left: 8px; white-space: nowrap; display: inline-block; }
+  .toggle { min-height: var(--tap); border: 1px solid var(--line); background: var(--white); border-radius: var(--r-pill); padding: 0 20px; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; gap: 10px; align-self: center; }
   .toggle::before { content: ""; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--stone); }
-  .toggle[aria-pressed="true"] { background: var(--cardinal); border-color: var(--cardinal); color: #fff; }
-  .toggle[aria-pressed="true"]::before { background: #fff; border-color: #fff; }
+  .toggle[aria-pressed="true"] { background: var(--cardinal); border-color: var(--cardinal); color: var(--white); }
+  .toggle[aria-pressed="true"]::before { background: var(--white); border-color: var(--white); }
 
   main { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 22px; align-items: start; }
   @media (max-width: 1180px) { main { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 760px) { main { grid-template-columns: 1fr; } body { font-size: 16px; } .wrap { padding: 0 14px 50px; } .stat { flex: 1 1 40%; } .stat.eval { flex-basis: 100%; } }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } .wrap { padding: 0 16px 56px; } .stat { flex: 1 1 40%; } .stat.eval { flex-basis: 100%; } .toggle { flex: 1 1 100%; justify-content: center; } }
+  .col { min-width: 0; }
 
-  h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1.05; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
-  h2 span { font-family: Inter, system-ui, sans-serif; font-size: 15px; color: var(--stone); font-weight: 500; }
+  main h2 { font-size: 1.625rem; margin: 0 0 12px; display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; }
+  main h2 span { font-family: var(--font-body); letter-spacing: 0; font-size: 14px; color: var(--stone); font-weight: 500; }
   .col > section + section { margin-top: 28px; }
 
-  .card { background: var(--white); border: 1px solid var(--line); border-radius: 28px; padding: 18px 20px; margin-bottom: 12px; }
-  .card.new { animation: slide .7s cubic-bezier(.2,.8,.2,1); }
-  @keyframes slide { from { opacity: 0; transform: translateY(-14px); background: #FFF6CC; } to { opacity: 1; transform: none; background: var(--white); } }
+  .card.new { animation: slide 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  @keyframes slide { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .card.new, .badge.live i { animation: none; } .bar i { transition: none !important; } }
-  .row { display: flex; gap: 14px; align-items: flex-start; }
-  .row .body { flex: 1; min-width: 0; }
-  .title { font-weight: 600; font-size: 20px; overflow-wrap: anywhere; }
-  .meta { color: var(--stone); font-size: 15px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
-  .empty { border: 1px dashed var(--line); border-radius: 28px; padding: 28px 18px; text-align: center; color: var(--stone); font-size: 16px; }
-
-  .pill { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 3px 12px; font-size: 13px; font-weight: 600; white-space: nowrap; background: var(--stone-soft); color: var(--stone); }
-  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .pill.pending { background: var(--amber-soft); color: var(--amber); }
-  .pill.done { background: var(--laurel-soft); color: var(--laurel); }
-  .pill.fail { background: var(--cardinal-soft); color: var(--cardinal); }
+  .title { font-size: 17px; }
+  .meta { font-size: 14px; }
+  .empty { font-size: 15px; padding: 28px 18px; }
   .pill.found { background: var(--ink); color: var(--paper); }
-  .pill.lost { background: var(--white); color: var(--ink); border: 1px solid var(--ink); }
-  .tag { display: inline-block; border: 1px dashed var(--stone); color: var(--stone); border-radius: 999px; padding: 0 9px; font-size: 12px; font-weight: 600; vertical-align: middle; }
+  .pill.lost { background: var(--white); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 
-  .hidden-line { margin-top: 10px; border-radius: 16px; background: var(--stone-soft); color: var(--stone); padding: 8px 14px; font-size: 15px; letter-spacing: .02em; }
-  .staff-line { margin-top: 10px; border-radius: 16px; background: var(--cardinal-soft); padding: 8px 14px; font-size: 15px; overflow-wrap: anywhere; }
-  .staff-line b { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--cardinal); display: block; }
-
-  .photo { width: 76px; height: 76px; border-radius: 22px; overflow: hidden; background: var(--stone-soft); flex: none; position: relative; border: 1px solid var(--line); padding: 0; }
-  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .photo.blurred img { filter: blur(22px); transform: scale(1.4); }
-  .photo.blurred::after, .photo.locked::after { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; font-weight: 600; padding: 6px; }
-  .photo.blurred::after { content: "blurred, tap to reveal"; color: #fff; background: rgba(28,25,23,.45); }
-  .photo.locked::after { content: "photo hidden"; color: var(--stone); }
+  .hidden-line { margin-top: 10px; border-radius: 16px; background: var(--stone-soft); color: var(--stone); padding: 8px 14px; font-size: 14px; letter-spacing: 0.02em; }
+  .staff-line { margin-top: 10px; border-radius: 16px; background: var(--cardinal-soft); padding: 8px 14px; font-size: 14px; overflow-wrap: anywhere; }
+  .staff-line b { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--cardinal); display: block; }
+  .photo { width: 76px; height: 76px; }
 
   .conf { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
-  .conf .num { font-family: "Instrument Serif", Georgia, serif; font-size: 46px; line-height: 1; min-width: 92px; }
-  .conf .num small { font-family: Inter, system-ui, sans-serif; font-size: 16px; color: var(--stone); }
-  .bar { flex: 1; height: 16px; border-radius: 999px; background: var(--stone-soft); overflow: hidden; position: relative; }
-  .bar i { display: block; height: 100%; border-radius: 999px; background: var(--stone); transition: width .6s cubic-bezier(.2,.8,.2,1); }
+  .conf .num { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 38px; line-height: 1; min-width: 104px; }
+  .conf .num small { font-family: var(--font-body); letter-spacing: 0; font-size: 14px; color: var(--stone); }
+  .bar { flex: 1; height: 12px; border-radius: var(--r-pill); background: var(--stone-soft); overflow: hidden; position: relative; }
+  .bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--stone); transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
   .bar.high i { background: var(--laurel); }
   .bar.mid i { background: var(--amber); }
-  .reasons { margin: 12px 0 0; padding: 0; list-style: none; font-size: 16px; }
+  .reasons { margin: 12px 0 0; padding: 0; list-style: none; font-size: 15px; }
   .reasons li { padding-left: 20px; position: relative; margin-top: 4px; }
-  .reasons li::before { content: ""; position: absolute; left: 2px; top: .55em; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--stone); }
-  .pair { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .reasons li::before { content: ""; position: absolute; left: 2px; top: 0.5em; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--stone); }
+  .pair { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
   .pair .arrow { width: 22px; height: 2px; background: var(--line); }
 
   .verif { display: flex; align-items: center; gap: 16px; }
-  .score { width: 76px; height: 76px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-family: "Instrument Serif", Georgia, serif; font-size: 34px; background: var(--stone-soft); color: var(--stone); }
-  .score.pass { background: var(--laurel); color: #fff; }
-  .score.fail { background: var(--cardinal); color: #fff; }
+  .score { width: 68px; height: 68px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: var(--display-weight); font-size: 26px; background: var(--stone-soft); color: var(--stone); }
+  .score.pass { background: var(--laurel); color: var(--white); }
+  .score.fail { background: var(--cardinal); color: var(--white); }
 
   .servings { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; }
-  .servings .n { font-family: "Instrument Serif", Georgia, serif; font-size: 58px; line-height: 1; }
+  .servings .n { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 46px; line-height: 1; }
   .dots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  .dots i { width: 16px; height: 16px; border-radius: 50%; background: var(--laurel); transition: background .4s; }
+  .dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--laurel); transition: background 0.4s; }
   .dots i.gone { background: var(--line); }
-  footer { color: var(--stone); font-size: 14px; margin-top: 30px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div class="brand">
-      <span class="badge" id="badge"><i></i><span id="badge-text">connecting</span></span>
-      <h1>Troy, under the hood</h1>
-    </div>
-    <div class="stats">
-      <div class="stat eval"><div class="n" id="eval-n">no eval yet</div><div class="l" id="eval-l">matcher eval</div></div>
-      <div class="stat" id="chat-stat" hidden><div class="n" id="chat-n">0</div><div class="l" id="chat-l">chat health</div></div>
-      <div class="stat"><div class="n" id="s-found">0</div><div class="l">found</div></div>
-      <div class="stat"><div class="n" id="s-lost">0</div><div class="l">lost</div></div>
-      <div class="stat"><div class="n" id="s-matches">0</div><div class="l">matches</div></div>
-      <div class="stat"><div class="n" id="s-returned">0</div><div class="l">returned</div></div>
-      <button class="toggle" id="staff" type="button" aria-pressed="false">Staff view</button>
-    </div>
+  <header class="site-head">
+    <a class="site-nav-brand" href="./">Troy</a>
+    <nav class="site-nav-links" aria-label="Site">
+      <a href="./">Home</a>
+      <a href="dashboard.html">For staff</a>
+      <a href="panel.html" aria-current="page">Under the hood</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
   </header>
+
+  <div class="page-head">
+    <div class="page-head-row">
+      <div class="grow">
+        <span class="badge" id="badge"><i></i><span id="badge-text">connecting</span></span>
+        <h1>Under the hood</h1>
+        <p class="sub">Lost and found and free food, step by step: every listing, the pairs Troy is weighing, the blind check and the handoff.</p>
+      </div>
+      <div class="stats">
+        <div class="stat eval"><div class="n" id="eval-n">no eval yet</div><div class="l" id="eval-l">matcher eval</div></div>
+        <div class="stat" id="chat-stat" hidden><div class="n" id="chat-n">0</div><div class="l" id="chat-l">chat health</div></div>
+        <div class="stat"><div class="n" id="s-found">0</div><div class="l">found</div></div>
+        <div class="stat"><div class="n" id="s-lost">0</div><div class="l">lost</div></div>
+        <div class="stat"><div class="n" id="s-matches">0</div><div class="l">matches</div></div>
+        <div class="stat"><div class="n" id="s-returned">0</div><div class="l">returned</div></div>
+        <button class="toggle" id="staff" type="button" aria-pressed="false">Staff view</button>
+      </div>
+    </div>
+  </div>
+  <hr class="key-rule" aria-hidden="true">
 
   <main>
     <div class="col">
@@ -136,9 +131,13 @@
       <section><h2>Food drops <span>servings left, live</span></h2><div id="food"></div></section>
     </div>
   </main>
-  <footer>Demo view. Rows tagged "example" are example data. Hidden details stay masked for everyone except staff until the owner is verified.</footer>
+  <footer class="page-foot">
+    <span>Rows tagged "example" are example data. Hidden details stay masked for everyone except staff until the owner is verified.</span>
+    <span><a href="./">Home</a> · <a href="dashboard.html">For staff</a> · <a href="privacy.html">Privacy</a></span>
+  </footer>
 </div>
 
+<script src="landing/demo.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -166,7 +165,7 @@
   const words = (s) => String(s || "").replace(/_/g, " ");
 
   function ago(ms) {
-    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    const s = Math.max(0, Math.round((TroyData.now() - ms) / 1000));
     if (s < 10) return "just now";
     if (s < 60) return s + " sec ago";
     if (s < 3600) return Math.floor(s / 60) + " min ago";
@@ -337,12 +336,13 @@
 
   async function tick() {
     try {
-      const res = await fetch("/api/panel" + (staff ? "?staff=1" : ""));
-      const d = await res.json();
+      // Live from the Troy server when it answers, otherwise the example data (landing/demo.js).
+      const d = (await TroyData.api("/api/panel" + (staff ? "?staff=1" : ""))).json;
       if (!d.ok) throw new Error("bad response");
+      const demo = TroyData.isDemo();
       const s = d.staff || null;
-      $("badge").className = "badge live" + (d.enabled ? "" : " off");
-      $("badge-text").textContent = d.enabled ? "live" : "troy is off (kill switch)";
+      $("badge").className = demo ? "badge eg" : "badge live" + (d.enabled ? "" : " off");
+      $("badge-text").textContent = demo ? "example data" : d.enabled ? "live" : "troy is off (kill switch)";
       renderEval(d.eval);
       renderChatHealth(d.chatHealth);
       setNum("s-found", d.counts.found); setNum("s-lost", d.counts.lost); setNum("s-matches", d.counts.matches); setNum("s-returned", d.counts.returned);
@@ -366,7 +366,8 @@
   });
 
   tick();
-  setInterval(() => { if (!document.hidden) tick(); }, POLL_MS);
+  // Live data is polled. The example data does not change on its own, so there is nothing to poll.
+  setInterval(() => { if (!document.hidden && !TroyData.isDemo()) tick(); }, POLL_MS);
 })();
 </script>
 </body>

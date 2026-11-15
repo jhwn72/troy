@@ -4,67 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Troy staff dashboard</title>
+<meta name="theme-color" content="#FAF7F2">
+<link rel="icon" href="assets/troy-avatar.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500&amp;family=Inter:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="landing/tokens.css">
+<link rel="stylesheet" href="landing/nav.css">
+<link rel="stylesheet" href="landing/tool.css">
 <style>
-  :root {
-    --paper: #FAF7F2; --ink: #1C1917; --stone: #78716C; --line: #E7E2DA; --white: #FFFFFF;
-    --cardinal: #990000; --gold: #FFCC00; --laurel: #4D7C5B; --amber: #B7791F;
-    --laurel-soft: #E8F0EA; --amber-soft: #F7EEDD; --cardinal-soft: #F6E4E4; --stone-soft: #F0ECE6;
-  }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  body { margin: 0; background: var(--paper); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 15px; line-height: 1.45; }
-  button, input { font: inherit; color: inherit; }
-  button { cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px 80px; }
-
-  header { display: flex; align-items: center; gap: 16px; padding: 28px 0 18px; flex-wrap: wrap; }
-  .mark { width: 44px; height: 44px; border-radius: 50%; background: var(--cardinal); position: relative; flex: none; }
-  .mark::after { content: ""; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--gold); right: 3px; top: 3px; border: 2px solid var(--paper); }
-  h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1; margin: 0; }
-  header .sub { color: var(--stone); font-size: 13px; margin-top: 4px; }
-  header .grow { flex: 1; min-width: 160px; }
-
-  .pill { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--stone-soft); color: var(--stone); }
-  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .pill.pending { background: var(--amber-soft); color: var(--amber); }
-  .pill.done { background: var(--laurel-soft); color: var(--laurel); }
-  .pill.stop { background: var(--cardinal-soft); color: var(--cardinal); }
-  .tag { display: inline-block; border: 1px dashed var(--stone); color: var(--stone); border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: lowercase; vertical-align: middle; }
-
-  nav { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 18px; scrollbar-width: none; }
-  nav::-webkit-scrollbar { display: none; }
-  nav button { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 10px 20px; font-weight: 500; white-space: nowrap; }
-  nav button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-  nav .count { display: inline-block; min-width: 20px; text-align: center; margin-left: 6px; border-radius: 999px; background: var(--stone-soft); color: var(--stone); font-size: 12px; padding: 0 6px; }
-  nav button[aria-selected="true"] .count { background: rgba(255,255,255,.18); color: var(--paper); }
-
-  h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 28px; margin: 26px 0 4px; }
-  h3 { font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--stone); margin: 26px 0 10px; }
-  .lead { color: var(--stone); margin: 0 0 16px; max-width: 640px; }
-
-  .card { background: var(--white); border: 1px solid var(--line); border-radius: 26px; padding: 20px 22px; margin-bottom: 12px; }
-  .row { display: flex; gap: 16px; align-items: flex-start; }
-  .row .body { flex: 1; min-width: 0; }
-  .title { font-weight: 600; font-size: 16px; overflow-wrap: anywhere; }
-  .meta { color: var(--stone); font-size: 13px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
-  .empty { border: 1px dashed var(--line); border-radius: 26px; padding: 34px 20px; text-align: center; color: var(--stone); }
-  .empty .dot { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--white); margin: 0 auto 10px; }
-
-  .btn { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 10px 20px; font-weight: 500; }
-  .btn:hover { border-color: var(--stone); }
-  .btn.primary { background: var(--cardinal); border-color: var(--cardinal); color: #fff; }
-  .btn.primary:hover { filter: brightness(1.08); }
-  .btn.small { padding: 6px 14px; font-size: 13px; }
-  .btn:disabled { opacity: .5; cursor: default; }
-  .field { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 12px 20px; background: var(--paper); }
-  .inline { display: flex; gap: 10px; flex-wrap: wrap; }
+  /* Only what this page has that the other working pages don't. The shared look is landing/tool.css. */
+  .tabs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 20px; margin: 0 -2px; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { min-height: var(--tap); border: 1px solid var(--line); background: var(--white); border-radius: var(--r-pill); padding: 0 20px; font-weight: 500; white-space: nowrap; }
+  .tabs button:hover { border-color: var(--stone); }
+  .tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .tabs .count { display: inline-block; min-width: 20px; text-align: center; margin-left: 6px; border-radius: var(--r-pill); background: var(--stone-soft); color: var(--stone); font-size: 12px; padding: 0 6px; }
+  .tabs button[aria-selected="true"] .count { background: rgba(var(--paper-rgb), 0.18); color: var(--paper); }
 
   .statuses { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-  .statuses button { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 12px 22px; font-weight: 600; font-size: 15px; display: inline-flex; align-items: center; gap: 9px; }
+  .statuses button { min-height: var(--tap); border: 1px solid var(--line); background: var(--paper); border-radius: var(--r-pill); padding: 0 20px; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 9px; }
   .statuses button::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--stone); }
   .statuses button:hover { border-color: var(--stone); }
   .statuses button.current { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
@@ -73,83 +32,76 @@
   .statuses button.current.done::before { background: var(--laurel); border-color: var(--laurel); }
   .statuses button.current.closed { background: var(--stone-soft); border-color: var(--stone); color: var(--stone); }
   .statuses button.current.closed::before { background: var(--stone); }
-  .mock { margin-top: 14px; border: 1px dashed var(--stone); background: transparent; color: var(--stone); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
+  .mock { margin-top: 14px; min-height: 36px; border: 1px dashed var(--stone); background: transparent; color: var(--stone); border-radius: var(--r-pill); padding: 6px 14px; font-size: 13px; text-align: left; }
   .mock b { color: var(--ink); font-weight: 600; }
   .stafflog { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--stone); }
-  .stafflog .line { display: flex; gap: 10px; align-items: baseline; margin-top: 6px; }
-  .stafflog .line .said { flex: 1; min-width: 0; color: var(--ink); white-space: pre-line; overflow-wrap: anywhere; }
+  .stafflog .line { display: flex; gap: 10px; align-items: baseline; margin-top: 6px; flex-wrap: wrap; }
+  .stafflog .line .said { flex: 1; min-width: min(100%, 220px); color: var(--ink); white-space: pre-line; overflow-wrap: anywhere; }
   .stafflog .line.did .said { color: var(--stone); }
   .stafflog .line.eg .said { border: 1px dashed var(--stone); border-radius: 18px; padding: 8px 14px; color: var(--stone); }
-  select.field { appearance: none; -webkit-appearance: none; }
-
-  .photo { width: 84px; height: 84px; border-radius: 22px; overflow: hidden; background: var(--stone-soft); flex: none; position: relative; border: 1px solid var(--line); padding: 0; }
-  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .photo.blurred img { filter: blur(22px); transform: scale(1.4); }
-  .photo.blurred::after { content: "blurred, tap to reveal"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; font-weight: 600; color: #fff; background: rgba(28,25,23,.45); padding: 6px; }
-  .photo.none { display: flex; align-items: center; justify-content: center; }
-  .photo.none::before { content: ""; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); }
 
   .hold { margin-top: 12px; }
-  .hold .bar { height: 8px; border-radius: 999px; background: var(--stone-soft); overflow: hidden; }
-  .hold .bar i { display: block; height: 100%; border-radius: 999px; background: var(--amber); }
+  .hold .bar { height: 8px; border-radius: var(--r-pill); background: var(--stone-soft); overflow: hidden; }
+  .hold .bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--amber); }
   .hold.over .bar i { background: var(--cardinal); }
   .hold .txt { font-size: 13px; color: var(--stone); margin-top: 5px; }
 
   .result { margin-top: 14px; border-radius: 20px; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line); }
   .result.good { background: var(--laurel-soft); border-color: transparent; }
   .result.bad { background: var(--cardinal-soft); border-color: transparent; color: var(--cardinal); }
+  .hint code { font: inherit; font-weight: 600; letter-spacing: 0.14em; color: var(--ink); background: var(--stone-soft); border-radius: 8px; padding: 2px 8px; }
 
-  .kill { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; border-width: 2px; padding: 26px; }
+  .kill { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; padding: 26px; border-radius: var(--r-panel); }
   .kill.on { border-color: var(--laurel); }
   .kill.off { border-color: var(--cardinal); background: var(--cardinal-soft); }
-  .kill .lamp { width: 92px; height: 92px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 20px; letter-spacing: .04em; }
+  .kill .lamp { width: 88px; height: 88px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: var(--white); font-family: var(--font-display); font-weight: var(--display-weight); font-size: 22px; }
   .kill.on .lamp { background: var(--laurel); }
   .kill.off .lamp { background: var(--cardinal); }
-  .kill .state { font-family: "Instrument Serif", Georgia, serif; font-size: 34px; line-height: 1.05; }
+  .kill .state { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); font-size: 30px; line-height: 1.05; }
   .kill .body { flex: 1; min-width: 220px; }
-  .kill .btn { padding: 16px 30px; font-size: 16px; font-weight: 600; }
-  .kill.off .btn { background: var(--laurel); border-color: var(--laurel); color: #fff; }
-  .note { font-size: 13px; color: var(--stone); margin-top: 8px; }
-  .warn { font-size: 13px; color: var(--cardinal); margin-top: 8px; font-weight: 500; }
-
-  .list { list-style: none; margin: 14px 0 0; padding: 0; }
-  .list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
-  .list li .grow { flex: 1; min-width: 0; }
-  .mono { font-variant-numeric: tabular-nums; font-weight: 500; }
-
-  #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--ink); color: var(--paper); border-radius: 999px; padding: 12px 22px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: calc(100vw - 32px); text-align: center; z-index: 5; }
-  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .kill .btn { min-height: 52px; padding: 0 30px; font-size: 16px; }
+  .kill.off .btn { background: var(--laurel); border-color: var(--laurel); color: var(--white); }
 
   @media (max-width: 620px) {
-    .wrap { padding: 0 14px 70px; }
-    h1 { font-size: 28px; }
-    .card { padding: 16px; border-radius: 22px; }
-    .statuses button { flex: 1 1 calc(50% - 8px); justify-content: center; padding: 14px 10px; }
-    .photo { width: 64px; height: 64px; border-radius: 18px; }
+    .statuses button { flex: 1 1 calc(50% - 8px); justify-content: center; padding: 0 10px; }
     .kill { padding: 20px; }
     .kill .btn { width: 100%; }
+    .inline .btn { flex: 1 1 auto; }
+    .inline .field { flex: 1 1 100%; }
   }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div class="mark" aria-hidden="true"></div>
-    <div class="grow">
-      <h1>Troy staff dashboard</h1>
-      <div class="sub">For DPS, FMS, Housing and USG staff. Students never see this page.</div>
-    </div>
-    <span id="live" class="pill">checking</span>
+  <header class="site-head">
+    <a class="site-nav-brand" href="./">Troy</a>
+    <nav class="site-nav-links" aria-label="Site">
+      <a href="./">Home</a>
+      <a href="dashboard.html" aria-current="page">For staff</a>
+      <a href="panel.html">Under the hood</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
   </header>
 
-  <nav role="tablist" aria-label="Sections">
+  <div class="page-head">
+    <div class="page-head-row">
+      <div class="grow">
+        <h1>Staff dashboard</h1>
+        <p class="sub">For DPS, FMS, Housing and USG staff. Students never see this page.</p>
+      </div>
+      <span id="live" class="pill">checking</span>
+    </div>
+  </div>
+  <hr class="key-rule" aria-hidden="true">
+
+  <div class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" data-tab="dps" aria-selected="true">DPS<span class="count" id="c-dps">0</span></button>
     <button role="tab" data-tab="repairs" aria-selected="false">FMS and Housing<span class="count" id="c-repairs">0</span></button>
     <button role="tab" data-tab="usg" aria-selected="false">USG<span class="count" id="c-usg">0</span></button>
     <button role="tab" data-tab="moderation" aria-selected="false">Moderation<span class="count" id="c-moderation">0</span></button>
     <button role="tab" data-tab="people" aria-selected="false">People<span class="count" id="c-people">0</span></button>
     <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
-  </nav>
+  </div>
 
   <section id="tab-dps" role="tabpanel">
     <h2>Items in DPS custody</h2>
@@ -161,6 +113,7 @@
         <input class="field mono" id="code-input" placeholder="6 character code" maxlength="12" aria-label="Pickup code" style="text-transform:uppercase;letter-spacing:.18em">
         <button class="btn primary" type="submit">Check code</button>
       </form>
+      <p id="code-hint" class="note hint" hidden></p>
       <div id="code-result"></div>
     </div>
     <h3>In custody</h3>
@@ -228,9 +181,14 @@
     <h3>Matcher eval</h3>
     <div class="card" id="eval-card"></div>
   </section>
+  <footer class="page-foot">
+    <span>Troy is a hackathon prototype, not an official USC service.</span>
+    <span><a href="./">Home</a> · <a href="panel.html">Under the hood</a> · <a href="privacy.html">Privacy</a></span>
+  </footer>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 
+<script src="landing/demo.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -256,12 +214,10 @@
   const exampleTag = (on) => (on ? el("span", { class: "tag", text: "example" }) : null);
   const empty = (text) => el("div", { class: "empty" }, el("div", { class: "dot" }), text);
 
-  async function api(path, method, body) {
-    const res = await fetch(path, { method: method || "GET", headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
-    let json = {};
-    try { json = await res.json(); } catch {}
-    return { status: res.status, json };
-  }
+  // Live from the Troy server when it answers, otherwise the example data (landing/demo.js). Same answers either way.
+  const api = (path, method, body) => TroyData.api(path, method, body);
+  /** In the demo a button's answer carries the line to show: what Troy would have texted. */
+  const say = (r, text) => toast((r && r.json && r.json.demoNote) || text);
 
   let toastTimer;
   function toast(text) {
@@ -269,11 +225,11 @@
     t.textContent = text;
     t.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+    toastTimer = setTimeout(() => t.classList.remove("show"), TroyData.isDemo() ? 6500 : 2600);
   }
 
   function ago(ms) {
-    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    const s = Math.max(0, Math.round((TroyData.now() - ms) / 1000));
     if (s < 60) return "just now";
     if (s < 3600) return Math.floor(s / 60) + " min ago";
     if (s < 86400) return Math.floor(s / 3600) + " hr ago";
@@ -342,7 +298,7 @@
       done ? null : el("div", { style: "margin-top:12px" }, el("button", { class: "btn primary", type: "button", text: "Mark as picked up", onclick: async (e) => {
         e.target.disabled = true;
         const r = await api("/api/dps/complete", "POST", { handoffId: h.id });
-        if (r.json.ok) { showHandoff(r.json.handoff); toast("Marked as picked up"); refresh(); }
+        if (r.json.ok) { showHandoff(r.json.handoff); say(r, "Marked as picked up"); refresh(); }
         else { e.target.disabled = false; toast("Could not save. Try again."); }
       } }))));
   }
@@ -405,7 +361,7 @@
     const r = await api("/api/reports/" + report.id + "/status", "POST", { status });
     if (!r.json.ok) return toast("Could not change the status.");
     const n = r.json.notified || 0;
-    toast("Set to " + (STATUS_LABEL[status] || status).toLowerCase() + ". " + (n === 0 ? "No texts sent." : n === 1 ? "Troy texted 1 student." : "Troy texted " + n + " students."));
+    say(r, "Set to " + (STATUS_LABEL[status] || status).toLowerCase() + ". " + (n === 0 ? "No texts sent." : n === 1 ? "Troy texted 1 student." : "Troy texted " + n + " students."));
     refresh();
   }
 
@@ -447,7 +403,7 @@
           banned ? el("span", { class: "pill stop", text: "Banned from posting" }) : el("span", { class: "pill done", text: "Can post" })),
         el("div", { style: "margin-top:14px" }, el("button", { class: "btn" + (banned ? "" : " primary"), type: "button", text: banned ? "Lift the ban" : "Ban from posting", onclick: async () => {
           const r = await api("/api/moderation/ban", "POST", { userId: d.poster.id, banned: !banned });
-          toast(r.json.ok ? (banned ? "Ban lifted" : "Banned from posting") : "Could not save.");
+          say(r, r.json.ok ? (banned ? "Ban lifted" : "Banned from posting") : "Could not save.");
           refresh();
         } }))))));
     }
@@ -460,7 +416,7 @@
     for (const q of requests) {
       const act = async (what, done) => {
         const r = await api("/api/moderation/topic-requests/" + q.id + "/" + what, "POST", {});
-        toast(r.json.ok ? done(r.json) : "Could not save.");
+        say(r, r.json.ok ? done(r.json) : "Could not save.");
         refresh();
       };
       reqBox.append(el("div", { class: "card" }, el("div", { class: "row" }, el("div", { class: "body" },
@@ -480,7 +436,7 @@
           el("div", { class: "meta" }, el("span", { text: "Suggested by " + (t.suggestedByFirstName || "a student") }), el("span", { text: ago(t.createdAt) }))),
         el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove topic " + t.label, onclick: async () => {
           const r = await api("/api/moderation/topics/" + t.id + "/remove", "POST", {});
-          toast(r.json.ok ? "Topic removed" : "Could not remove.");
+          say(r, r.json.ok ? "Topic removed" : "Could not remove.");
           refresh();
         } }))))));
   }
@@ -503,7 +459,7 @@
         el("span", { class: "pill" + (s.reachable ? " done" : " pending"), text: s.reachable ? "Troy can text them" : "Hasn't texted Troy yet" }),
         el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove " + s.roleLabel + " assignment", onclick: async () => {
           const r = await api("/api/staff/" + s.id, "DELETE");
-          toast(r.json.ok ? "Removed" : "Could not remove.");
+          say(r, r.json.ok ? "Removed" : "Could not remove.");
           refresh();
         } })));
     }
@@ -518,7 +474,7 @@
     if (r.json.ok) {
       $("staff-handle").value = "";
       $("staff-label").value = "";
-      toast("Assigned " + r.json.assigned.handle + (r.json.addedToAllowList ? " and added to the allow-list" : ""));
+      say(r, "Assigned " + r.json.assigned.handle + (r.json.addedToAllowList ? " and added to the allow-list" : ""));
       refresh();
     } else {
       err.textContent = r.json.error === "bad_role" ? "Pick an office or a committee from the list." : "That is not a phone number or an email. Try a 10 digit number or a full email address.";
@@ -544,7 +500,7 @@
         !envBlocks && data.envSet ? el("div", { class: "note", text: "TROY_ENABLED is set to on in the environment." }) : null),
       el("button", { class: "btn" + (data.settingOn ? " primary" : ""), type: "button", text: data.settingOn ? "Turn Troy off" : "Turn Troy on", "aria-pressed": data.settingOn ? "true" : "false", onclick: async () => {
         const r = await api("/api/settings/enabled", "POST", { enabled: !data.settingOn });
-        toast(r.json.ok ? (r.json.enabled ? "Troy is on" : "Troy is off") : "Could not save.");
+        say(r, r.json.ok ? (r.json.enabled ? "Troy is on" : "Troy is off") : "Could not save.");
         refresh();
       } })));
 
@@ -558,7 +514,7 @@
         el("span", { class: "pill" + (e.reason === "manual" ? " done" : ""), text: REASON[e.reason] || e.reason }),
         e.removable ? el("button", { class: "btn small", type: "button", text: "Remove", "aria-label": "Remove " + e.handle, onclick: async () => {
           const r = await api("/api/settings/allow-list/" + e.id, "DELETE");
-          toast(r.json.ok ? "Removed" : "Could not remove.");
+          say(r, r.json.ok ? "Removed" : "Could not remove.");
           refresh();
         } }) : null));
     }
@@ -571,7 +527,7 @@
     const err = $("allow-error");
     err.hidden = true;
     const r = await api("/api/settings/allow-list", "POST", { handle: input.value });
-    if (r.json.ok) { input.value = ""; toast(r.json.added ? "Added " + r.json.handle : "Already on the list"); refresh(); }
+    if (r.json.ok) { input.value = ""; say(r, r.json.added ? "Added " + r.json.handle : "Already on the list"); refresh(); }
     else { err.textContent = "That is not a phone number or an email. Try a 10 digit number or a full email address."; err.hidden = false; }
   });
 
@@ -609,23 +565,30 @@
     }
   }
 
-  for (const b of document.querySelectorAll("nav button")) {
+  for (const b of document.querySelectorAll(".tabs button")) {
     b.addEventListener("click", () => {
       tab = b.dataset.tab;
-      for (const o of document.querySelectorAll("nav button")) o.setAttribute("aria-selected", o === b ? "true" : "false");
+      for (const o of document.querySelectorAll(".tabs button")) o.setAttribute("aria-selected", o === b ? "true" : "false");
       for (const s of document.querySelectorAll("section[role=tabpanel]")) s.hidden = s.id !== "tab-" + tab;
       try { history.replaceState(null, "", "#" + tab); } catch {}
       refresh();
     });
   }
   const start = location.hash.slice(1);
-  const startBtn = start && document.querySelector('nav button[data-tab="' + CSS.escape(start) + '"]');
+  const startBtn = start && document.querySelector('.tabs button[data-tab="' + CSS.escape(start) + '"]');
   if (startBtn) startBtn.click(); else refresh();
   window.addEventListener("hashchange", () => {
-    const b = document.querySelector('nav button[data-tab="' + CSS.escape(location.hash.slice(1)) + '"]');
+    const b = document.querySelector('.tabs button[data-tab="' + CSS.escape(location.hash.slice(1)) + '"]');
     if (b && b.dataset.tab !== tab) b.click();
   });
-  setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
+  // Live data is polled. The example data only changes when a button here changes it, so there is nothing to poll.
+  setInterval(() => { if (!document.hidden && !TroyData.isDemo()) refresh(); }, POLL_MS);
+  TroyData.ready.then((mode) => {
+    if (mode !== "demo") return;
+    const hint = $("code-hint");
+    hint.replaceChildren("Demo: try the sample code ", el("code", { text: TroyData.sampleCode }), ". Any other code is turned away.");
+    hint.hidden = false;
+  }).catch(() => {});
 })();
 </script>
 </body>

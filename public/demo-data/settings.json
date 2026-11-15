@@ -1,0 +1,13 @@
+{
+ "ok": true,
+ "enabled": true,
+ "settingOn": true,
+ "envSet": false,
+ "envOff": false,
+ "provider": "demo",
+ "allowList": {
+  "entries": [],
+  "envEntries": []
+ },
+ "generatedAt": 1794686400000
+}

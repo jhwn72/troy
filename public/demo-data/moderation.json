@@ -1,0 +1,42 @@
+{
+ "ok": true,
+ "drops": [
+  {
+   "id": 2,
+   "clubName": "Cardinal Robotics Build Team (example club)",
+   "description": "bagels, cream cheese and fruit from our morning workshop",
+   "locationText": "ronald tutor hall lobby",
+   "servingsTotal": 30,
+   "servingsLeft": 0,
+   "status": "ended",
+   "reports": 2,
+   "isExample": true,
+   "createdAt": 1794592800000,
+   "poster": {
+    "id": 6,
+    "firstName": "Marcus",
+    "bannedFromPosting": false,
+    "isExample": true
+   }
+  }
+ ],
+ "topics": [
+  {
+   "id": 6,
+   "key": "pickup_volleyball",
+   "label": "pickup volleyball",
+   "plain": "when someone posts about pickup volleyball",
+   "suggestedByFirstName": "Jordan",
+   "createdAt": 1794578400000
+  }
+ ],
+ "topicRequests": [
+  {
+   "id": 1,
+   "text": "late night study crew",
+   "requesterFirstName": "Leo",
+   "createdAt": 1794679200000
+  }
+ ],
+ "generatedAt": 1794686400000
+}

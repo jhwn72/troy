@@ -1,0 +1,160 @@
+{
+ "ok": true,
+ "kind": "usg_concern",
+ "statuses": [
+  "received",
+  "on_agenda",
+  "acted_on",
+  "closed"
+ ],
+ "total": 4,
+ "groups": [
+  {
+   "routedTo": "USG Committee on Academic Affairs",
+   "reports": [
+    {
+     "id": 7,
+     "kind": "usg_concern",
+     "anonymous": false,
+     "reporterFirstName": "Ethan",
+     "category": "academics",
+     "description": "course evals should be visible before registration opens",
+     "locationText": null,
+     "routedTo": "USG Committee on Academic Affairs",
+     "status": "on_agenda",
+     "statusOptions": [
+      "received",
+      "on_agenda",
+      "acted_on",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 2,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794506400000,
+     "staff": {
+      "role": "usg:USG Committee on Academic Affairs",
+      "roleLabel": "USG Committee on Academic Affairs",
+      "assigned": null,
+      "log": [],
+      "exampleText": "3 trojans raised \"course evals should be visible before registration opens\" this week. 1 wants to talk. want a group chat with them?\nu can also text me a status like \"on the agenda\" or \"we fixed it\" and i'll let them know",
+      "exampleNote": "example: no one is assigned yet"
+     }
+    }
+   ]
+  },
+  {
+   "routedTo": "USG Committee on External Affairs",
+   "reports": [
+    {
+     "id": 8,
+     "kind": "usg_concern",
+     "anonymous": false,
+     "reporterFirstName": "Aiko",
+     "category": "transportation",
+     "description": "the wait for a safe ride home is over 30 minutes after 11pm",
+     "locationText": null,
+     "routedTo": "USG Committee on External Affairs",
+     "status": "acted_on",
+     "statusOptions": [
+      "received",
+      "on_agenda",
+      "acted_on",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 0,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794290400000,
+     "staff": {
+      "role": "usg:USG Committee on External Affairs",
+      "roleLabel": "USG Committee on External Affairs",
+      "assigned": null,
+      "log": [],
+      "exampleText": "1 trojan raised \"the wait for a safe ride home is over 30 minutes after 11pm\" this week. 1 wants to talk. want a group chat with them?\nu can also text me a status like \"on the agenda\" or \"we fixed it\" and i'll let them know",
+      "exampleNote": "example: no one is assigned yet"
+     }
+    }
+   ]
+  },
+  {
+   "routedTo": "USG Committee on Sustainability and Campus Infrastructure",
+   "reports": [
+    {
+     "id": 6,
+     "kind": "usg_concern",
+     "anonymous": false,
+     "reporterFirstName": "Hannah",
+     "category": "dining",
+     "description": "why does the village dining hall close so early on weekends",
+     "locationText": null,
+     "routedTo": "USG Committee on Sustainability and Campus Infrastructure",
+     "status": "received",
+     "statusOptions": [
+      "received",
+      "on_agenda",
+      "acted_on",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 1,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794664800000,
+     "staff": {
+      "role": "usg:USG Committee on Sustainability and Campus Infrastructure",
+      "roleLabel": "USG Committee on Sustainability and Campus Infrastructure",
+      "assigned": {
+       "id": 2,
+       "label": "hannah",
+       "handle": "•••• 0118",
+       "isExample": true,
+       "reachable": true
+      },
+      "log": [],
+      "exampleText": "2 trojans raised \"why does the village dining hall close so early on weekends\" this week. 1 wants to talk. want a group chat with them?\nu can also text me a status like \"on the agenda\" or \"we fixed it\" and i'll let them know",
+      "exampleNote": "example: nothing was texted for this one"
+     }
+    }
+   ]
+  },
+  {
+   "routedTo": "USG Committee on Wellness Affairs",
+   "reports": [
+    {
+     "id": 9,
+     "kind": "usg_concern",
+     "anonymous": true,
+     "reporterFirstName": null,
+     "category": "wellness",
+     "description": "counseling appointments are booked out for weeks",
+     "locationText": null,
+     "routedTo": "USG Committee on Wellness Affairs",
+     "status": "closed",
+     "statusOptions": [
+      "received",
+      "on_agenda",
+      "acted_on",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 0,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794182400000,
+     "staff": {
+      "role": "usg:USG Committee on Wellness Affairs",
+      "roleLabel": "USG Committee on Wellness Affairs",
+      "assigned": null,
+      "log": [],
+      "exampleText": "1 trojan raised \"counseling appointments are booked out for weeks\" this week. nobody shared their name, so there's no one to loop in yet\nu can also text me a status like \"on the agenda\" or \"we fixed it\" and i'll let them know",
+      "exampleNote": "example: no one is assigned yet"
+     }
+    }
+   ]
+  }
+ ],
+ "generatedAt": 1794686400000
+}

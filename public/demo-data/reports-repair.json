@@ -1,0 +1,192 @@
+{
+ "ok": true,
+ "kind": "repair",
+ "statuses": [
+  "received",
+  "in_progress",
+  "fixed",
+  "closed"
+ ],
+ "total": 5,
+ "groups": [
+  {
+   "routedTo": "FMS",
+   "reports": [
+    {
+     "id": 2,
+     "kind": "repair",
+     "anonymous": false,
+     "reporterFirstName": "Omar",
+     "category": "elevator",
+     "description": "the elevator on the right is stuck on 3 and the door wont close",
+     "locationText": "leavey library",
+     "routedTo": "FMS",
+     "status": "received",
+     "statusOptions": [
+      "received",
+      "in_progress",
+      "fixed",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 0,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794675600000,
+     "staff": {
+      "role": "fms",
+      "roleLabel": "FMS",
+      "assigned": {
+       "id": 1,
+       "label": "omar",
+       "handle": "•••• 0119",
+       "isExample": true,
+       "reachable": true
+      },
+      "log": [],
+      "exampleText": "someone reported \"the elevator on the right is stuck on 3 and the door wont close\" at leavey library. can u take it?\ntext \"on it\" if u got it, or \"can't\" and i'll hand it back",
+      "exampleNote": "example: nothing was texted for this one"
+     }
+    },
+    {
+     "id": 1,
+     "kind": "repair",
+     "anonymous": false,
+     "reporterFirstName": "Marcus",
+     "category": "plumbing",
+     "description": "water fountain is leaking onto the floor, theres a puddle by the stairs",
+     "locationText": "taper hall 2nd floor",
+     "routedTo": "FMS",
+     "status": "in_progress",
+     "statusOptions": [
+      "received",
+      "in_progress",
+      "fixed",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 2,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794578400000,
+     "staff": {
+      "role": "fms",
+      "roleLabel": "FMS",
+      "assigned": {
+       "id": 1,
+       "label": "omar",
+       "handle": "•••• 0119",
+       "isExample": true,
+       "reachable": true
+      },
+      "log": [],
+      "exampleText": "someone reported \"water fountain is leaking onto the floor, theres a puddle by the st...\" at taper hall 2nd floor. can u take it?\ntext \"on it\" if u got it, or \"can't\" and i'll hand it back",
+      "exampleNote": "example: nothing was texted for this one"
+     }
+    },
+    {
+     "id": 3,
+     "kind": "repair",
+     "anonymous": false,
+     "reporterFirstName": "Leo",
+     "category": "door",
+     "description": "handle on the west entrance door is loose and about to fall off",
+     "locationText": "sgm",
+     "routedTo": "FMS",
+     "status": "closed",
+     "statusOptions": [
+      "received",
+      "in_progress",
+      "fixed",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 0,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794254400000,
+     "staff": {
+      "role": "fms",
+      "roleLabel": "FMS",
+      "assigned": {
+       "id": 1,
+       "label": "omar",
+       "handle": "•••• 0119",
+       "isExample": true,
+       "reachable": true
+      },
+      "log": [],
+      "exampleText": "someone reported \"handle on the west entrance door is loose and about to fall off\" at sgm. can u take it?\ntext \"on it\" if u got it, or \"can't\" and i'll hand it back",
+      "exampleNote": "example: nothing was texted for this one"
+     }
+    }
+   ]
+  },
+  {
+   "routedTo": "Housing",
+   "reports": [
+    {
+     "id": 4,
+     "kind": "repair",
+     "anonymous": false,
+     "reporterFirstName": "Maya",
+     "category": "plumbing",
+     "description": "shower drain is clogged in the 4th floor bathroom",
+     "locationText": "birnkrant 4th floor",
+     "routedTo": "Housing",
+     "status": "in_progress",
+     "statusOptions": [
+      "received",
+      "in_progress",
+      "fixed",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 1,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794614400000,
+     "staff": {
+      "role": "housing",
+      "roleLabel": "Housing",
+      "assigned": null,
+      "log": [],
+      "exampleText": "someone reported \"shower drain is clogged in the 4th floor bathroom\" at birnkrant 4th floor. can u take it?\ntext \"on it\" if u got it, or \"can't\" and i'll hand it back",
+      "exampleNote": "example: no one is assigned yet"
+     }
+    },
+    {
+     "id": 5,
+     "kind": "repair",
+     "anonymous": false,
+     "reporterFirstName": "Jordan",
+     "category": "lighting",
+     "description": "hallway light is out by the 5th floor lounge",
+     "locationText": "fluor tower 5th floor",
+     "routedTo": "Housing",
+     "status": "fixed",
+     "statusOptions": [
+      "received",
+      "in_progress",
+      "fixed",
+      "closed"
+     ],
+     "duplicateOf": null,
+     "followerCount": 0,
+     "hasPhoto": false,
+     "isExample": true,
+     "createdAt": 1794434400000,
+     "staff": {
+      "role": "housing",
+      "roleLabel": "Housing",
+      "assigned": null,
+      "log": [],
+      "exampleText": "someone reported \"hallway light is out by the 5th floor lounge\" at fluor tower 5th floor. can u take it?\ntext \"on it\" if u got it, or \"can't\" and i'll hand it back",
+      "exampleNote": "example: no one is assigned yet"
+     }
+    }
+   ]
+  }
+ ],
+ "generatedAt": 1794686400000
+}

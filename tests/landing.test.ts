@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import QRCode from "qrcode";
-import { buildLanding, vercelConfig } from "../scripts/build-landing.ts";
+import { buildLanding, vercelConfig, SITE_PAGES } from "../scripts/build-landing.ts";
+import { buildDemoData, check as checkDemoData, DEMO_PICKUP_CODE } from "../scripts/build-demo-data.ts";
 import { createLandingRoutes, troyNumber, smsLink } from "../src/web/landing.ts";
 
 const saved = process.env.TROY_NUMBER;
@@ -144,9 +145,94 @@ test("landing page follows the design reference's rules", () => {
   for (const name of ["config", "day", "chat", "scene", "map", "widgets", "thread", "fontswitch"]) {
     assert.equal(html.split(`src="landing/${name}.js"`).length - 1, 1, `${name}.js once`);
   }
-  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "day", "hero", "thread", "fontswitch", "badge"]) {
+  for (const name of ["tokens", "page", "phone", "chat", "scene", "map", "widgets", "day", "hero", "thread", "fontswitch", "badge", "nav"]) {
     assert.equal(html.split(`href="landing/${name}.css"`).length - 1, 1, `${name}.css once`);
   }
+});
+
+test("every page links to the others, with links that work on a plain file server and on Vercel", () => {
+  const html = page();
+  // The landing page: a slim header over the painting (before the sky and the hero) and the same links in the footer.
+  const header = html.slice(html.indexOf('<header class="site-nav">'), html.indexOf('<div id="sky"'));
+  assert.ok(html.indexOf('<header class="site-nav">') > 0 && html.indexOf('<header class="site-nav">') < html.indexOf('<div id="sky"'), "the header is the first thing in the page");
+  assert.ok(header.includes('<a class="site-nav-brand" href="./">Troy</a>'));
+  assert.deepEqual([...header.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["For staff dashboard.html", "Under the hood panel.html", "Privacy privacy.html"]);
+  const footer = html.slice(html.indexOf('<footer id="footer">'));
+  const footerNav = footer.slice(footer.indexOf('<nav class="footer-links"'));
+  assert.deepEqual([...footerNav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`), ["Home ./", "For staff dashboard.html", "Under the hood panel.html", "Privacy privacy.html"]);
+
+  for (const name of SITE_PAGES) {
+    const other = readFileSync(join(PUBLIC, name), "utf8");
+    const nav = other.slice(other.indexOf('<nav class="site-nav-links"'), other.indexOf("</nav>"));
+    assert.deepEqual([...nav.matchAll(/<a href="([^"]+)"( aria-current="page")?>([^<]+)<\/a>/g)].map((m) => `${m[3]} ${m[1]}${m[2] ? " current" : ""}`), [
+      "Home ./",
+      `For staff dashboard.html${name === "dashboard.html" ? " current" : ""}`,
+      `Under the hood panel.html${name === "panel.html" ? " current" : ""}`,
+      `Privacy privacy.html${name === "privacy.html" ? " current" : ""}`,
+    ], name);
+    // Same look as the landing page: its tokens, the shared nav and tool styles, Space Grotesk and Inter.
+    for (const sheet of ["tokens", "nav", "tool"]) assert.equal(other.split(`href="landing/${sheet}.css"`).length - 1, 1, `${name}: ${sheet}.css once`);
+    assert.ok(other.includes("family=Space+Grotesk:wght@500&amp;family=Inter:wght@400;500;600"), `${name}: fonts`);
+    assert.ok(!other.includes("Instrument"), `${name}: the old headline font is gone`);
+    assert.equal(other.split('class="key-rule"').length - 1, 1, `${name}: the Greek key rule, once`);
+    assert.ok(!/(?:src|href)="\/(?!\/)/.test(other), `${name}: paths are relative`);
+    assert.ok(!other.includes("—"), `${name}: no em dashes`);
+  }
+  // The two working pages get their data through the shared layer (live server first, example data otherwise).
+  for (const name of ["dashboard.html", "panel.html"]) {
+    const other = readFileSync(join(PUBLIC, name), "utf8");
+    assert.equal(other.split('<script src="landing/demo.js"></script>').length - 1, 1, name);
+    assert.ok(other.includes("TroyData.api("), name);
+    assert.ok(other.includes("!TroyData.isDemo()"), `${name}: no polling on example data`);
+    assert.ok(!/\bfetch\(/.test(other), `${name}: every request goes through the data layer`);
+  }
+  const layer = readFileSync(join(PUBLIC, "landing", "demo.js"), "utf8");
+  assert.ok(layer.includes("Example data. This is a demo of the staff view; nothing here is a real student or report."));
+  assert.ok(layer.includes(`const SAMPLE_CODE = "${DEMO_PICKUP_CODE}";`));
+  // The demo's only requests are the probe and the example files. No POST, PUT or DELETE leaves the page.
+  assert.deepEqual([...layer.matchAll(/fetch\(([^,)]+)/g)].map((m) => m[1]), ["path", '"/api/settings"', '"demo-data/" + name + ".json"']);
+
+  const privacy = readFileSync(join(PUBLIC, "privacy.html"), "utf8");
+  for (const fact of ['"forget my location"', '"delete my data"', '"STOP"', '"hey troy"', "johnwang@usc.edu", "not an official USC service", "outside AI service", "This demo runs on its builder's Mac", "see nothing without your yes"]) assert.ok(privacy.includes(fact), fact);
+});
+
+test("the example data for the public pages holds nothing private", async () => {
+  const files = await buildDemoData();
+  assert.deepEqual(Object.keys(files).sort(), ["demo.json", "directory.json", "dps.json", "eval.json", "moderation.json", "panel.json", "reports-repair.json", "reports-usg.json", "settings.json", "staff.json"]);
+  assert.deepEqual(await buildDemoData(), files, "two builds give the same bytes");
+  const all = Object.values(files).join("\n");
+  assert.ok(!all.includes("pickupCode"), "no pickup codes, not even the field");
+  assert.ok(!all.includes(DEMO_PICKUP_CODE), "the sample code lives in the page, not in the data");
+  assert.ok(!/\+1\d{10}/.test(all) && !/555-?01\d\d/.test(all), "no full handles");
+  assert.ok(!/example@usc\.edu/.test(all), "no example user emails");
+  for (const word of ["lastLat", "lastLng", "usualSpots", "chatId", "ALLOWED_HANDLES", "API_KEY"]) assert.ok(!all.includes(word), word);
+  const settings = JSON.parse(files["settings.json"]);
+  assert.deepEqual(settings.allowList.envEntries, [], "the .env allow-list never leaves the Mac");
+  assert.equal(settings.provider, "demo");
+  // Every handle is masked, every row about a person or an item is marked as an example, and no row has a photo.
+  const panel = JSON.parse(files["panel.json"]);
+  assert.ok(panel.listings.length > 10 && panel.listings.every((l: { isExample: boolean; hasPhoto: boolean }) => l.isExample && !l.hasPhoto));
+  assert.ok(panel.matches.length > 0 && panel.verifications.length > 0 && panel.handoffs.length > 0);
+  assert.deepEqual(Object.values(panel.staff.handoffs), panel.handoffs.map(() => ({})), "the staff view carries no code");
+  const staff = JSON.parse(files["staff.json"]);
+  assert.ok(staff.contacts.length > 0 && staff.contacts.every((c: { handle: string; isExample: boolean }) => /^•••• 01\d\d$/.test(c.handle) && c.isExample));
+  const dps = JSON.parse(files["dps.json"]);
+  const demo = JSON.parse(files["demo.json"]);
+  assert.ok(dps.items.some((it: { handoffId: number | null }) => it.handoffId === demo.samplePickup.handoff.id), "the sample code opens an item in the DPS list");
+  for (const kind of ["repair", "usg"]) {
+    const reports = JSON.parse(files[`reports-${kind}.json`]);
+    assert.ok(reports.total > 0);
+    for (const g of reports.groups) for (const r of g.reports) assert.ok(typeof demo.reports[r.id].reference === "string" && demo.reports[r.id].recipients >= 1);
+  }
+
+  // The guard itself: it refuses a full number, a pickup code field, a row that is not an example and a named secret.
+  const one = (json: unknown) => ({ "x.json": JSON.stringify(json) });
+  assert.throws(() => checkDemoData(one({ handle: "+12135550123" }), []), /phone number/);
+  assert.throws(() => checkDemoData(one({ handle: "•••• 9876" }), []), /handle/);
+  assert.throws(() => checkDemoData(one({ pickupCode: "ABC234" }), []), /pickupCode/);
+  assert.throws(() => checkDemoData(one({ isExample: false }), []), /example/);
+  assert.throws(() => checkDemoData(one({ note: "the code is QWERTY" }), ["QWERTY"]), /private/);
+  assert.doesNotThrow(() => checkDemoData(one({ handle: "•••• 0119", isExample: true, hasPhoto: false, createdAt: 1794686400000 }), ["QWERTY"]));
 });
 
 test("the hero tells each scenario from both sides, on two phones", () => {
@@ -235,7 +321,7 @@ test("landing page carries the amended copy", () => {
   assert.equal(data.rides.steps.filter((s: { type?: string }) => s.type === "switch-group").length, 2, "rides ends in the group chat on both phones");
 });
 
-test("static build bakes the number into the page, the QR and a Vercel config", async () => {
+test("static build bakes the number into the page, the QR and a Vercel config, and ships the other pages with example data", async () => {
   const out = mkdtempSync(join(tmpdir(), "troy-landing-"));
   try {
     // Something a deploy tool left behind must survive a rebuild.
@@ -265,18 +351,37 @@ test("static build bakes the number into the page, the QR and a Vercel config", 
     const qr = readFileSync(join(out, "qr.svg"), "utf8");
     assert.equal(qr, await QRCode.toString(built.smsLink, { type: "svg", errorCorrectionLevel: "M", margin: 1, color: { dark: "#1C1917", light: "#FFFFFF" } }));
 
-    // Only the landing page is copied.
-    assert.deepEqual(readdirSync(out).sort(), [".vercel", "assets", "img", "index.html", "landing", "qr.svg", "vercel.json"]);
+    // Only the four pages, what they use and the example data are copied.
+    assert.deepEqual(readdirSync(out).sort(), [".vercel", "assets", "dashboard.html", "demo-data", "img", "index.html", "landing", "panel.html", "privacy.html", "qr.svg", "vercel.json"]);
+    assert.deepEqual(readdirSync(join(out, "demo-data")).sort(), ["demo.json", "directory.json", "dps.json", "eval.json", "moderation.json", "panel.json", "reports-repair.json", "reports-usg.json", "settings.json", "staff.json"]);
+    const demoData = await buildDemoData();
+    for (const [name, text] of Object.entries(demoData)) assert.equal(readFileSync(join(out, "demo-data", name), "utf8"), text, `demo-data/${name} is made by the build`);
+    for (const name of ["nav.css", "tool.css", "demo.js"]) assert.ok(existsSync(join(out, "landing", name)), name);
+    for (const name of SITE_PAGES) {
+      const other = readFileSync(join(out, name), "utf8");
+      assert.ok(other.includes(`href="landing/tool.css?v=${built.version}"`), `${name}: versioned stylesheet`);
+      assert.ok(!other.includes("+12135550123"), `${name}: no number on this page`);
+      assert.ok(built.files.includes(name));
+    }
+    assert.ok(readFileSync(join(out, "dashboard.html"), "utf8").includes(`<script src="landing/demo.js?v=${built.version}"></script>`));
+    // Links between pages stay as written: a plain file server serves dashboard.html, and cleanUrls sends it on to /dashboard.
+    assert.ok(html.includes('<a href="dashboard.html">For staff</a>') && html.includes('<a href="privacy.html">Privacy</a>'));
+    assert.ok(html.includes(`href="landing/nav.css?v=${built.version}"`));
     assert.ok(existsSync(join(out, "assets", "troy-avatar.svg")));
     assert.ok(existsSync(join(out, "landing", "conversations.json")));
     for (const name of ["campus-day", "campus-golden", "campus-night"]) {
       assert.ok(existsSync(join(out, "img", `${name}.webp`)), name);
       assert.ok(existsSync(join(out, "img", `${name}-1600.webp`)), `${name}-1600`);
     }
-    for (const page of ["webchat.html", "dashboard.html", "panel.html"]) assert.ok(!existsSync(join(out, page)), page);
+    assert.ok(!existsSync(join(out, "webchat.html")), "the web chat is never copied");
+    assert.ok(!existsSync(join(out, "webchat")), "the web chat is never copied");
 
     assert.deepEqual(JSON.parse(readFileSync(join(out, "vercel.json"), "utf8")), vercelConfig());
     assert.equal(vercelConfig().cleanUrls, true);
+    // The pages and the example data are always revalidated; only versioned files are kept for a year.
+    const cache = Object.fromEntries((vercelConfig().headers as { source: string; headers: { key: string; value: string }[] }[]).map((h) => [h.source, h.headers.find((x) => x.key === "Cache-Control")?.value]));
+    for (const source of ["/", "/dashboard", "/panel", "/privacy", "/demo-data/(.*)", "/qr.svg"]) assert.equal(cache[source], "public, max-age=0, must-revalidate", source);
+    for (const source of ["/landing/(.*)", "/img/(.*)", "/assets/(.*)"]) assert.equal(cache[source], "public, max-age=31536000, immutable", source);
     assert.ok(existsSync(join(out, ".vercel", "project.json")), "rebuild leaves .vercel alone");
   } finally {
     rmSync(out, { recursive: true, force: true });

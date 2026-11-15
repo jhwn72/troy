@@ -1,0 +1,1632 @@
+{
+ "ok": true,
+ "now": 1794686400000,
+ "enabled": true,
+ "counts": {
+  "found": 15,
+  "lost": 16,
+  "matches": 45,
+  "returned": 1
+ },
+ "listings": [
+  {
+   "id": 23,
+   "type": "lost",
+   "category": "id_card",
+   "title": "usc id card",
+   "publicSummary": null,
+   "color": null,
+   "brand": null,
+   "locationText": "the village",
+   "happenedAt": 1794672000000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": true,
+   "hasHiddenDetails": true,
+   "createdAt": 1794677400000
+  },
+  {
+   "id": 22,
+   "type": "found",
+   "category": "id_card",
+   "title": "usc student id card",
+   "publicSummary": "usc id card",
+   "color": null,
+   "brand": null,
+   "locationText": "the village by target",
+   "happenedAt": 1794675600000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": true,
+   "hasHiddenDetails": true,
+   "createdAt": 1794676200000
+  },
+  {
+   "id": 12,
+   "type": "found",
+   "category": "keys",
+   "title": "keys on a red lanyard",
+   "publicSummary": "set of keys on a lanyard",
+   "color": "red",
+   "brand": null,
+   "locationText": "parkside dining hall",
+   "happenedAt": 1794668400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794669000000
+  },
+  {
+   "id": 13,
+   "type": "lost",
+   "category": "keys",
+   "title": "keys on a red lanyard",
+   "publicSummary": null,
+   "color": "red",
+   "brand": null,
+   "locationText": "parkside",
+   "happenedAt": 1794661200000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794666600000
+  },
+  {
+   "id": 6,
+   "type": "found",
+   "category": "wallet",
+   "title": "brown leather wallet",
+   "publicSummary": "brown wallet",
+   "color": "brown",
+   "brand": null,
+   "locationText": "by tommy trojan",
+   "happenedAt": 1794650400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": true,
+   "hasHiddenDetails": true,
+   "createdAt": 1794651000000
+  },
+  {
+   "id": 7,
+   "type": "lost",
+   "category": "wallet",
+   "title": "brown leather wallet",
+   "publicSummary": null,
+   "color": "brown",
+   "brand": null,
+   "locationText": "near bovard",
+   "happenedAt": 1794643200000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": true,
+   "hasHiddenDetails": true,
+   "createdAt": 1794648600000
+  },
+  {
+   "id": 24,
+   "type": "found",
+   "category": "glasses",
+   "title": "tortoiseshell glasses in a navy case",
+   "publicSummary": "glasses in a case",
+   "color": "brown",
+   "brand": null,
+   "locationText": "doheny library reading room",
+   "happenedAt": 1794632400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794633000000
+  },
+  {
+   "id": 5,
+   "type": "lost",
+   "category": "earbuds",
+   "title": "white galaxy buds",
+   "publicSummary": null,
+   "color": "white",
+   "brand": "Samsung",
+   "locationText": "leavey basement",
+   "happenedAt": 1794621600000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794627000000
+  },
+  {
+   "id": 1,
+   "type": "found",
+   "category": "earbuds",
+   "title": "black airpods pro case",
+   "publicSummary": "black airpods case",
+   "color": "black",
+   "brand": "Apple",
+   "locationText": "leavey library 2nd floor",
+   "happenedAt": 1794614400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794615000000
+  },
+  {
+   "id": 2,
+   "type": "lost",
+   "category": "earbuds",
+   "title": "black airpods pro case",
+   "publicSummary": null,
+   "color": "black",
+   "brand": "Apple",
+   "locationText": "leavey",
+   "happenedAt": 1794607200000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794612600000
+  },
+  {
+   "id": 25,
+   "type": "found",
+   "category": "other",
+   "title": "folding pocket knife",
+   "publicSummary": "item turned in to dps",
+   "color": "black",
+   "brand": null,
+   "locationText": "mccarthy quad",
+   "happenedAt": 1794592800000,
+   "status": "handed_off",
+   "isValuable": false,
+   "isDangerous": true,
+   "heldBy": "dps",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794593400000
+  },
+  {
+   "id": 16,
+   "type": "lost",
+   "category": "laptop",
+   "title": "silver macbook air",
+   "publicSummary": null,
+   "color": "silver",
+   "brand": "Apple",
+   "locationText": "sgm 123",
+   "happenedAt": 1794582000000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794587400000
+  },
+  {
+   "id": 15,
+   "type": "found",
+   "category": "laptop",
+   "title": "silver macbook air",
+   "publicSummary": "silver laptop",
+   "color": "silver",
+   "brand": "Apple",
+   "locationText": "sgm lecture hall",
+   "happenedAt": 1794585600000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794586200000
+  },
+  {
+   "id": 3,
+   "type": "found",
+   "category": "earbuds",
+   "title": "black airpods case with a loop",
+   "publicSummary": "black airpods case",
+   "color": "black",
+   "brand": "Apple",
+   "locationText": "lyon center locker room",
+   "happenedAt": 1794578400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794579000000
+  },
+  {
+   "id": 29,
+   "type": "lost",
+   "category": "scooter",
+   "title": "black electric scooter",
+   "publicSummary": null,
+   "color": "black",
+   "brand": "Segway",
+   "locationText": "bike racks by the lyon center",
+   "happenedAt": 1794560400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794565800000
+  },
+  {
+   "id": 8,
+   "type": "found",
+   "category": "water_bottle",
+   "title": "blue hydro flask",
+   "publicSummary": "blue water bottle",
+   "color": "blue",
+   "brand": "Hydro Flask",
+   "locationText": "taper hall 2nd floor",
+   "happenedAt": 1794542400000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794543000000
+  },
+  {
+   "id": 10,
+   "type": "found",
+   "category": "water_bottle",
+   "title": "blue owala bottle",
+   "publicSummary": "blue water bottle",
+   "color": "blue",
+   "brand": "Owala",
+   "locationText": "village dining hall",
+   "happenedAt": 1794538800000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794539400000
+  },
+  {
+   "id": 9,
+   "type": "lost",
+   "category": "water_bottle",
+   "title": "blue hydro flask",
+   "publicSummary": null,
+   "color": "blue",
+   "brand": "Hydro Flask",
+   "locationText": "thh",
+   "happenedAt": 1794528000000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794533400000
+  },
+  {
+   "id": 4,
+   "type": "lost",
+   "category": "earbuds",
+   "title": "black airpods case with a keychain",
+   "publicSummary": null,
+   "color": "black",
+   "brand": "Apple",
+   "locationText": "tcc",
+   "happenedAt": 1794506400000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794511800000
+  },
+  {
+   "id": 20,
+   "type": "found",
+   "category": "clothing",
+   "title": "gray patagonia fleece",
+   "publicSummary": "gray fleece jacket",
+   "color": "gray",
+   "brand": "Patagonia",
+   "locationText": "evk",
+   "happenedAt": 1794499200000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794499800000
+  },
+  {
+   "id": 21,
+   "type": "lost",
+   "category": "clothing",
+   "title": "gray patagonia fleece",
+   "publicSummary": null,
+   "color": "gray",
+   "brand": "Patagonia",
+   "locationText": "evk",
+   "happenedAt": 1794492000000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794497400000
+  },
+  {
+   "id": 14,
+   "type": "lost",
+   "category": "keys",
+   "title": "keys on a blue carabiner",
+   "publicSummary": null,
+   "color": "blue",
+   "brand": null,
+   "locationText": "fertitta",
+   "happenedAt": 1794470400000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794475800000
+  },
+  {
+   "id": 11,
+   "type": "lost",
+   "category": "water_bottle",
+   "title": "blue hydro flask with a carabiner",
+   "publicSummary": null,
+   "color": "blue",
+   "brand": "Hydro Flask",
+   "locationText": "lyon center",
+   "happenedAt": 1794434400000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794439800000
+  },
+  {
+   "id": 18,
+   "type": "found",
+   "category": "other",
+   "title": "ti-84 graphing calculator",
+   "publicSummary": "graphing calculator",
+   "color": "black",
+   "brand": "Texas Instruments",
+   "locationText": "ginsburg hall",
+   "happenedAt": 1794416400000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794417000000
+  },
+  {
+   "id": 19,
+   "type": "lost",
+   "category": "other",
+   "title": "ti-84 calculator",
+   "publicSummary": null,
+   "color": "black",
+   "brand": "Texas Instruments",
+   "locationText": "kap",
+   "happenedAt": 1794409200000,
+   "status": "open",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794414600000
+  },
+  {
+   "id": 31,
+   "type": "lost",
+   "category": "phone",
+   "title": "black iphone in a clear case",
+   "publicSummary": null,
+   "color": "black",
+   "brand": "Apple",
+   "locationText": "bookstore",
+   "happenedAt": 1794355200000,
+   "status": "handed_off",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794398400000
+  },
+  {
+   "id": 26,
+   "type": "found",
+   "category": "phone",
+   "title": "black iphone in a clear case",
+   "publicSummary": "black iphone",
+   "color": "black",
+   "brand": "Apple",
+   "locationText": "outside the bookstore",
+   "happenedAt": 1794362400000,
+   "status": "handed_off",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "dps",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794363000000
+  },
+  {
+   "id": 30,
+   "type": "lost",
+   "category": "jewelry",
+   "title": "silver ring",
+   "publicSummary": null,
+   "color": "silver",
+   "brand": null,
+   "locationText": "village gym",
+   "happenedAt": 1794340800000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794346200000
+  },
+  {
+   "id": 17,
+   "type": "found",
+   "category": "laptop",
+   "title": "silver macbook in a clear case",
+   "publicSummary": "silver laptop",
+   "color": "silver",
+   "brand": "Apple",
+   "locationText": "leavey library 3rd floor",
+   "happenedAt": 1794326400000,
+   "status": "open",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794327000000
+  },
+  {
+   "id": 27,
+   "type": "found",
+   "category": "bag",
+   "title": "black herschel backpack",
+   "publicSummary": "black backpack",
+   "color": "black",
+   "brand": "Herschel",
+   "locationText": "tcc",
+   "happenedAt": 1794218400000,
+   "status": "returned",
+   "isValuable": true,
+   "isDangerous": false,
+   "heldBy": "finder",
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794219000000
+  },
+  {
+   "id": 28,
+   "type": "lost",
+   "category": "bag",
+   "title": "black herschel backpack",
+   "publicSummary": null,
+   "color": "black",
+   "brand": "Herschel",
+   "locationText": "tutor campus center",
+   "happenedAt": 1794211200000,
+   "status": "returned",
+   "isValuable": false,
+   "isDangerous": false,
+   "heldBy": null,
+   "isExample": true,
+   "hasPhoto": false,
+   "photoSensitive": false,
+   "hasHiddenDetails": true,
+   "createdAt": 1794216600000
+  }
+ ],
+ "matches": [
+  {
+   "id": 44,
+   "foundListingId": 26,
+   "lostListingId": 31,
+   "foundTitle": "black iphone in a clear case",
+   "lostTitle": "black iphone in a clear case",
+   "confidence": 86,
+   "reasons": [
+    "same kind of item",
+    "same color",
+    "found a short walk from where it was lost",
+    "lost and found within a few hours"
+   ],
+   "source": "fallback",
+   "status": "verified",
+   "createdAt": 1794398400000
+  },
+  {
+   "id": 45,
+   "foundListingId": 27,
+   "lostListingId": 28,
+   "foundTitle": "black herschel backpack",
+   "lostTitle": "black herschel backpack",
+   "confidence": 90,
+   "reasons": [
+    "same kind of item",
+    "same color",
+    "same place",
+    "lost and found within a few hours"
+   ],
+   "source": "fallback",
+   "status": "verified",
+   "createdAt": 1794225600000
+  },
+  {
+   "id": 37,
+   "foundListingId": 20,
+   "lostListingId": 21,
+   "foundTitle": "gray patagonia fleece",
+   "lostTitle": "gray patagonia fleece",
+   "confidence": 100,
+   "reasons": [
+    "same kind of item (clothing)",
+    "same color (gray)",
+    "same brand",
+    "3 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 11,
+   "foundListingId": 8,
+   "lostListingId": 9,
+   "foundTitle": "blue hydro flask",
+   "lostTitle": "blue hydro flask",
+   "confidence": 100,
+   "reasons": [
+    "same kind of item (water bottle)",
+    "same color (blue)",
+    "same brand",
+    "2 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 1,
+   "foundListingId": 1,
+   "lostListingId": 2,
+   "foundTitle": "black airpods pro case",
+   "lostTitle": "black airpods pro case",
+   "confidence": 100,
+   "reasons": [
+    "same kind of item (earbuds)",
+    "same color (black)",
+    "same brand",
+    "2 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 21,
+   "foundListingId": 15,
+   "lostListingId": 16,
+   "foundTitle": "silver macbook air",
+   "lostTitle": "silver macbook air",
+   "confidence": 97,
+   "reasons": [
+    "same kind of item (laptop)",
+    "same color (silver)",
+    "same brand",
+    "one specific detail lines up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 25,
+   "foundListingId": 18,
+   "lostListingId": 19,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 93,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "same color (black)",
+    "same brand",
+    "3 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 17,
+   "foundListingId": 12,
+   "lostListingId": 13,
+   "foundTitle": "keys on a red lanyard",
+   "lostTitle": "keys on a red lanyard",
+   "confidence": 90,
+   "reasons": [
+    "same kind of item (keys)",
+    "same color (red)",
+    "2 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 9,
+   "foundListingId": 6,
+   "lostListingId": 7,
+   "foundTitle": "brown leather wallet",
+   "lostTitle": "brown leather wallet",
+   "confidence": 90,
+   "reasons": [
+    "same kind of item (wallet)",
+    "same color (brown)",
+    "2 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 39,
+   "foundListingId": 22,
+   "lostListingId": 23,
+   "foundTitle": "usc student id card",
+   "lostTitle": "usc id card",
+   "confidence": 75,
+   "reasons": [
+    "same kind of item (id card)",
+    "2 specific details line up with the owner's description",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 12,
+   "foundListingId": 8,
+   "lostListingId": 11,
+   "foundTitle": "blue hydro flask",
+   "lostTitle": "blue hydro flask with a carabiner",
+   "confidence": 75,
+   "reasons": [
+    "same kind of item (water bottle)",
+    "same color (blue)",
+    "same brand",
+    "found on the same side of campus",
+    "lost and found within two days",
+    "nothing distinctive in common yet, so it needs one more check"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 6,
+   "foundListingId": 3,
+   "lostListingId": 4,
+   "foundTitle": "black airpods case with a loop",
+   "lostTitle": "black airpods case with a keychain",
+   "confidence": 75,
+   "reasons": [
+    "same kind of item (earbuds)",
+    "same color (black)",
+    "same brand",
+    "found on the same side of campus",
+    "lost and found within two days",
+    "nothing distinctive in common yet, so it needs one more check"
+   ],
+   "source": "fallback",
+   "status": "rejected",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 5,
+   "foundListingId": 3,
+   "lostListingId": 2,
+   "foundTitle": "black airpods case with a loop",
+   "lostTitle": "black airpods pro case",
+   "confidence": 75,
+   "reasons": [
+    "same kind of item (earbuds)",
+    "same color (black)",
+    "same brand",
+    "found on the same side of campus",
+    "lost and found within two days",
+    "nothing distinctive in common yet, so it needs one more check"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 2,
+   "foundListingId": 1,
+   "lostListingId": 4,
+   "foundTitle": "black airpods pro case",
+   "lostTitle": "black airpods case with a keychain",
+   "confidence": 75,
+   "reasons": [
+    "same kind of item (earbuds)",
+    "same color (black)",
+    "same brand",
+    "found a short walk from where it was lost",
+    "lost and found within two days",
+    "nothing distinctive in common yet, so it needs one more check"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 23,
+   "foundListingId": 17,
+   "lostListingId": 16,
+   "foundTitle": "silver macbook in a clear case",
+   "lostTitle": "silver macbook air",
+   "confidence": 54,
+   "reasons": [
+    "same kind of item (laptop)",
+    "same color (silver)",
+    "same brand",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 14,
+   "foundListingId": 10,
+   "lostListingId": 11,
+   "foundTitle": "blue owala bottle",
+   "lostTitle": "blue hydro flask with a carabiner",
+   "confidence": 51,
+   "reasons": [
+    "same kind of item (water bottle)",
+    "same color (blue)",
+    "brands don't match",
+    "found a short walk from where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 15,
+   "foundListingId": 10,
+   "lostListingId": 9,
+   "foundTitle": "blue owala bottle",
+   "lostTitle": "blue hydro flask",
+   "confidence": 47,
+   "reasons": [
+    "same kind of item (water bottle)",
+    "same color (blue)",
+    "brands don't match",
+    "found on the same side of campus",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 40,
+   "foundListingId": 22,
+   "lostListingId": 13,
+   "foundTitle": "usc student id card",
+   "lostTitle": "keys on a red lanyard",
+   "confidence": 34,
+   "reasons": [
+    "related kinds of item (id card and keys)",
+    "found on the same side of campus",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 7,
+   "foundListingId": 3,
+   "lostListingId": 19,
+   "foundTitle": "black airpods case with a loop",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 31,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "same color (black)",
+    "brands don't match",
+    "found a short walk from where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 41,
+   "foundListingId": 22,
+   "lostListingId": 14,
+   "foundTitle": "usc student id card",
+   "lostTitle": "keys on a blue carabiner",
+   "confidence": 30,
+   "reasons": [
+    "related kinds of item (id card and keys)",
+    "found on the same side of campus",
+    "lost and found within the same week"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 18,
+   "foundListingId": 12,
+   "lostListingId": 14,
+   "foundTitle": "keys on a red lanyard",
+   "lostTitle": "keys on a blue carabiner",
+   "confidence": 28,
+   "reasons": [
+    "same kind of item (keys)",
+    "colors don't match",
+    "found on the same side of campus",
+    "lost and found within the same week"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 3,
+   "foundListingId": 1,
+   "lostListingId": 5,
+   "foundTitle": "black airpods pro case",
+   "lostTitle": "white galaxy buds",
+   "confidence": 25,
+   "reasons": [
+    "same kind of item (earbuds)",
+    "colors don't match",
+    "brands don't match",
+    "found right where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 42,
+   "foundListingId": 22,
+   "lostListingId": 19,
+   "foundTitle": "usc student id card",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 23,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "found on the same side of campus",
+    "lost and found within the same week"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 4,
+   "foundListingId": 1,
+   "lostListingId": 19,
+   "foundTitle": "black airpods pro case",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 23,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "same color (black)",
+    "brands don't match",
+    "found on the same side of campus",
+    "lost and found within the same week"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 19,
+   "foundListingId": 12,
+   "lostListingId": 23,
+   "foundTitle": "keys on a red lanyard",
+   "lostTitle": "usc id card",
+   "confidence": 19,
+   "reasons": [
+    "related kinds of item (keys and id card)",
+    "colors don't match",
+    "found on the same side of campus",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 10,
+   "foundListingId": 6,
+   "lostListingId": 23,
+   "foundTitle": "brown leather wallet",
+   "lostTitle": "usc id card",
+   "confidence": 19,
+   "reasons": [
+    "related kinds of item (wallet and id card)",
+    "colors don't match",
+    "found on the same side of campus",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 8,
+   "foundListingId": 3,
+   "lostListingId": 5,
+   "foundTitle": "black airpods case with a loop",
+   "lostTitle": "white galaxy buds",
+   "confidence": 17,
+   "reasons": [
+    "same kind of item (earbuds)",
+    "colors don't match",
+    "brands don't match",
+    "found on the same side of campus",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 20,
+   "foundListingId": 12,
+   "lostListingId": 19,
+   "foundTitle": "keys on a red lanyard",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 12,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "found a short walk from where it was lost",
+    "lost and found within the same week"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 43,
+   "foundListingId": 24,
+   "lostListingId": 19,
+   "foundTitle": "tortoiseshell glasses in a navy case",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 8,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "found on the same side of campus",
+    "lost and found within the same week"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 26,
+   "foundListingId": 18,
+   "lostListingId": 29,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "black electric scooter",
+   "confidence": 8,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "same color (black)",
+    "brands don't match",
+    "found a short walk from where it was lost",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 28,
+   "foundListingId": 18,
+   "lostListingId": 4,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "black airpods case with a keychain",
+   "confidence": 4,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "same color (black)",
+    "brands don't match",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 27,
+   "foundListingId": 18,
+   "lostListingId": 2,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "black airpods pro case",
+   "confidence": 4,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "same color (black)",
+    "brands don't match",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 29,
+   "foundListingId": 18,
+   "lostListingId": 11,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "blue hydro flask with a carabiner",
+   "confidence": 1,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "brands don't match",
+    "found a short walk from where it was lost",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 38,
+   "foundListingId": 20,
+   "lostListingId": 19,
+   "foundTitle": "gray patagonia fleece",
+   "lostTitle": "ti-84 calculator",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "brands don't match",
+    "found on the same side of campus",
+    "lost and found within two days"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 36,
+   "foundListingId": 18,
+   "lostListingId": 23,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "usc id card",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 35,
+   "foundListingId": 18,
+   "lostListingId": 21,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "gray patagonia fleece",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "brands don't match",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 34,
+   "foundListingId": 18,
+   "lostListingId": 16,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "silver macbook air",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "brands don't match",
+    "found right where it was lost",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 33,
+   "foundListingId": 18,
+   "lostListingId": 14,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "keys on a blue carabiner",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 32,
+   "foundListingId": 18,
+   "lostListingId": 13,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "keys on a red lanyard",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "found a short walk from where it was lost",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  },
+  {
+   "id": 31,
+   "foundListingId": 18,
+   "lostListingId": 7,
+   "foundTitle": "ti-84 graphing calculator",
+   "lostTitle": "brown leather wallet",
+   "confidence": 0,
+   "reasons": [
+    "kind of item is unclear on one side",
+    "colors don't match",
+    "found on the same side of campus",
+    "it was found well before it was lost"
+   ],
+   "source": "fallback",
+   "status": "proposed",
+   "createdAt": 1794686400000
+  }
+ ],
+ "verifications": [
+  {
+   "id": 3,
+   "matchId": 6,
+   "method": "blind_description",
+   "score": 22,
+   "result": "fail",
+   "attempts": 2,
+   "hasAnswer": true,
+   "createdAt": 1794589200000
+  },
+  {
+   "id": 1,
+   "matchId": 44,
+   "method": "blind_description",
+   "score": 91,
+   "result": "pass",
+   "attempts": 1,
+   "hasAnswer": true,
+   "createdAt": 1794402000000
+  },
+  {
+   "id": 2,
+   "matchId": 45,
+   "method": "blind_description",
+   "score": 94,
+   "result": "pass",
+   "attempts": 1,
+   "hasAnswer": true,
+   "createdAt": 1794229200000
+  }
+ ],
+ "handoffs": [
+  {
+   "id": 1,
+   "matchId": 44,
+   "method": "dps_code",
+   "chosenBy": "finder",
+   "hasPickupCode": true,
+   "completedAt": null,
+   "thankYouNote": null,
+   "createdAt": 1794402000000
+  },
+  {
+   "id": 2,
+   "matchId": 45,
+   "method": "group_chat",
+   "chosenBy": "finder",
+   "hasPickupCode": false,
+   "completedAt": 1794240000000,
+   "thankYouNote": "thank u so much, my whole semester was in there",
+   "createdAt": 1794229200000
+  }
+ ],
+ "foodDrops": [
+  {
+   "id": 1,
+   "clubName": "Dumpling Night Collective (example club)",
+   "description": "boxes of veggie fried rice and potstickers left over from our meeting",
+   "locationText": "tcc 2nd floor",
+   "servingsTotal": 20,
+   "servingsLeft": 12,
+   "status": "live",
+   "reports": 0,
+   "isExample": true,
+   "claims": {
+    "held": 1,
+    "picked_up": 2,
+    "released": 0
+   },
+   "expiresAt": 1794690000000,
+   "createdAt": 1794684900000
+  },
+  {
+   "id": 2,
+   "clubName": "Cardinal Robotics Build Team (example club)",
+   "description": "bagels, cream cheese and fruit from our morning workshop",
+   "locationText": "ronald tutor hall lobby",
+   "servingsTotal": 30,
+   "servingsLeft": 0,
+   "status": "ended",
+   "reports": 2,
+   "isExample": true,
+   "claims": {
+    "held": 0,
+    "picked_up": 0,
+    "released": 0
+   },
+   "expiresAt": 1794598200000,
+   "createdAt": 1794592800000
+  }
+ ],
+ "eval": {
+  "total": 40,
+  "correct": 37,
+  "wrongHandoffs": 0,
+  "sentToFinder": 14,
+  "sentToFinderNotOwner": 0,
+  "mode": "fallback"
+ },
+ "chatHealth": null,
+ "staff": {
+  "listings": {
+   "1": {
+    "distinguishing": [
+     "small silver star sticker on the back",
+     "scratch next to the hinge",
+     "only the left earbud is inside"
+    ],
+    "nameOnItem": null
+   },
+   "2": {
+    "description": "black airpods pro case with a little silver star sticker on the back, i think only the left one was in it"
+   },
+   "3": {
+    "distinguishing": [
+     "initials KT engraved on the front",
+     "green silicone loop on the side",
+     "both earbuds inside"
+    ],
+    "nameOnItem": null
+   },
+   "4": {
+    "description": "black airpods case, has a gold glitter keychain clipped to it"
+   },
+   "5": {
+    "description": "white samsung galaxy buds in a clear case with a cat charm"
+   },
+   "6": {
+    "distinguishing": [
+     "usc student id inside",
+     "boba punch card with 6 stamps",
+     "folded movie ticket stub"
+    ],
+    "nameOnItem": "Priya Raman"
+   },
+   "7": {
+    "description": "brown leather wallet with my usc id and a boba punch card in it"
+   },
+   "8": {
+    "distinguishing": [
+     "corgi sticker near the top",
+     "dent on the bottom edge",
+     "black straw lid"
+    ],
+    "nameOnItem": null
+   },
+   "9": {
+    "description": "blue hydro flask with a corgi sticker on it and a dent on the bottom"
+   },
+   "10": {
+    "distinguishing": [
+     "white flip lid",
+     "strip of tape with the letter J on it",
+     "pink hair tie around the handle"
+    ],
+    "nameOnItem": null
+   },
+   "11": {
+    "description": "blue hydro flask, has a nasa sticker and an orange carabiner clipped to the handle"
+   },
+   "12": {
+    "distinguishing": [
+     "honda key fob",
+     "tiny black flashlight",
+     "3 keys, one with a purple cap"
+    ],
+    "nameOnItem": null
+   },
+   "13": {
+    "description": "keys on a red lanyard, honda fob and a tiny flashlight, one key has a purple cap"
+   },
+   "14": {
+    "description": "keys on a blue carabiner with a toyota fob and a bottle opener"
+   },
+   "15": {
+    "distinguishing": [
+     "sunflower sticker on the lid",
+     "small crack on the bottom left corner",
+     "teal keyboard cover"
+    ],
+    "nameOnItem": null
+   },
+   "16": {
+    "description": "silver macbook air with a sunflower sticker on the lid and a teal keyboard cover"
+   },
+   "17": {
+    "distinguishing": [
+     "clear hard shell case",
+     "robot sticker on the inside of the case",
+     "charger wrapped with a red velcro tie"
+    ],
+    "nameOnItem": null
+   },
+   "18": {
+    "distinguishing": [
+     "pink slide cover",
+     "label on the back that says room 204",
+     "smiley face drawn in silver marker"
+    ],
+    "nameOnItem": null
+   },
+   "19": {
+    "description": "ti-84 calculator with a pink cover, theres a silver smiley face drawn on the back"
+   },
+   "20": {
+    "distinguishing": [
+     "size medium",
+     "lip balm in the left pocket",
+     "small burn hole on the right cuff"
+    ],
+    "nameOnItem": null
+   },
+   "21": {
+    "description": "grey patagonia fleece, medium, theres chapstick in the pocket and a little burn hole on one cuff"
+   },
+   "22": {
+    "distinguishing": [
+     "clear sleeve with a metro tap card behind it"
+    ],
+    "nameOnItem": "Jordan Blake"
+   },
+   "23": {
+    "description": "my usc id, its in a clear sleeve with my tap card"
+   },
+   "24": {
+    "distinguishing": [
+     "navy hard case",
+     "yellow cleaning cloth inside",
+     "left arm is slightly bent"
+    ],
+    "nameOnItem": null
+   },
+   "25": {
+    "distinguishing": [
+     "black handle",
+     "belt clip"
+    ],
+    "nameOnItem": null
+   },
+   "26": {
+    "distinguishing": [
+     "lock screen photo of a golden retriever",
+     "cracked screen protector in the top right",
+     "transit card tucked in the case"
+    ],
+    "nameOnItem": null
+   },
+   "27": {
+    "distinguishing": [
+     "chem lab notebook inside",
+     "orange water bottle in the side pocket",
+     "enamel pin of a taco"
+    ],
+    "nameOnItem": null
+   },
+   "28": {
+    "description": "black herschel backpack with a taco pin on it, my chem lab notebook is inside"
+   },
+   "29": {
+    "description": "black segway ninebot scooter with a yellow cable lock and a sticker of a palm tree on the stem"
+   },
+   "30": {
+    "description": "thin silver ring with a tiny green stone, took it off to lift"
+   },
+   "31": {
+    "description": "black iphone in a clear case, left it on a bench by the bookstore"
+   }
+  },
+  "verifications": {
+   "1": {
+    "ownerAnswer": "it has a cracked corner and a photo of my dog on the lock screen"
+   },
+   "2": {
+    "ownerAnswer": "there's a bike light clipped to the strap and my chem notebook is inside"
+   },
+   "3": {
+    "ownerAnswer": "black case with a gold glitter keychain on it"
+   }
+  },
+  "handoffs": {
+   "1": {},
+   "2": {}
+  }
+ },
+ "generatedAt": 1794686400000
+}
