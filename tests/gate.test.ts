@@ -94,13 +94,24 @@ test("a later message from an opted-in chat is allowed without another lookup", 
   assert.equal(rows(db).length, 1);
 });
 
-test("manual env list: phone and email handles, any text, no lookup", async () => {
+test("manual env list: invisible until they say hey troy, then in, with no history lookup", async () => {
   const db = openDb(":memory:");
-  const phone = input({ handle: "+13105550001", chatId: chat("+13105550001"), text: "yo", hasHistoryBeforeGoLive: async () => true });
-  assert.deepEqual(await decide(db, phone), { allow: true, newlyOptedIn: false });
-  assert.equal(phone.lookups, 0);
+  // An old friend of John's on the list: an ordinary text is John's, and Troy never sees it.
+  const before = input({ handle: "+13105550001", chatId: chat("+13105550001"), text: "yo are we still on tonight", hasHistoryBeforeGoLive: async () => true });
+  assert.deepEqual(await decide(db, before), { allow: false });
+  assert.equal(before.lookups, 0);
+  assert.equal(sendAllowed(db, chat("+13105550001"), "+13105550001"), false);
+  // They opt in themselves. Years of history with John don't block them, and nothing is looked up.
+  const optIn = input({ handle: "+13105550001", chatId: chat("+13105550001"), text: "Hey Troy", hasHistoryBeforeGoLive: async () => true });
+  assert.deepEqual(await decide(db, optIn), { allow: true, newlyOptedIn: true });
+  assert.equal(optIn.lookups, 0);
+  // From then on any text reaches Troy.
+  const after = input({ handle: "+13105550001", chatId: chat("+13105550001"), text: "yo" });
+  assert.deepEqual(await decide(db, after), { allow: true, newlyOptedIn: false });
+  // The email handle on the list works the same way, and no allow_list rows are written for either.
   const email = input({ handle: "judge@example.com", chatId: chat("judge@example.com"), text: "yo" });
-  assert.deepEqual(await decide(db, email), { allow: true, newlyOptedIn: false });
+  assert.deepEqual(await decide(db, email), { allow: false });
+  assert.deepEqual(await decide(db, input({ handle: "judge@example.com", chatId: chat("judge@example.com"), text: "hey troy" })), { allow: true, newlyOptedIn: true });
   assert.equal(rows(db).length, 0);
 });
 
@@ -206,6 +217,8 @@ test("missing handle or chat id denies", async () => {
 test("sendAllowed and isAllowedChat for 1:1 chats", () => {
   const db = openDb(":memory:");
   assert.equal(sendAllowed(db, chat(STRANGER), STRANGER), false);
+  assert.equal(sendAllowed(db, chat("+13105550001"), "+13105550001"), false); // on the list, but hasn't said hey troy
+  setSetting(db, "manual_on:+13105550001", "1");
   assert.equal(sendAllowed(db, chat("+13105550001"), "+13105550001"), true);
   assert.equal(sendAllowed(db, chat("+13105550001"), null), false);
   assert.equal(isAllowedChat(db, "", "+13105550001"), false);

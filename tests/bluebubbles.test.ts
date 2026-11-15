@@ -5,6 +5,18 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { deflateRawSync } from "node:zlib";
 import type { IncomingEvent } from "../src/types.ts";
 
+// People on the manual list count only once they have said "hey troy" themselves. Most tests here are about
+// what happens after that, so start with them activated.
+function activated<T extends { prepare(sql: string): { run(...a: unknown[]): unknown } }>(db: T): T {
+  for (const raw of (process.env.ALLOWED_HANDLES || "").split(",")) {
+    const h = raw.trim().toLowerCase();
+    const handle = h.includes("@") ? h : "+" + h.replace(/\D/g, "").replace(/^(\d{10})$/, "1$1");
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(`manual_on:${handle}`);
+  }
+  return db;
+}
+
+
 // config reads the environment when it's first imported, so set it before importing anything.
 process.env.ALLOWED_HANDLES = "+13105550001,judge@example.com";
 process.env.TROY_ENABLED = "true";
@@ -74,7 +86,7 @@ afterEach(() => {
 });
 
 function setup() {
-  const db = openDb(":memory:");
+  const db = activated(openDb(":memory:"));
   const events: IncomingEvent[] = [];
   const bb = createBluebubblesAdapter({ db, onEvent: async (e) => void events.push(e) });
   return { db, events, ...bb };
@@ -649,7 +661,7 @@ function fakeHelperClient(connected = true) {
 }
 
 /** Resolves once the startup registration (every ALLOWED_HANDLES chat) is done; helperCalls starts empty after it. */
-async function setupWithHelper(connected = true, db = openDb(":memory:")) {
+async function setupWithHelper(connected = true, db = activated(openDb(":memory:"))) {
   const events: IncomingEvent[] = [];
   const fake = fakeHelperClient(connected);
   const bb = createBluebubblesAdapter({ db, onEvent: async (e) => void events.push(e) }, { helper: createHelper({ db, client: fake.client }) });

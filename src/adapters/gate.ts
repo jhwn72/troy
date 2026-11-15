@@ -35,7 +35,12 @@ export function isAllowedChat(db: DatabaseSync, chatId: string, handle: Handle |
   if (db.prepare("SELECT 1 FROM allow_list WHERE chatId = ? LIMIT 1").get(chatId)) return true;
   if (!handle) return false;
   if (db.prepare("SELECT 1 FROM allow_list WHERE handle = ? LIMIT 1").get(handle)) return true;
-  return config.allowedHandles.includes(handle);
+  // The manual list in .env lets someone in past the history rule, but only once they have said "hey troy"
+  // themselves (recorded in settings as manual_on:<handle>) or already have a profile. Until then their texts to John
+  // are John's, and Troy neither reads nor answers them.
+  if (!config.allowedHandles.includes(handle)) return false;
+  if (db.prepare("SELECT 1 FROM settings WHERE key = ? LIMIT 1").get(`manual_on:${handle}`)) return true;
+  return !!db.prepare("SELECT 1 FROM users WHERE handle = ? LIMIT 1").get(handle);
 }
 
 export function allowChat(db: DatabaseSync, entry: { handle: Handle | null; chatId: string | null; reason: AllowReason }): void {
@@ -100,6 +105,12 @@ export async function decide(db: DatabaseSync, input: GateInput): Promise<GateDe
 
   // 6. "hey troy" in a 1:1 chat with nothing from before go-live.
   if (!isOptInPhrase(input.text)) return DENY;
+  // Someone John put on the manual list may have years of texts with him: the history rule doesn't apply to
+  // them, but the opt-in phrase still does.
+  if (config.allowedHandles.includes(input.handle)) {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(`manual_on:${input.handle}`, String(Date.now()));
+    return { allow: true, newlyOptedIn: true };
+  }
   let hasHistory: boolean;
   try {
     hasHistory = await input.hasHistoryBeforeGoLive();

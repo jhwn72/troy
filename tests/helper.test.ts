@@ -2,6 +2,18 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 
+// People on the manual list count only once they have said "hey troy" themselves. Most tests here are about
+// what happens after that, so start with them activated.
+function activated<T extends { prepare(sql: string): { run(...a: unknown[]): unknown } }>(db: T): T {
+  for (const raw of (process.env.ALLOWED_HANDLES || "").split(",")) {
+    const h = raw.trim().toLowerCase();
+    const handle = h.includes("@") ? h : "+" + h.replace(/\D/g, "").replace(/^(\d{10})$/, "1$1");
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(`manual_on:${handle}`);
+  }
+  return db;
+}
+
+
 // config reads the environment when it's first imported, so set it before importing anything.
 process.env.ALLOWED_HANDLES = "+13105550001";
 process.env.TROY_ENABLED = "true";
@@ -75,7 +87,7 @@ afterEach(() => {
 });
 
 function setup(over: Parameters<typeof fakeClient>[0] = {}) {
-  const db = openDb(":memory:");
+  const db = activated(openDb(":memory:"));
   allowChat(db, { handle: OPTED, chatId: OPTED_CHAT, reason: "opt_in_phrase" });
   const fake = fakeClient(over);
   const helper = createHelper({ db, client: fake.client });
@@ -83,7 +95,7 @@ function setup(over: Parameters<typeof fakeClient>[0] = {}) {
 }
 
 test("no token: nothing is available, nothing throws, and no client is made", async () => {
-  const db = openDb(":memory:");
+  const db = activated(openDb(":memory:"));
   const helper = createHelper({ db });
   helper.start();
   assert.equal(helper.available, false);
