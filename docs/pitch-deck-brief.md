@@ -101,32 +101,49 @@ Built with (for a small "how it's built" slide or the appendix): Claude (Anthrop
 Feasibility and cost:
 - Today: runs on John's Mac, so the texting line costs nothing.
 - To launch: move to a hosted iMessage line (Linq, the infrastructure behind Poke). $260 a month for a 200-student pilot, plus $79 a month for live location.
-- AI usage: about 6 to 9 cents per conversation, estimated (see "Cost estimate" below). At 8 conversations per student per month that is roughly $0.56 per student, or about $110 a month for 200 students.
-- All in for a 200-student pilot: about $450 a month ($260 line + $79 location + about $110 AI), or roughly $2.25 per student per month. `[John to confirm before quoting: this is an estimate from prompt sizes, not a measured bill]`
+- AI usage: about 1 cent per conversation, estimated (see "Cost estimate" below). At 8 conversations per student per month that is roughly 10 cents per student, or about $20 a month for 200 students.
+- Two ways to run the texting line for a 200-student pilot (details in "Cost estimate"):
+  - Hosted line (Linq): about $360 a month all in, roughly $1.80 per student per month.
+  - Own hardware (two Mac minis running the same setup as the demo): about $1,600 in the first year including the machines, then about $400 a year. That is under 70 cents per student per month in year one and under 20 cents after.
+  `[John to confirm before quoting: estimates from prompt sizes and list prices, not a measured bill]`
 - Free for students.
 - Partners, not replacements: DPS Lost and Found, FMS, USC Housing maintenance, USG. Student Basic Needs already runs Tommy's Table for surplus food; present Troy as a possible partner.
 
-**Cost estimate (how the AI number was worked out)**
+**Cost estimate (how the numbers were worked out)**
 
-Prices used (Anthropic list prices per million tokens, Nov 2026): the stronger model (Claude Sonnet 5.5) is $2 input, $10 output, $0.10 for cached input that is re-read, and about $2.50 to write input into the cache. The faster model (Claude Haiku 5.5) is $0.10 input and $0.50 output.
+*AI cost per conversation.* The real version would run everyday chat on the faster model (Claude Haiku 5.5: $0.10 per million input tokens, $0.50 output; cached input is re-read at about a tenth of the input price). Photos, matching and the ownership check stay on the stronger model (Claude Sonnet 5.5: $2 input, $10 output), because that is where accuracy matters.
 
-What one student message costs:
-- Troy's standing instructions (who he is, what he knows) are about 11,000 tokens. They are cached, so re-reading them costs 11,000 x $0.10 per million = $0.0011.
-- The new part of each message (recent chat history plus looked-up facts) is about 900 tokens: $0.0018.
-- His reply, including a little reasoning, is about 250 tokens: $0.0025.
-- Working out what the message is asking for, on the faster model: about $0.0002.
-- Total for a normal message: about half a cent ($0.0056).
-- The first message after a quiet spell has to write the instructions into the cache again, which costs about 3 cents instead ($0.032).
+One student message on the faster model:
+- Troy's standing instructions, about 11,000 tokens, re-read from the cache: about $0.0001.
+- The new part of the message (recent chat plus looked-up facts), about 900 tokens: $0.0001.
+- His reply, about 250 tokens: $0.0001.
+- Working out what the message is asking for: $0.0002.
+- Total: about a twentieth of a cent. The first message after a quiet spell re-caches the instructions and costs about a fifth of a cent.
 
-One conversation, assumed to be 6 student messages with the first one "cold": $0.032 + 5 x $0.0056, which is about 6 cents. A conversation with a photo adds roughly 3 cents for reading the photo, ranking matches and checking the description, so about 9 cents.
+One conversation of 6 messages: under half a cent. A conversation with a photo adds about 3 cents on the stronger model (reading the photo, ranking matches, checking the description). Assuming one conversation in four involves a photo, the average is about 1.2 cents.
 
-Per month: assume 8 conversations per student (about two a week), averaging 7 cents each: $0.56 per student, about $110 for 200 students. Alerts Troy sends on his own (free food, status updates) use fixed wording and cost nothing in AI.
+Per month, assuming 8 conversations per student (about two a week): about 10 cents per student, about $20 for 200 students. Alerts Troy sends on his own use fixed wording and cost nothing in AI.
 
-What would change the number:
-- Running chat on the faster model instead brings a conversation under 1 cent and the 200-student month to about $15. The stronger model is used today because it sounds better.
-- More students means the cache stays warm more often, so the 3-cent cold start happens less.
-- Heavier use, or lots of photos, raises it roughly in proportion.
-- These are estimates from the size of the prompts, not from a bill. The reasoning tokens in each reply are the least certain part.
+*The texting line, two options for 200 students.*
+
+| | Hosted line (Linq) | Own hardware (Mac minis) |
+| --- | --- | --- |
+| Up front | $0 | 2 Mac minis at about $600 each = $1,200 (one runs it, one is a spare) |
+| Monthly | $260 line + $79 live location | about $15 for a phone line, plus a few dollars of electricity; location comes free through Find My |
+| AI | about $20 a month | about $20 a month |
+| Year one | about $4,300 | about $1,600 |
+| Each year after | about $4,300 | about $400 |
+| Per student per month | about $1.80 | about 67 cents in year one, about 17 cents after |
+
+Counting the Mac minis entirely in year one is the conservative way to show it. Spread over a three-year life they are $400 a year, which makes every year about $800, or 33 cents per student per month.
+
+What the cheaper option costs in other ways (say this if asked):
+- It relies on the same unofficial setup as the demo: a tool that drives the Messages app, with some of the Mac's built-in protections turned off. Apple does not support it and can break it with an update.
+- One Apple account sending a lot of messages can be limited or blocked by Apple, with no one to call. A hosted line exists to carry that risk and volume.
+- Someone has to keep the machines up, updated and physically secure, because they can read every conversation.
+- It suits a pilot. A hosted line is the safer choice once it is campus-wide.
+
+What would change the AI number: running everything on the stronger model raises it to about 6 to 9 cents per conversation (about $110 a month for 200 students); heavier use or more photos raises it roughly in proportion; the reasoning tokens in each reply are the least certain part.
 
 What's next (from the landing page; no fake numbers): pickup games and study buddies nearby, class help from students who aced it, ticket and textbook swaps, closing the loop with offices on housing requests and deadlines, and non-Apple devices.
 
