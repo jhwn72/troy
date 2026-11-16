@@ -388,11 +388,24 @@ test("static build bakes the number into the page, the QR and a Vercel config, a
   }
 });
 
-test("static build fails with a clear message when there is no number", async () => {
-  const out = join(tmpdir(), `troy-landing-none-${process.pid}`);
-  await assert.rejects(buildLanding({ number: undefined, outDir: out }), /no phone number/);
-  await assert.rejects(buildLanding({ number: "soon", outDir: out }), /no phone number/);
-  assert.ok(!existsSync(out), "nothing is written");
+test("static build without a number publishes no number and no QR, and removes an old QR", async () => {
+  const bad = join(tmpdir(), `troy-landing-bad-${process.pid}`);
+  await assert.rejects(buildLanding({ number: "soon", outDir: bad }), /isn't a phone number/);
+  assert.ok(!existsSync(bad), "nothing is written for a bad number");
+  const out = mkdtempSync(join(tmpdir(), "troy-landing-none-"));
+  try {
+    writeFileSync(join(out, "qr.svg"), "<svg>old</svg>");
+    const built = await buildLanding({ number: undefined, outDir: out });
+    assert.equal(built.number, null);
+    assert.equal(built.smsLink, null);
+    assert.ok(!existsSync(join(out, "qr.svg")), "the old QR is gone");
+    assert.ok(!built.files.includes("qr.svg"));
+    const html = readFileSync(join(out, "index.html"), "utf8");
+    assert.ok(html.includes('<meta name="troy-number" content="">') && html.includes('<meta name="troy-sms" content="">'));
+    assert.ok(!/sms:\+?\d/.test(html) && !/\+1\d{10}/.test(html), "no number anywhere on the page");
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
 
 test("the simulator page is what John asked for, and non-Apple visitors are sent to it", () => {

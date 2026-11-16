@@ -1,10 +1,8 @@
 // Builds the static site for Vercel into vercel-landing/: the landing page, the staff dashboard and the
 // "under the hood" panel running on example data, and the privacy page.
-// Run: node scripts/build-landing.ts +1XXXXXXXXXX
-//      TROY_NUMBER=+1XXXXXXXXXX node scripts/build-landing.ts
-// The number is baked into index.html and qr.svg, so the output needs no server.
-// This script never reads .env. Pass the number as an argument or set TROY_NUMBER in the shell.
-// The output publishes that phone number to anyone who opens the page.
+// Run: node scripts/build-landing.ts                 (no phone number anywhere: the default since the hackathon ended)
+//      node scripts/build-landing.ts +1XXXXXXXXXX    (bakes the number into index.html and qr.svg, which publishes it)
+// The number is only ever taken from the argument, never from TROY_NUMBER or .env, so a plain build can't leak it.
 //
 // Only these are copied: index.html, dashboard.html, panel.html, privacy.html, simulator.html, landing/, and the
 // img/ and assets/ files those pages actually refer to. The web simulator's one serverless function goes to api/
@@ -29,9 +27,10 @@ export const SITE_PAGES = ["dashboard.html", "panel.html", "privacy.html", "simu
 
 export type LandingBuild = {
   outDir: string;
-  number: string;
+  /** null when built without a number: then no number, sms link or qr.svg is published. */
+  number: string | null;
   /** The Text Troy link (body "hey troy"). The hero button, the footer button and the QR all use it. */
-  smsLink: string;
+  smsLink: string | null;
   /** Every sms link on the page, in page order. */
   smsLinks: string[];
   version: string;
@@ -94,15 +93,12 @@ const unattr = (s: string): string => s.replace(/&quot;/g, '"').replace(/&#39;|&
  * Leaves anything else there alone (for example .vercel/).
  */
 export async function buildLanding(opts: { number: string | undefined; outDir?: string; publicDir?: string }): Promise<LandingBuild> {
-  const number = troyNumber(opts.number ?? "");
-  if (!number) {
-    throw new Error(
-      "build-landing: no phone number. run it as: node scripts/build-landing.ts +1XXXXXXXXXX (or set TROY_NUMBER in the shell). nothing was written.",
-    );
-  }
+  const raw = (opts.number ?? "").trim();
+  const number = raw ? troyNumber(raw) : null;
+  if (raw && !number) throw new Error("build-landing: that isn't a phone number. nothing was written.");
   const outDir = resolve(opts.outDir ?? join(ROOT, "vercel-landing"));
   const publicDir = resolve(opts.publicDir ?? join(ROOT, "public"));
-  const link = smsLink(number);
+  const link = number ? smsLink(number) : null;
 
   let html = readFileSync(join(publicDir, "index.html"), "utf8");
   const pages = new Map<string, string>(SITE_PAGES.map((name) => [name, readFileSync(join(publicDir, name), "utf8")]));
@@ -127,19 +123,21 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
   const files = [...used].sort();
 
   // One version for the whole build, from the number and the bytes of every file.
-  const hash = createHash("sha256").update(number).update(html);
+  const hash = createHash("sha256").update(number ?? "").update(html);
   for (const file of files) hash.update(file).update(readFileSync(join(publicDir, file)));
   for (const [name, text] of pages) hash.update(name).update(text);
   for (const name of Object.keys(demoData).sort()) hash.update(name).update(demoData[name]);
   const version = hash.digest("hex").slice(0, 10);
 
   // 1. The number, in the two meta tags landing/config.js reads.
-  html = replaceOnce(html, '<meta name="troy-number" content="">', `<meta name="troy-number" content="${number}">`);
-  html = replaceOnce(html, '<meta name="troy-sms" content="">', `<meta name="troy-sms" content="sms:${number}">`);
+  if (number) {
+    html = replaceOnce(html, '<meta name="troy-number" content="">', `<meta name="troy-number" content="${number}">`);
+    html = replaceOnce(html, '<meta name="troy-sms" content="">', `<meta name="troy-sms" content="sms:${number}">`);
+  }
 
   // 2. The links themselves, so the buttons work before (or without) the script.
   const smsLinks: string[] = [];
-  html = html.replace(/<a ([^>]*?)data-sms="([^"]*)"/g, (_all, before: string, body: string) => {
+  if (number) html = html.replace(/<a ([^>]*?)data-sms="([^"]*)"/g, (_all, before: string, body: string) => {
     const href = smsLink(number, unattr(body));
     smsLinks.push(href);
     return `<a ${before}href="${attr(href)}" data-sms="${body}"`;
@@ -156,7 +154,7 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
   // that works on any plain file server, and Vercel's cleanUrls sends it on to /dashboard.
   for (const [name, text] of pages) pages.set(name, text.replace(LOCAL_REF, (ref) => (used.has(ref) ? `${ref}?v=${version}` : ref)));
 
-  const qr = await QRCode.toString(link, {
+  const qr = link && await QRCode.toString(link, {
     type: "svg",
     errorCorrectionLevel: "M",
     margin: 1,
@@ -172,23 +170,25 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
   writeFileSync(join(outDir, "index.html"), html);
   for (const [name, text] of pages) writeFileSync(join(outDir, name), text);
   const demoFiles = writeDemoData(join(outDir, "demo-data"), demoData).map((name) => `demo-data/${name}`);
-  writeFileSync(join(outDir, "qr.svg"), qr);
+  // Without a number there is no QR, and an old one (which encodes the number) is removed.
+  if (qr) writeFileSync(join(outDir, "qr.svg"), qr);
+  else rmSync(join(outDir, "qr.svg"), { force: true });
   writeFileSync(join(outDir, "vercel.json"), JSON.stringify(vercelConfig(), null, 2) + "\n");
   const simFiles = writeSimFunction(outDir);
 
-  return { outDir, number, smsLink: link, smsLinks, version, files: ["index.html", ...SITE_PAGES, "qr.svg", "vercel.json", ...simFiles, ...demoFiles, ...files] };
+  return { outDir, number, smsLink: link, smsLinks, version, files: ["index.html", ...SITE_PAGES, ...(qr ? ["qr.svg"] : []), "vercel.json", ...simFiles, ...demoFiles, ...files] };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const built = await buildLanding({ number: process.argv[2] ?? process.env.TROY_NUMBER });
+    const built = await buildLanding({ number: process.argv[2] });
     // Keep the copy in public/ in step, so the pages also run from any plain file server pointed at public/.
     writeDemoData(join(ROOT, "public", "demo-data"), await buildDemoData());
     console.log(`built ${built.outDir}`);
     for (const file of built.files) console.log(`  ${file}`);
     console.log("  links on the page:");
     for (const href of built.smsLinks) console.log(`    ${href}`);
-    console.log("  heads up: this page publishes that phone number. see docs/deploy-landing.md to deploy.");
+    console.log(built.number ? "  heads up: this page publishes that phone number. see docs/deploy-landing.md to deploy." : "  no phone number in this build.");
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
