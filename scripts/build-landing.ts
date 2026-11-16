@@ -144,7 +144,7 @@ export async function buildLanding(opts: { number: string | undefined; outDir?: 
     smsLinks.push(href);
     return `<a ${before}href="${attr(href)}" data-sms="${body}"`;
   });
-  if (!smsLinks.length) throw new Error("build-landing: found no a[data-sms] in public/index.html. the page and this script are out of step.");
+  // After the hackathon the page has no text links (iMessage is switched off), so zero is fine.
 
   // 3. Search engines are asked not to list a page with a phone number on it.
   html = replaceOnce(html, '<meta name="theme-color"', '<meta name="robots" content="noindex">\n<meta name="theme-color"');

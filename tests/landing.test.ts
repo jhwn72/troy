@@ -125,10 +125,11 @@ test("landing page follows the design reference's rules", () => {
   assert.equal(pairs.length, 8);
   assert.deepEqual(pairs.slice(0, 2), ["You need a ride to LAX", "Three people in your building do too"]);
   for (const line of pairs) assert.ok(!line.endsWith("."), line);
-  // Every link that opens a text draft has the "Available on iMessage" badge right after it.
-  assert.equal([...html.matchAll(/<a class="btn" data-sms="[^"]+">[^<]+<\/a>(?:\s*(?:<span class="qr-card">)?<img id="qr"[^>]*>(?:\s*<span class="qr-cap">[^<]*<br>[^<]*<\/span><\/span>)?)?\s*<p class="badge-imessage">/g)].length, 3, "a badge with every Text Troy link");
+  // After the hackathon: every button goes to the browser simulator, with the "ran live on iMessage, switched off now" note after it.
+  assert.equal([...html.matchAll(/<a class="btn" href="simulator\.html">[^<]+<\/a>\s*<p class="badge-imessage">/g)].length, 3, "a note with every button");
   assert.equal(html.split('<span class="badge-name">iMessage</span>').length - 1, 3);
-  assert.equal(html.split("Coming to non-Apple devices soon").length - 1, 3);
+  assert.equal(html.split("for the AI@USC Hackathon, Nov 14 to 15, 2026. Switched off now, so try him in your browser instead.").length - 1, 3);
+  assert.ok(!html.includes("data-sms") && !html.includes('id="qr"'), "no text links or QR code while iMessage is off");
   assert.ok(html.includes("Campuses now rely on shouting. Group chats, story posts and mass emails nobody reads. You post and hope the right person sees it."));
   assert.ok(html.includes("<li>🏀 pickup basketball at Lyon Center</li>"));
   // Voice and the "never" list.
@@ -137,8 +138,6 @@ test("landing page follows the design reference's rules", () => {
   // The number is never written into the source page.
   assert.ok(!/sms:\+?\d/.test(html), "no hard-coded number in the page");
   assert.ok(html.includes('<meta name="troy-number" content="">'));
-  assert.equal([...html.matchAll(/data-sms="hey troy"/g)].length, 2, "two Text Troy buttons");
-  assert.equal([...html.matchAll(/data-sms="hey troy, i have a question"/g)].length, 1, "one FAQ button");
   // Paths are relative so the same file works on the local server and on a static host.
   assert.ok(!/(?:src|href|srcset)="\//.test(html), "paths are relative");
   // Every script and stylesheet is there exactly once.
@@ -332,21 +331,14 @@ test("static build bakes the number into the page, the QR and a Vercel config, a
     const built = await buildLanding({ number: "(213) 555-0123", outDir: out });
     assert.equal(built.number, EXAMPLE);
     assert.equal(built.smsLink, "sms:+12135550123?&body=hey%20troy");
-    assert.deepEqual(built.smsLinks, [
-      "sms:+12135550123?&body=hey%20troy",
-      "sms:+12135550123?&body=hey%20troy%2C%20i%20have%20a%20question",
-      "sms:+12135550123?&body=hey%20troy",
-    ]);
+    assert.deepEqual(built.smsLinks, [], "no text links while iMessage is off");
 
     const html = readFileSync(join(out, "index.html"), "utf8");
     assert.ok(html.includes('<meta name="troy-number" content="+12135550123">'));
     assert.ok(html.includes('<meta name="troy-sms" content="sms:+12135550123">'));
-    assert.equal(html.split('href="sms:+12135550123?&amp;body=hey%20troy" data-sms="hey troy"').length - 1, 2, "both Text Troy links are in the markup");
-    assert.ok(html.includes('href="sms:+12135550123?&amp;body=hey%20troy%2C%20i%20have%20a%20question"'), "the FAQ link is in the markup");
     assert.ok(html.includes('<meta name="robots" content="noindex">'));
     assert.ok(html.includes(`landing/chat.js?v=${built.version}`));
     assert.ok(html.includes(`img/campus-day-1600.webp?v=${built.version} 1600w`));
-    assert.ok(html.includes(`"qr.svg?v=${built.version}"`));
     assert.ok(!html.includes("—"), "no em dashes");
 
     const qr = readFileSync(join(out, "qr.svg"), "utf8");
@@ -407,7 +399,7 @@ test("the simulator page is what John asked for, and non-Apple visitors are sent
   const sim = readFileSync(join(PUBLIC, "simulator.html"), "utf8");
   assert.ok(sim.includes("<h1>iMessage Simulator</h1>"));
   assert.ok(sim.includes('<p class="sim-for">for Android Users</p>'));
-  assert.ok(sim.includes("Testing purposes only, not the real product. Troy is meant to run on iMessage, with support for other platforms coming soon."));
+  assert.ok(sim.includes("Testing purposes only, not the real product. Troy ran live on iMessage for the AI@USC Hackathon (Nov 14 to 15, 2026) and is switched off there now."));
   assert.ok(sim.includes("Are you sure? This is a simulator, so Troy will forget the conversation after you leave."));
   assert.ok(/<textarea[^>]*id="sim-text"[^>]*>hey troy<\/textarea>/.test(sim), "the field starts with hey troy typed");
   for (const sheet of ["phone", "sim"]) assert.ok(sim.includes(`href="landing/${sheet}.css"`), sheet);

@@ -116,3 +116,15 @@ a[data-sms].is-soon { background: transparent; color: inherit; border: 1px solid
   }
   .not-apple .qr-card:has(#qr[hidden]) { display: none; }
 }
+
+/* After the hackathon: the second line says Troy ran on iMessage for the event and is switched off now. Shown to everyone. */
+.badge-note {
+  max-width: 42ch;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--stone);
+  opacity: 0.85;
+}
+#hero .badge-note { color: var(--ink); opacity: 0.85; }
+#footer .badge-note { color: var(--paper); opacity: 0.8; }
+@media (max-width: 767px) { .badge-note { font-size: 12px; } }
